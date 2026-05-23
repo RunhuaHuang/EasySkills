@@ -1,0 +1,333 @@
+#!/usr/bin/env bash
+
+# ==============================================================================
+# Script: deploy.sh (macOS)
+# Description: Active skills mapping and persistence CLI tool for macOS.
+# ==============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CENTRAL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CUSTOM_TARGETS_FILE="$CENTRAL_DIR/custom-targets.txt"
+LOCK_FILE="$SCRIPT_DIR/.deploy.lock"
+
+# --- One-time migration: move custom-targets.txt from legacy _maintenance/ location ---
+LEGACY_CUSTOM_TARGETS="$SCRIPT_DIR/custom-targets.txt"
+if [ -f "$LEGACY_CUSTOM_TARGETS" ] && [ "$LEGACY_CUSTOM_TARGETS" != "$CUSTOM_TARGETS_FILE" ]; then
+  if grep -q -v -E '^\s*(#|$)' "$LEGACY_CUSTOM_TARGETS" 2>/dev/null; then
+    touch "$CUSTOM_TARGETS_FILE"
+    grep -v -E '^\s*(#|$)' "$LEGACY_CUSTOM_TARGETS" | while IFS= read -r line; do
+      if ! grep -Fxq "$line" "$CUSTOM_TARGETS_FILE" 2>/dev/null; then
+        echo "$line" >> "$CUSTOM_TARGETS_FILE"
+      fi
+    done
+  fi
+fi
+
+# Default target skills directories
+TARGETS=(
+  "$HOME/.gemini/config/skills"
+  "$HOME/.codex/skills"
+  "$HOME/.claude/skills"
+  "$HOME/.copilot/skills"
+  "$HOME/.pi/skills"
+  "$HOME/.opencode/skills"
+  "$HOME/.kimi/skills"
+  "$HOME/.trae/skills"
+  "$HOME/Library/Application Support/Trae/skills"
+  "$HOME/.trae-cn/skills"
+  "$HOME/Library/Application Support/Trae-CN/skills"
+  "$HOME/.openclaw/skills"
+  "$HOME/.hermes/skills"
+  "$HOME/.proma/default-skills"
+  "$HOME/.cursor/skills"
+  "$HOME/.kiro/skills"
+  "$HOME/.junie/skills"
+  "$HOME/.cline/skills"
+  "$HOME/.roo/skills"
+  "$HOME/.warp/skills"
+  "$HOME/.windsurf/skills"
+  "$HOME/.firebender/skills"
+  "$HOME/.augment/skills"
+  "$HOME/.continue/skills"
+  "$HOME/.goose/skills"
+  "$HOME/.agents/skills"
+  "$HOME/.run/global-skills/skills"
+  "$HOME/.run/global-skills"
+)
+
+# ---- Concurrency lock (PID-based, stale-safe) ----
+acquire_lock() {
+  if [ -f "$LOCK_FILE" ]; then
+    local old_pid
+    old_pid=$(cat "$LOCK_FILE" 2>/dev/null)
+    if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+      echo "Another deploy is already running (PID: $old_pid), skipping."
+      exit 0
+    fi
+    rm -f "$LOCK_FILE"
+  fi
+  echo $$ > "$LOCK_FILE"
+  trap 'rm -f "$LOCK_FILE"' EXIT
+}
+
+# Derive the agent's root config directory from a target skills path.
+get_agent_root() {
+  local target="$1"
+  if [[ "$target" == "$HOME/Library/Application Support/"* ]]; then
+    local after="${target#$HOME/Library/Application Support/}"
+    local app_name="${after%%/*}"
+    echo "$HOME/Library/Application Support/$app_name"
+  elif [[ "$target" == "$HOME/"* ]]; then
+    local rel="${target#$HOME/}"
+    local first="${rel%%/*}"
+    echo "$HOME/$first"
+  else
+    echo "$target"
+  fi
+}
+
+# Load persisted custom targets if file exists
+load_custom_targets() {
+  if [ -f "$CUSTOM_TARGETS_FILE" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      [[ -z "$line" || "$line" =~ ^# ]] && continue
+      if [ -d "$line" ]; then
+        TARGETS+=("$line")
+      fi
+    done < "$CUSTOM_TARGETS_FILE"
+  fi
+}
+
+get_agent_name() {
+  local path="$1"
+  if [[ "$path" == *".gemini"* ]]; then echo "Antigravity (Gemini)"; return; fi
+  if [[ "$path" == *".codex"* ]]; then echo "Codex"; return; fi
+  if [[ "$path" == *".claude"* ]]; then echo "Claude Code"; return; fi
+  if [[ "$path" == *".copilot"* ]]; then echo "GitHub Copilot"; return; fi
+  if [[ "$path" == *".pi"* ]]; then echo "Pi"; return; fi
+  if [[ "$path" == *".opencode"* ]]; then echo "OpenCode"; return; fi
+  if [[ "$path" == *".kimi"* ]]; then echo "Kimi Code"; return; fi
+  if [[ "$path" == *".trae-cn"* || "$path" == *"/Trae-CN/"* ]]; then echo "Trae CN"; return; fi
+  if [[ "$path" == *".trae"* || "$path" == *"/Trae/"* ]]; then echo "Trae (Global)"; return; fi
+  if [[ "$path" == *".openclaw"* ]]; then echo "OpenClaw"; return; fi
+  if [[ "$path" == *".hermes"* ]]; then echo "Hermes Agent"; return; fi
+  if [[ "$path" == *".proma"* ]]; then echo "Proma"; return; fi
+  if [[ "$path" == *".cursor"* ]]; then echo "Cursor"; return; fi
+  if [[ "$path" == *".kiro"* ]]; then echo "Kiro Agent"; return; fi
+  if [[ "$path" == *".junie"* ]]; then echo "Junie (JetBrains)"; return; fi
+  if [[ "$path" == *".cline"* ]]; then echo "Cline"; return; fi
+  if [[ "$path" == *".roo"* ]]; then echo "Roo Code"; return; fi
+  if [[ "$path" == *".warp"* ]]; then echo "Warp"; return; fi
+  if [[ "$path" == *".windsurf"* ]]; then echo "Windsurf"; return; fi
+  if [[ "$path" == *".firebender"* ]]; then echo "Firebender"; return; fi
+  if [[ "$path" == *".augment"* ]]; then echo "Augment"; return; fi
+  if [[ "$path" == *".continue"* ]]; then echo "Continue"; return; fi
+  if [[ "$path" == *".goose"* ]]; then echo "Goose"; return; fi
+  if [[ "$path" == *".agents"* ]]; then echo "Agents (Standard)"; return; fi
+  if [[ "$path" == *".run"* ]]; then echo "RunAI (Backup)"; return; fi
+  echo "Custom Agent"
+}
+
+injection_tracked() {
+  local val="$1"
+  for existing in "${SUCCESSFUL_INJECTIONS[@]}"; do
+    [[ "$existing" == "$val" ]] && return 0
+  done
+  return 1
+}
+
+# ---- Core sync ----
+run_sync() {
+  load_custom_targets
+  SUCCESSFUL_INJECTIONS=()
+  echo "=========================================================="
+  echo "Starting EasySkills Sync (macOS)..."
+  echo "=========================================================="
+
+  # PART A: Map EasySkills itself
+  for target in "${TARGETS[@]}"; do
+    agent_root=$(get_agent_root "$target")
+    [ ! -d "$agent_root" ] && continue
+
+    mkdir -p "$target"
+    dest_path="$target/EasySkills"
+
+    if [ -e "$dest_path" ] || [ -L "$dest_path" ]; then
+      if [ -L "$dest_path" ]; then
+        rm -f "$dest_path"
+      else
+        continue
+      fi
+    fi
+
+    ln -s "$SCRIPT_DIR" "$dest_path"
+    echo "   * Self-Mapped EasySkills -> $dest_path"
+    injection_tracked "$target" || SUCCESSFUL_INJECTIONS+=("$target")
+  done
+
+  # PART B: Map each custom skill directory
+  for skill_dir in "$CENTRAL_DIR"/*/; do
+    [ -d "$skill_dir" ] || continue
+    skill_name=$(basename "$skill_dir")
+
+    [[ "$skill_name" == "node_modules" || "$skill_name" == ".git" || "$skill_name" == "dist" || "$skill_name" == "." || "$skill_name" == ".." || "$skill_name" == _* ]] && continue
+
+    echo "   Found skill: $skill_name"
+
+    for target in "${TARGETS[@]}"; do
+      agent_root=$(get_agent_root "$target")
+      [ ! -d "$agent_root" ] && continue
+
+      mkdir -p "$target"
+      dest_path="$target/$skill_name"
+
+      if [ -e "$dest_path" ] || [ -L "$dest_path" ]; then
+        if [ -L "$dest_path" ]; then
+          rm -f "$dest_path"
+        else
+          echo "      Warning: [$skill_name] already exists as a real directory in $target. Skipped."
+          continue
+        fi
+      fi
+
+      ln -s "$skill_dir" "$dest_path"
+      echo "      -> Mapped to: $dest_path"
+      injection_tracked "$target" || SUCCESSFUL_INJECTIONS+=("$target")
+    done
+  done
+
+  echo "=========================================================="
+  echo "EasySkills Sync completed successfully!"
+  echo "=========================================================="
+  echo "Injection Summary:"
+  echo "=========================================================="
+  if [ ${#SUCCESSFUL_INJECTIONS[@]} -eq 0 ]; then
+    echo "   No active target Agent directories mapped."
+  else
+    echo "Successfully injected into the following agents:"
+    for injected in "${SUCCESSFUL_INJECTIONS[@]}"; do
+      agent_name=$(get_agent_name "$injected")
+      echo "   -> [$agent_name] $injected"
+    done
+  fi
+  echo "=========================================================="
+}
+
+list_links() {
+  load_custom_targets
+  echo "=========================================================="
+  echo "Current Mapped Targets:"
+  echo "=========================================================="
+  for target in "${TARGETS[@]}"; do
+    if [ -d "$target" ]; then
+      echo "Agent Path: $target"
+      find "$target" -maxdepth 1 -type l -exec ls -la {} \; | sed 's/^/   Link: /'
+    fi
+  done
+  echo "=========================================================="
+}
+
+add_target() {
+  path="$1"
+  if [ -z "$path" ] || [ ! -d "$path" ]; then
+    echo "Error: Please specify a valid directory."
+    exit 1
+  fi
+  abs_path=$(cd "$path" && pwd)
+  touch "$CUSTOM_TARGETS_FILE"
+  if grep -Fxq "$abs_path" "$CUSTOM_TARGETS_FILE" 2>/dev/null; then
+    echo "Path is already persisted: $abs_path"
+  else
+    echo "$abs_path" >> "$CUSTOM_TARGETS_FILE"
+    echo "Successfully persisted custom target: $abs_path"
+  fi
+  run_sync
+}
+
+remove_target() {
+  path="$1"
+  if [ -z "$path" ]; then
+    echo "Error: Please specify a path to remove."
+    exit 1
+  fi
+  if [ -f "$CUSTOM_TARGETS_FILE" ]; then
+    grep -v -F -x "$path" "$CUSTOM_TARGETS_FILE" > "${CUSTOM_TARGETS_FILE}.tmp"
+    mv "${CUSTOM_TARGETS_FILE}.tmp" "$CUSTOM_TARGETS_FILE"
+    echo "Successfully removed path: $path"
+    run_sync
+  else
+    echo "No custom targets file found."
+  fi
+}
+
+run_cleanup() {
+  load_custom_targets
+  echo "=========================================================="
+  echo "Cleaning up all EasySkills symlinks from agent directories..."
+  echo "=========================================================="
+  for target in "${TARGETS[@]}"; do
+    if [ -d "$target" ]; then
+      find "$target" -maxdepth 1 -type l | while read -r link; do
+        link_target=$(readlink "$link")
+        if [[ "$link_target" == *"EasySkills"* ]]; then
+          rm -f "$link"
+          echo "   Removed symlink: $link"
+        fi
+      done
+    fi
+  done
+  echo "All EasySkills symlinks cleaned up."
+  echo "=========================================================="
+}
+
+show_help() {
+  echo "EasySkills CLI Management Tool"
+  echo "Usage: ./deploy.sh [options]"
+  echo "Options:"
+  echo "  -s, --sync          Execute skills synchronization (default)"
+  echo "  -l, --list          List all active mappings and symlinks"
+  echo "  -a, --add [path]    Add and persist a new custom agent skills directory"
+  echo "  -r, --remove [path] Remove a custom agent skills directory from persistence"
+  echo "  -w, --watch         Install/Start the background watcher daemon"
+  echo "  -u, --unwatch       Uninstall/Stop the background watcher daemon"
+  echo "  -c, --cleanup       Remove all EasySkills symlinks from agent directories"
+  echo "  -h, --help          Show this help documentation"
+}
+
+# Parse command line options
+ACTION="sync"
+ARG=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -s|--sync) ACTION="sync"; shift ;;
+    -l|--list) ACTION="list"; shift ;;
+    -a|--add) ACTION="add"; ARG="$2"; shift 2 ;;
+    -r|--remove) ACTION="remove"; ARG="$2"; shift 2 ;;
+    -w|--watch) ACTION="watch"; shift ;;
+    -u|--unwatch) ACTION="unwatch"; shift ;;
+    -c|--cleanup) ACTION="cleanup"; shift ;;
+    -h|--help) ACTION="help"; shift ;;
+    *)
+       ACTION="sync"
+       TARGETS+=("$1")
+       shift
+       ;;
+  esac
+done
+
+# Acquire lock for actions that modify symlinks
+case "$ACTION" in
+  sync|add|remove|cleanup) acquire_lock ;;
+esac
+
+case "$ACTION" in
+  sync) run_sync ;;
+  list) list_links ;;
+  add) add_target "$ARG" ;;
+  remove) remove_target "$ARG" ;;
+  watch) bash "$SCRIPT_DIR/watch.sh" ;;
+  unwatch) bash "$SCRIPT_DIR/unwatch.sh" ;;
+  cleanup) run_cleanup ;;
+  help) show_help ;;
+esac

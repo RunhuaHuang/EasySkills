@@ -1,0 +1,12 @@
+.DS_Store
+*.swp
+*.swo
+*~
+Thumbs.db
+Desktop.ini
+
+# User-specific custom target paths (generated at runtime)
+/custom-targets.txt
+
+# Lock files
+_maintenance/.deploy.lock

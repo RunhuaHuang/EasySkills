@@ -1,0 +1,16 @@
+# ==============================================================================
+# EasySkills Custom Persistent Targets List
+# EasySkills 自定义持久化 Agent 技能文件夹路径列表
+# ==============================================================================
+# Instructions:
+# - Each line must be an absolute path to a target agent's skills folder.
+# - Lines starting with '#' are ignored.
+# - You can add paths manually here, or let the AI Agent do it dynamically by using:
+#   deploy.sh --add "/path/to/target"
+#
+# 使用指南：
+# - 每一行必须是一个目标 Agent 技能文件夹的绝对路径。
+# - 以 '#' 开头的行会被自动忽略。
+# - 您可以在此处手动添加路径，或者通过 AI 对话让 Agent 自动运行以下命令完成持久化注入：
+#   deploy.sh --add "/path/to/target"
+# ==============================================================================
