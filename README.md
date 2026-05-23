@@ -2,144 +2,132 @@
 
 # EasySkills
 
-**Cross-Platform Automated Skills Manager for AI Coding Agents**
-
-**跨平台 AI Agent 技能自动化管理器**
-
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#-installation--安装)
-[![Agents](https://img.shields.io/badge/Supported%20Agents-24+-orange.svg)](#-supported-agents--支持的-agent-列表)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#-installation)
+[![Agents](https://img.shields.io/badge/Supported%20Agents-24+-orange.svg)](#-supported-agents)
 [![Version](https://img.shields.io/badge/Version-1.0.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
-<br>
+**One skills directory to rule them all.**
 
-One central skills directory. Automatic symlink mapping to every AI agent on your machine.<br>
-Zero CPU background watching. Double-click install. No admin privileges needed on Windows.
-
-一个中央技能目录，自动软链映射到所有本地 AI Agent。<br>
-零 CPU 后台监听，双击安装，Windows 无需管理员权限。
-
-<br>
-
-[English](#-what-is-easyskills) | [中文](#-easyskills-是什么)
+[**中文文档**](README_CN.md)
 
 </div>
 
 ---
 
-## What is EasySkills?
+## The Problem
 
-EasySkills creates a single `~/EasySkills` directory on your machine and automatically maps every skill folder you put in it to **all** your installed AI coding agents via symlinks (macOS) or NTFS junctions (Windows).
+You have Claude Code on your machine. And Cursor. And maybe Gemini CLI, Copilot, Windsurf, Trae, Codex...
 
-Drop a skill folder in, and it instantly appears in Claude Code, Cursor, Gemini, Codex, Copilot, Windsurf, Trae, and 17+ other agents — no manual copying, no configuration.
+You find an amazing custom skill — or you build one yourself. Now what?
 
-A background watcher monitors the directory for changes and re-syncs automatically with **zero CPU usage** when idle.
+You copy it into `~/.claude/skills/`. Then into `~/.cursor/skills/`. Then `~/.gemini/config/skills/`. Then you remember Copilot. And Codex. And that new agent you installed last week.
 
-## EasySkills 是什么？
+**A week later**, you improve the skill. Now you have to remember every folder you copied it to and update them all. You miss one. That agent runs the stale version. A bug you already fixed bites you again.
 
-EasySkills 在你的电脑上创建一个 `~/EasySkills` 中央目录，通过软链接（macOS）或 NTFS 目录联结（Windows）将你放入的每个技能文件夹自动映射到**所有**已安装的 AI 编程助手。
+**A month later**, you've got 6 agents with 4 different versions of the same skill scattered across your home directory. Some folders have skills the others don't. You can't remember which agent has what.
 
-放入一个技能文件夹，它会即刻出现在 Claude Code、Cursor、Gemini、Codex、Copilot、Windsurf、Trae 等 20+ 个 Agent 中——无需手动复制，无需任何配置。
-
-后台监听服务会自动检测目录变化并重新同步，空闲时 **CPU 占用为零**。
+This is the reality of the multi-agent era: **every AI coding agent reinvents its own skills silo**, and you're the one stuck manually keeping them in sync.
 
 ---
 
-## Key Features / 核心特性
+## The Solution
 
-### Centralized Skill Vault / 中央技能库
+**EasySkills** eliminates this problem entirely.
 
-Install once, and `~/EasySkills` becomes your single source of truth. The `_maintenance` engine lives inside it; the rest of the directory is yours for custom skills. You can delete the cloned repo after installation — the daemon keeps running.
+```
+~/EasySkills/
+├── _maintenance/        ← engine (invisible to agents)
+├── MyAwesomeSkill/      ← drop it here once
+├── CodeReviewSkill/     ← it appears everywhere
+└── DeployHelper/        ← instantly, automatically
+        │
+        ▼ symlink / junction (not copy)
+┌─────────────────────────────────────────────┐
+│ ~/.claude/skills/MyAwesomeSkill  ──→  ✓     │
+│ ~/.cursor/skills/MyAwesomeSkill  ──→  ✓     │
+│ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
+│ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
+│ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
+│ ... 24 agents, all in sync, all the time    │
+└─────────────────────────────────────────────┘
+```
 
-安装后 `~/EasySkills` 成为唯一的技能管理中心。`_maintenance` 引擎隐藏在内部，目录其余空间留给你的自定义技能。安装完成后可以删除克隆的仓库——后台服务独立运行。
+**One directory. One copy. Every agent.** Changes to a skill file are instantly reflected everywhere — because there's only one real copy, linked into all agent directories via symlinks (macOS) or NTFS junctions (Windows).
 
-### Zero-Privilege Windows Mapping / Windows 免提权映射
+A background watcher detects when you add or remove skill folders and re-syncs automatically. It uses zero CPU when idle.
 
-Windows symbolic links require admin/UAC. EasySkills uses **NTFS Directory Junctions** instead — a native NTFS feature that works under standard user permissions with full compatibility.
+---
 
-Windows 创建软链接需要管理员权限。EasySkills 使用 **NTFS 目录联结**替代——原生 NTFS 特性，普通用户权限即可创建，兼容性 100%。
+## Why EasySkills?
 
-### Silent Background Daemon / 静默后台守护
+| Pain Point | Without EasySkills | With EasySkills |
+|:---|:---|:---|
+| Adding a new skill | Copy to N agent folders manually | Drop into one folder. Done. |
+| Updating a skill | Hunt down every copy, update each | Edit the one copy. All agents see it. |
+| New agent installed | Manually copy all skills over | Runs automatically on next sync |
+| Removing a skill | Delete from N folders | Remove from one folder |
+| Version drift | Inevitable | Impossible — there's only one copy |
 
+---
+
+## Features
+
+### Zero-Privilege on Windows
+Windows symbolic links require admin privileges or Developer Mode. EasySkills uses **NTFS Directory Junctions** — a native NTFS feature that works under standard user permissions with full compatibility. No UAC prompts, no elevated terminals crashing your agents.
+
+### Silent Background Daemon
 | | macOS | Windows |
 |---|---|---|
-| **Mechanism** | `launchd` + `WatchPaths` (kernel FSEvents) | `.lnk` → `.vbs` → `FileSystemWatcher` |
+| **Mechanism** | `launchd` + `WatchPaths` (kernel FSEvents) | Startup `.lnk` → `.vbs` → `FileSystemWatcher` |
 | **Idle CPU** | 0% | 0% |
 | **Auto-start** | LaunchAgent plist | Startup folder shortcut |
-| **Window** | None (daemon) | Hidden (WindowStyle=0) |
+| **Console window** | None (daemon) | Hidden (`WindowStyle=0`) |
 
-### Smart Agent Detection / 智能 Agent 检测
+### Smart Agent Detection
+The engine checks whether an agent is actually installed before creating any directories. It looks for the agent's root config folder (e.g., `~/.claude/` for Claude Code) — if it doesn't exist, that agent is skipped. No phantom empty folders cluttering your home directory.
 
-The engine only creates skill directories for agents that are **already installed**. It checks for the agent's root config directory before mapping — no phantom folders cluttering your home directory.
+### Local-First Safety
+If a skill with the same name already exists as a **real directory** (not a symlink) in an agent's skills folder, the engine skips it with a warning. Your local skills are never overwritten or deleted.
 
-引擎只为**已安装**的 Agent 创建技能目录。映射前会检查 Agent 的根配置目录是否存在——不会在你的主目录下产生无用的空文件夹。
+### Concurrency Protection
+PID-based file lock (macOS) and named system mutex (Windows) prevent race conditions when the watcher and a manual sync trigger simultaneously.
 
-### Local-First Safety / 本地优先保护
-
-If a skill with the same name already exists as a real directory in an agent's skills folder, the sync engine skips it with a warning. Your local skills are **never** overwritten.
-
-如果 Agent 的技能目录中已有同名的真实文件夹，同步引擎会跳过并发出警告。你的本地技能**永远不会**被覆盖。
-
-### Concurrency Protection / 并发安全
-
-PID-based file lock on macOS, named system mutex on Windows. If the watcher triggers while a manual sync is running, the second invocation is safely skipped.
-
-macOS 使用 PID 文件锁，Windows 使用系统命名互斥锁。后台同步与手动同步不会冲突。
+### Double-Click Install & Uninstall
+Native `.command` (macOS) and `.bat` (Windows) scripts. No terminal commands, no package managers, no environment setup. The uninstaller stops daemons, removes all symlinks, and deletes the directory — 100% clean removal.
 
 ---
 
-## Installation / 安装
+## Installation
 
-### Method A: Double-Click Install (Recommended) / 双击安装（推荐）
+### Method A: Double-Click (Recommended)
 
-No terminal needed. Clone or download this repo, then:
+Clone or download this repo, then:
 
-无需打开终端。克隆或下载本仓库后：
-
-| | Install / 安装 | Uninstall / 卸载 |
+| | Install | Uninstall |
 |---|---|---|
 | **macOS** | Double-click `install_mac.command` | Double-click `uninstall_mac.command` |
 | **Windows** | Double-click `install_windows.bat` | Double-click `uninstall_windows.bat` |
 
-The installer copies the engine to `~/EasySkills`, maps all detected agents, and starts the background watcher. You can delete the downloaded repo afterward.
+The installer copies the engine to `~/EasySkills`, scans for installed agents, maps all skills, and starts the background watcher. You can safely delete the downloaded repo afterward — the daemon runs independently.
 
-安装器将引擎复制到 `~/EasySkills`，映射所有检测到的 Agent，并启动后台监听。之后可以删除下载的仓库。
+### Method B: Let Your AI Agent Do It
 
-### Method B: Let Your AI Agent Do It / 让 AI Agent 自动安装
+If your agent supports skill loading, just say:
 
-If your agent supports skills, just tell it:
+> *"Help me initialize EasySkills"*
 
-如果你的 Agent 支持技能加载，直接告诉它：
-
-> *"Help me initialize EasySkills"* / *"帮我运行 EasySkills 初始化"*
-
-The agent reads [SKILL.md](SKILL.md), detects your OS, runs the installer, and asks if you have custom agent paths to add.
-
-Agent 会读取 [SKILL.md](SKILL.md)，检测操作系统，执行安装，并询问你是否有自定义 Agent 路径需要添加。
+The agent reads [SKILL.md](SKILL.md), detects your OS, runs the script, and asks if you have custom agent paths to add. Fully autonomous.
 
 ---
 
-## Usage / 使用方法
+## Usage
 
-### Adding Skills / 添加技能
+### Adding Skills
 
-Just drop any skill folder into `~/EasySkills`:
+Drop any skill folder into `~/EasySkills`. The background watcher picks it up and maps it to all detected agents within seconds.
 
-只需将技能文件夹放入 `~/EasySkills`：
-
-```
-~/EasySkills/
-  ├── _maintenance/          # Engine (auto-ignored)
-  ├── MyCustomSkill/         # Your skill - auto-mapped!
-  ├── AnotherSkill/          # Another one - also auto-mapped!
-  └── ...
-```
-
-The background watcher detects the change and maps it to all agents within seconds.
-
-后台监听服务会在几秒内检测到变化并映射到所有 Agent。
-
-### CLI Commands / 命令行工具
+### CLI Reference
 
 ```bash
 # macOS
@@ -149,37 +137,33 @@ bash ~/EasySkills/_maintenance/deploy.sh [option]
 powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
 ```
 
-| Option | Description / 说明 |
+| Option | Description |
 |---|---|
-| *(no option)* / `-s` `--sync` | Sync all skills to all agents / 同步所有技能到所有 Agent |
-| `-l` `--list` | List all active mappings / 列出所有活跃映射 |
-| `-a` `--add` `<path>` | Add & persist a custom agent path / 添加自定义 Agent 路径 |
-| `-r` `--remove` `<path>` | Remove a persisted custom path / 移除自定义 Agent 路径 |
-| `-w` `--watch` | Install background watcher / 安装后台监听 |
-| `-u` `--unwatch` | Uninstall background watcher / 卸载后台监听 |
-| `-c` `--cleanup` | Remove all EasySkills symlinks / 清除所有映射 |
-| `-h` `--help` | Show help / 显示帮助 |
+| *(none)* / `--sync` | Sync all skills to all agents |
+| `--list` | List all active mappings |
+| `--add <path>` | Add & persist a custom agent path |
+| `--remove <path>` | Remove a persisted custom path |
+| `--watch` | Install background watcher |
+| `--unwatch` | Uninstall background watcher |
+| `--cleanup` | Remove all EasySkills symlinks |
+| `--help` | Show help |
 
-### Chat with Your Agent / 用自然语言管理
+### Agent Chat Commands
 
-Once EasySkills is loaded as a skill, you can manage everything through chat:
+Once EasySkills is loaded as a skill, you can manage everything through natural language:
 
-EasySkills 加载为技能后，可以通过对话管理一切：
-
-| Task / 任务 | Prompt / 提示词 |
+| Task | Prompt |
 |---|---|
-| Initialize | *"Run EasySkills and initialize my skills sync"* / *"运行 EasySkills 初始化同步"* |
-| Add custom path | *"Map EasySkills to `/path/to/agent/skills`"* / *"映射技能到 `/path/to/agent/skills`"* |
-| View mappings | *"Show all active EasySkills mappings"* / *"显示所有 EasySkills 映射状态"* |
-| Remove path | *"Remove `/path/to/agent/skills` from EasySkills"* / *"从 EasySkills 移除该路径"* |
+| Initialize | *"Run EasySkills and set up my skills sync"* |
+| Add custom path | *"Map EasySkills to `/path/to/agent/skills`"* |
+| View mappings | *"Show all active EasySkills mappings"* |
+| Remove a path | *"Remove `/path/to/agent/skills` from EasySkills"* |
 
 ---
 
-## Supported Agents / 支持的 Agent 列表
+## Supported Agents
 
-24 agents are pre-configured out of the box. Custom paths can be added at any time.
-
-开箱即用支持 24 个 Agent，可随时添加自定义路径。
+24 agents are pre-configured. Custom paths can be added at any time via CLI or chat.
 
 | # | Agent | macOS Path | Windows Path |
 |:-:|:---|:---|:---|
@@ -208,97 +192,54 @@ EasySkills 加载为技能后，可以通过对话管理一切：
 | 23 | **Goose (Block/AAIF)** | `~/.goose/skills` | `%USERPROFILE%\.goose\skills` |
 | 24 | **Agents (Standard)** | `~/.agents/skills` | `%USERPROFILE%\.agents\skills` |
 
-> Trae and Trae CN also map to `~/Library/Application Support/Trae[‑CN]/skills` (macOS) and `%APPDATA%\Trae[‑CN]\skills` (Windows).
-
-> Trae 和 Trae CN 同时映射到 `~/Library/Application Support/Trae[-CN]/skills`（macOS）和 `%APPDATA%\Trae[-CN]\skills`（Windows）。
+> Trae and Trae CN also map to `~/Library/Application Support/Trae[-CN]/skills` (macOS) and `%APPDATA%\Trae[-CN]\skills` (Windows).
 
 ---
 
-## Project Structure / 项目结构
+## Project Structure
 
 ```
 EasySkills/
-├── README.md                  # This file
+├── README.md                  # English documentation (this file)
+├── README_CN.md               # Chinese documentation
 ├── SKILL.md                   # AI Agent skill interface
 ├── LICENSE                    # MIT License
-├── .gitignore
 ├── install_mac.command        # macOS double-click installer
 ├── install_windows.bat        # Windows double-click installer
 ├── uninstall_mac.command      # macOS uninstaller
 ├── uninstall_windows.bat      # Windows uninstaller
-├── _maintenance/              # Core engine (auto-excluded from skill mapping)
-│   ├── deploy.sh              # macOS mapping & CLI tool
-│   ├── deploy.ps1             # Windows mapping & CLI tool
-│   ├── watch.sh               # macOS watcher installer (launchd)
-│   ├── watch.ps1              # Windows watcher installer (startup shortcut)
+├── _maintenance/              # Core engine (excluded from skill mapping)
+│   ├── deploy.sh / deploy.ps1 # Mapping & CLI tool
+│   ├── watch.sh / watch.ps1   # Watcher installer
+│   ├── unwatch.sh / unwatch.ps1 # Watcher uninstaller
 │   ├── watcher-service.ps1    # Windows FileSystemWatcher service
 │   ├── watcher-launcher.vbs   # Windows silent launcher
-│   ├── unwatch.sh             # macOS watcher uninstaller
-│   ├── unwatch.ps1            # Windows watcher uninstaller
 │   └── .version               # Version tracker
-└── [YourSkills]/              # Drop your custom skills here!
+└── [YourSkills]/              # Drop your custom skills here
 ```
 
 ---
 
-## How It Works / 工作原理
+## Notes
 
-```
-┌─────────────────────────────────────────────────────┐
-│                  ~/EasySkills/                       │
-│                                                     │
-│  _maintenance/    SkillA/    SkillB/    SkillC/     │
-│  (engine)                                           │
-└──────────┬──────────────────────────────────────────┘
-           │  symlink / junction
-           ▼
-┌──────────────────────────────────────────────────────┐
-│  ~/.claude/skills/SkillA  ──→  ~/EasySkills/SkillA  │
-│  ~/.cursor/skills/SkillA  ──→  ~/EasySkills/SkillA  │
-│  ~/.gemini/config/skills/SkillA ──→  ...            │
-│  ~/.codex/skills/SkillA   ──→  ...                  │
-│  ... (all 24 agents)                                │
-└──────────────────────────────────────────────────────┘
-```
+**Windows Defender** — The `.vbs` silent launcher may trigger a false positive. The installer can automatically add a Defender exclusion via UAC prompt. You can also manually whitelist `%USERPROFILE%\EasySkills` in Windows Security settings.
 
-1. **Install** — Engine copies to `~/EasySkills/_maintenance/`, scans for installed agents, creates symlinks/junctions
-2. **Watch** — Background daemon monitors `~/EasySkills/` top-level for folder additions/removals
-3. **Sync** — On change, re-maps all skills to all detected agents. Existing real folders are never touched.
+**Watcher Scope** — The watcher monitors only the **top-level** of `~/EasySkills` (folder additions/removals). It does not watch inside subdirectories — since skills are symlinked, internal file changes are instantly reflected everywhere without re-syncing.
 
 ---
 
-1. **安装** — 引擎复制到 `~/EasySkills/_maintenance/`，扫描已安装 Agent，创建软链/联结
-2. **监听** — 后台守护进程监听 `~/EasySkills/` 顶层目录的文件夹增删
-3. **同步** — 变化发生时，重新映射所有技能到所有 Agent。已有的真实文件夹不受影响。
-
----
-
-## Notes / 注意事项
-
-**Windows Defender**: The `.vbs` silent launcher may trigger a false positive. The project is fully open-source and safe. The installer can automatically add a Defender exclusion via UAC prompt, or you can manually whitelist `%USERPROFILE%\EasySkills` in Windows Security settings.
-
-**Windows Defender 误报**：`.vbs` 静默启动器可能触发误报。项目完全开源安全。安装器可通过 UAC 弹窗自动添加 Defender 白名单，也可手动在 Windows 安全中心将 `%USERPROFILE%\EasySkills` 加入排除项。
-
-**Watcher Scope**: The watcher monitors only the **top-level** of `~/EasySkills` (folder additions/removals/renames). It does not watch inside subdirectories — since skills are symlinked, internal file changes are instantly reflected everywhere without re-syncing.
-
-**监听范围**：监听服务只监控 `~/EasySkills` **顶层目录**的变化。不监听子目录内部——因为技能是通过软链映射的，内部文件修改会即时反映到所有 Agent，无需重新同步。
-
----
-
-## Contributing / 贡献
+## Contributing
 
 To add support for a new agent:
 
 1. Add the default skills path to the `TARGETS` array in both `_maintenance/deploy.sh` and `_maintenance/deploy.ps1`
-2. Add the agent name mapping in the `get_agent_name` / `Get-AgentName` function in both files
-3. Update the agent table in this README and in `SKILL.md`
+2. Add the agent name mapping in `get_agent_name` / `Get-AgentName` in both files
+3. Update the agent table in `README.md`, `README_CN.md`, and `SKILL.md`
 4. Submit a pull request
-
-添加新 Agent 支持：在两个 deploy 脚本的 `TARGETS` 数组中添加路径，在 `get_agent_name` / `Get-AgentName` 中添加名称映射，更新 README 和 SKILL.md 的 Agent 表格，提交 PR。
 
 ---
 
-## License / 许可证
+## License
 
 [MIT](LICENSE) &copy; 2026 Runhua Huang
 
