@@ -100,7 +100,21 @@ macOS 使用 PID 文件锁，Windows 使用系统命名互斥锁（`Global\EasyS
 
 ## 安装方式
 
-### 方案 A：双击安装（推荐）
+### 方案 A：一行命令安装（推荐）
+
+**macOS / Linux：**
+```bash
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+```
+
+**Windows（PowerShell）：**
+```powershell
+irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+```
+
+一行命令搞定。自动下载 EasySkills、安装引擎到 `~/EasySkills`、映射所有已安装 Agent、启动后台监听。
+
+### 方案 B：双击安装
 
 克隆或下载本仓库，然后：
 
@@ -109,9 +123,9 @@ macOS 使用 PID 文件锁，Windows 使用系统命名互斥锁（`Global\EasyS
 | **macOS** | 双击 `install_mac.command` | 双击 `uninstall_mac.command` |
 | **Windows** | 双击 `install_windows.bat` | 双击 `uninstall_windows.bat` |
 
-安装器将引擎复制到 `~/EasySkills`，扫描已安装的 Agent，映射所有技能，启动后台监听。之后可以删除下载的仓库——守护进程独立运行。
+安装器将引擎复制到 `~/EasySkills`，扫描已安装的 Agent，映射所有技能，启动后台监听。之后可以删除下载的仓库。
 
-### 方案 B：让 AI Agent 自动安装
+### 方案 C：让 AI Agent 自动安装
 
 如果你的 Agent 支持技能加载，直接说：
 
@@ -204,6 +218,8 @@ EasySkills/
 ├── README_CN.md               # 中文文档（本文件）
 ├── SKILL.md                   # AI Agent 技能接口定义
 ├── LICENSE                    # MIT 许可证
+├── install.sh                 # macOS/Linux 远程安装脚本（curl）
+├── install.ps1                # Windows 远程安装脚本（irm）
 ├── install_mac.command        # macOS 双击安装器
 ├── install_windows.bat        # Windows 双击安装器
 ├── uninstall_mac.command      # macOS 卸载器

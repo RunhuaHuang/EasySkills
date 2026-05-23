@@ -100,7 +100,21 @@ Native `.command` (macOS) and `.bat` (Windows) scripts. No terminal commands, no
 
 ## Installation
 
-### Method A: Double-Click (Recommended)
+### Method A: One-Line Install (Recommended)
+
+**macOS / Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+```
+
+That's it. One command downloads EasySkills, installs the engine to `~/EasySkills`, maps all detected agents, and starts the background watcher.
+
+### Method B: Double-Click
 
 Clone or download this repo, then:
 
@@ -109,9 +123,9 @@ Clone or download this repo, then:
 | **macOS** | Double-click `install_mac.command` | Double-click `uninstall_mac.command` |
 | **Windows** | Double-click `install_windows.bat` | Double-click `uninstall_windows.bat` |
 
-The installer copies the engine to `~/EasySkills`, scans for installed agents, maps all skills, and starts the background watcher. You can safely delete the downloaded repo afterward — the daemon runs independently.
+The installer copies the engine to `~/EasySkills`, scans for installed agents, maps all skills, and starts the background watcher. You can safely delete the downloaded repo afterward.
 
-### Method B: Let Your AI Agent Do It
+### Method C: Let Your AI Agent Do It
 
 If your agent supports skill loading, just say:
 
@@ -204,6 +218,8 @@ EasySkills/
 ├── README_CN.md               # Chinese documentation
 ├── SKILL.md                   # AI Agent skill interface
 ├── LICENSE                    # MIT License
+├── install.sh                 # macOS/Linux remote installer (curl)
+├── install.ps1                # Windows remote installer (irm)
 ├── install_mac.command        # macOS double-click installer
 ├── install_windows.bat        # Windows double-click installer
 ├── uninstall_mac.command      # macOS uninstaller
