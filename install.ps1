@@ -12,6 +12,25 @@ $TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "EasySkills-install-$(Get-
 
 function Cleanup { if (Test-Path $TmpDir) { Remove-Item $TmpDir -Recurse -Force -ErrorAction SilentlyContinue } }
 
+function Stop-StaleEasySkillsProcesses {
+  # Terminate any supervisor / webui.ps1 from a prior install so that the
+  # _maintenance folder isn't held open by a running powershell.exe when we
+  # try to overwrite it. Matches by command-line via WMI.
+  try {
+    $Procs = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.CommandLine -and (
+          $_.CommandLine -like '*webui-service.ps1*' -or
+          $_.CommandLine -like '*watcher-service.ps1*' -or
+          $_.CommandLine -like '*webui.ps1*'
+        )
+      }
+    foreach ($P in $Procs) {
+      try { $P | Invoke-CimMethod -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null } catch {}
+    }
+  } catch {}
+}
+
 function Start-BackgroundPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
   # Plain Start-Process — used only as fallback when Task Scheduler is
   # unavailable. Avoids the WScript.Shell COM pattern that AV products
@@ -33,7 +52,7 @@ try {
   New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
   $ZipUrl = "https://github.com/$Repo/archive/refs/heads/$Branch.zip"
   $ZipPath = Join-Path $TmpDir "repo.zip"
-  Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath -UseBasicParsing
+  Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath -UseBasicParsing -TimeoutSec 60
   Expand-Archive -Path $ZipPath -DestinationPath $TmpDir -Force
   $SrcDir = Join-Path $TmpDir "EasySkills-$Branch"
 
@@ -52,7 +71,7 @@ try {
   if (Test-Path $CustomFile) {
     $CustomBackup = Get-Content $CustomFile -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
   }
-  # Also migrate from legacy root location (pre-v1.2)
+  # Also migrate from legacy root location (older installs put it at the root)
   $LegacyRootCT = Join-Path $PermDir "custom-targets.txt"
   if (Test-Path $LegacyRootCT) {
     $LegacyLines = Get-Content $LegacyRootCT | Where-Object { $_ -and !$_.TrimStart().StartsWith("#") }
@@ -62,7 +81,9 @@ try {
     Remove-Item $LegacyRootCT -Force
   }
 
-  # Clean install of _maintenance/
+  # Clean install of _maintenance/. Kill any prior supervisors first so
+  # they don't hold file handles to the directory we're about to wipe.
+  Stop-StaleEasySkillsProcesses
   if (Test-Path $MaintDir) { Remove-Item $MaintDir -Recurse -Force }
   Copy-Item -Path (Join-Path $SrcDir "_maintenance") -Destination $MaintDir -Recurse
   Copy-Item -Path (Join-Path $SrcDir "SKILL.md") -Destination (Join-Path $PermDir "SKILL.md") -Force

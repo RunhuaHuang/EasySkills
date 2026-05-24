@@ -92,10 +92,11 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("addEventListener('click'", src)
 
     def test_readme_version_and_agent_count_match_release(self):
-        self.assertIn("Version-1.1.0", read("README.md"))
-        self.assertIn("版本-1.1.0", read("README_CN.md"))
+        self.assertIn("Version-1.1.1", read("README.md"))
+        self.assertIn("版本-1.1.1", read("README_CN.md"))
         self.assertIn("25 agents are pre-configured", read("README.md"))
         self.assertIn("开箱即用支持 25 个 Agent", read("README_CN.md"))
+        self.assertEqual("1.1.1", read("_maintenance/.version").strip())
 
     # -------------------------------------------------------------------------
     # Windows background launching — Scheduled Tasks (S4U) + AV-safe launchers
@@ -165,9 +166,11 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn('schtasks /Run /TN ""EasySkills Watcher""', src)
         self.assertIn("Shell.Application", src)
         # WScript.Shell.Run with window-style 0 (hidden) is the canonical
-        # silent-launch pattern for a standalone .vbs. Inner quotes are
-        # VBS-escaped as "" so allow them inside the quoted argument.
-        self.assertRegex(src, r'\.Run\s+"(?:[^"]|"")+",\s*0,\s*')
+        # silent-launch pattern for a standalone .vbs. Allow both the
+        # statement form (`sh.Run "...", 0, True`) and the call form
+        # (`sh.Run("...", 0, True)`) for capturing the exit code. Inner
+        # quotes are VBS-escaped as "" so allow them in the quoted arg.
+        self.assertRegex(src, r'\.Run[ (]+"(?:[^"]|"")+",\s*0,\s*')
 
     def test_windows_bat_files_auto_close_instead_of_blocking_on_pause(self):
         """Foreground .bat windows must auto-close (timeout) instead of

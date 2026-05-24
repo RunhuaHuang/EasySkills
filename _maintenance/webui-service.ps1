@@ -2,8 +2,9 @@
 # Script: webui-service.ps1 (Windows)
 # Description: Supervises the EasySkills WebUI backend (port 6633).
 #              Designed to run under Task Scheduler (auto-restart + logon
-#              trigger). Internally uses a global mutex so only one supervisor
-#              ever runs, throttles restart storms, and reaps stale children.
+#              trigger). Uses a session-local named mutex so only one
+#              supervisor ever runs, throttles restart storms, and reaps
+#              stale children.
 # ==============================================================================
 
 $ErrorActionPreference = 'Continue'
