@@ -22,8 +22,16 @@ $CentralDir = Split-Path -Path $ScriptDir -Parent
 $CustomTargetsFile = Join-Path -Path $ScriptDir -ChildPath "custom-targets.txt"
 
 function Start-BackgroundPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
-  # Avoid WScript.Shell COM pattern (AV heuristic flag). Plain Start-Process
-  # is a standard, low-suspicion way to launch a hidden child process.
+  # Prefer wscript.exe + run-hidden.vbs (GUI subsystem = no console window).
+  # Fall back to direct Start-Process if the .vbs bootstrap is missing.
+  $LauncherVbs = Join-Path $WorkingDirectory "run-hidden.vbs"
+  $WscriptExe  = "$env:WINDIR\System32\wscript.exe"
+  if ((Test-Path $LauncherVbs) -and (Test-Path $WscriptExe)) {
+    Start-Process -FilePath $WscriptExe `
+      -ArgumentList @("`"$LauncherVbs`"", "`"$ScriptPath`"") `
+      -WorkingDirectory $WorkingDirectory -WindowStyle Hidden | Out-Null
+    return
+  }
   $PSExe = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
   if (-not $PSExe) { $PSExe = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" }
   Start-Process -FilePath $PSExe `

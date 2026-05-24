@@ -32,9 +32,18 @@ function Stop-StaleEasySkillsProcesses {
 }
 
 function Start-BackgroundPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
-  # Plain Start-Process — used only as fallback when Task Scheduler is
-  # unavailable. Avoids the WScript.Shell COM pattern that AV products
-  # commonly associate with script-based malware.
+  # Fallback launcher used only when Task Scheduler is unavailable.
+  # Prefer wscript.exe + run-hidden.vbs because wscript.exe is GUI-subsystem
+  # and creates no console window. Fall back to plain Start-Process if the
+  # bootstrap .vbs is missing.
+  $LauncherVbs = Join-Path $WorkingDirectory "run-hidden.vbs"
+  $WscriptExe  = "$env:WINDIR\System32\wscript.exe"
+  if ((Test-Path $LauncherVbs) -and (Test-Path $WscriptExe)) {
+    Start-Process -FilePath $WscriptExe `
+      -ArgumentList @("`"$LauncherVbs`"", "`"$ScriptPath`"") `
+      -WorkingDirectory $WorkingDirectory -WindowStyle Hidden | Out-Null
+    return
+  }
   $PSExe = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
   if (-not $PSExe) { $PSExe = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" }
   Start-Process -FilePath $PSExe `

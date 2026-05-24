@@ -81,15 +81,31 @@ function Stop-StaleWebUIProcesses {
 }
 
 function Start-WebUIBackend {
-    $PowerShellPath = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
-    if (-not $PowerShellPath) { $PowerShellPath = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" }
+    # Spawn the HttpListener child via wscript.exe + run-hidden.vbs so its
+    # console window is guaranteed hidden. CreateNoWindow on PowerShell
+    # 5.x is not always honored when the parent has an attached console.
+    $LauncherVbs = Join-Path $ScriptDir "run-hidden.vbs"
+    $WscriptExe  = "$env:WINDIR\System32\wscript.exe"
 
     $ProcInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $ProcInfo.FileName        = $PowerShellPath
-    $ProcInfo.Arguments       = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$WebUIScript`" -NoBrowser"
+    if ((Test-Path $LauncherVbs) -and (Test-Path $WscriptExe)) {
+        $ProcInfo.FileName  = $WscriptExe
+        # run-hidden.vbs forwards: powershell.exe -File <script.ps1>
+        # We also need -NoBrowser; pass that to webui.ps1 by appending a
+        # discriminator we splice in via a tiny wrapper. Simpler approach:
+        # invoke run-hidden.vbs with the script path, and let webui.ps1
+        # detect $env:EASYSKILLS_NO_BROWSER=1 to skip browser-open.
+        $ProcInfo.Arguments = "`"$LauncherVbs`" `"$WebUIScript`""
+        $ProcInfo.EnvironmentVariables["EASYSKILLS_NO_BROWSER"] = "1"
+    } else {
+        $PowerShellPath = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
+        if (-not $PowerShellPath) { $PowerShellPath = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" }
+        $ProcInfo.FileName  = $PowerShellPath
+        $ProcInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$WebUIScript`" -NoBrowser"
+    }
     $ProcInfo.WorkingDirectory = $ScriptDir
-    $ProcInfo.UseShellExecute = $false
-    $ProcInfo.CreateNoWindow  = $true
+    $ProcInfo.UseShellExecute  = $false
+    $ProcInfo.CreateNoWindow   = $true
     return [System.Diagnostics.Process]::Start($ProcInfo)
 }
 

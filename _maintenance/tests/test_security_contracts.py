@@ -92,11 +92,11 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("addEventListener('click'", src)
 
     def test_readme_version_and_agent_count_match_release(self):
-        self.assertIn("Version-1.1.1", read("README.md"))
-        self.assertIn("版本-1.1.1", read("README_CN.md"))
+        self.assertIn("Version-1.1.2", read("README.md"))
+        self.assertIn("版本-1.1.2", read("README_CN.md"))
         self.assertIn("25 agents are pre-configured", read("README.md"))
         self.assertIn("开箱即用支持 25 个 Agent", read("README_CN.md"))
-        self.assertEqual("1.1.1", read("_maintenance/.version").strip())
+        self.assertEqual("1.1.2", read("_maintenance/.version").strip())
 
     # -------------------------------------------------------------------------
     # Windows background launching — Scheduled Tasks (S4U) + AV-safe launchers
@@ -123,8 +123,8 @@ class SecurityContractsTest(unittest.TestCase):
 
     def test_windows_persistence_uses_scheduled_tasks_with_s4u(self):
         """Persistence is provided by user-level Scheduled Tasks running with
-        S4U logon (Session 0, zero visible console window). Interactive logon
-        is only the fallback path when S4U is denied by policy."""
+        S4U logon. Interactive logon is only the fallback path when S4U is
+        denied by policy."""
         reg = read("_maintenance/register-tasks.ps1")
         self.assertIn("Register-ScheduledTask", reg)
         self.assertIn("-LogonType S4U", reg)
@@ -134,13 +134,29 @@ class SecurityContractsTest(unittest.TestCase):
         # Restart-on-failure count is conservative (AV-friendly).
         self.assertRegex(reg, r"-RestartCount\s+\d{1,2}(?!\d)")
         # Must reap stale supervisor processes before re-registering so an old
-        # Interactive-style supervisor's window doesn't linger.
+        # supervisor's window doesn't linger after upgrade.
         self.assertIn("Stop-EasySkillsBackgroundProcesses", reg)
 
         install = read("install.ps1")
         self.assertIn("register-tasks.ps1", install)
         watch = read("_maintenance/watch.ps1")
         self.assertIn("register-tasks.ps1", watch)
+
+    def test_windows_task_action_uses_wscript_not_powershell_directly(self):
+        """The Scheduled Task action MUST be wscript.exe pointing at
+        run-hidden.vbs — NOT powershell.exe directly. powershell.exe is a
+        console-subsystem app and creates a console window even with
+        `-WindowStyle Hidden` under interactive Task Scheduler. wscript.exe
+        is GUI-subsystem and never creates a console."""
+        reg = read("_maintenance/register-tasks.ps1")
+        self.assertIn("wscript.exe", reg)
+        self.assertIn("run-hidden.vbs", reg)
+        # The action's Execute must be wscript.exe (not powershell.exe).
+        # The Argument string passes the .vbs and the .ps1 service path.
+        self.assertRegex(
+            reg,
+            r"New-ScheduledTaskAction\s+-Execute\s+\$WscriptExe",
+        )
 
     def test_windows_uninstaller_removes_scheduled_tasks(self):
         unwatch = read("_maintenance/unwatch.ps1")
@@ -161,16 +177,28 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertFalse(bat.exists(), "Legacy Start — 启动.bat must be removed")
 
         src = vbs.read_text(encoding="utf-8")
-        # VBS escapes inner quotes by doubling them (""...""):
-        self.assertIn('schtasks /Run /TN ""EasySkills WebUI""', src)
-        self.assertIn('schtasks /Run /TN ""EasySkills Watcher""', src)
+        # Triggers the tasks via Task Scheduler COM (no schtasks.exe spawn).
+        self.assertIn("Schedule.Service", src)
+        self.assertIn('"EasySkills WebUI"', src)
+        self.assertIn('"EasySkills Watcher"', src)
         self.assertIn("Shell.Application", src)
-        # WScript.Shell.Run with window-style 0 (hidden) is the canonical
-        # silent-launch pattern for a standalone .vbs. Allow both the
-        # statement form (`sh.Run "...", 0, True`) and the call form
-        # (`sh.Run("...", 0, True)`) for capturing the exit code. Inner
-        # quotes are VBS-escaped as "" so allow them in the quoted arg.
-        self.assertRegex(src, r'\.Run[ (]+"(?:[^"]|"")+",\s*0,\s*')
+        # Fallback path goes through wscript.exe + run-hidden.vbs so no
+        # console-subsystem process is launched directly.
+        self.assertIn("run-hidden.vbs", src)
+        self.assertIn("wscript.exe", src)
+
+    def test_windows_run_hidden_vbs_launcher_exists(self):
+        """run-hidden.vbs is the windowless bootstrap used by all Scheduled
+        Task actions. wscript.exe is GUI-subsystem and never spawns a
+        console; the .vbs in turn launches PowerShell with SW_HIDE."""
+        from pathlib import Path
+        vbs = ROOT / "_maintenance/run-hidden.vbs"
+        self.assertTrue(vbs.exists(), "_maintenance/run-hidden.vbs missing")
+        src = vbs.read_text(encoding="utf-8")
+        self.assertIn("WScript.Arguments(0)", src)
+        self.assertIn("powershell.exe", src)
+        # Must hide the window: SW_HIDE (0), don't wait (False).
+        self.assertRegex(src, r'\.Run\s+(?:cmd|"[^"]*").*,\s*0,\s*False')
 
     def test_windows_bat_files_auto_close_instead_of_blocking_on_pause(self):
         """Foreground .bat windows must auto-close (timeout) instead of
@@ -218,7 +246,12 @@ class SecurityContractsTest(unittest.TestCase):
 
         webui = read("_maintenance/webui.ps1")
         self.assertIn("[switch]$NoBrowser", webui)
-        self.assertIn("if (-not $NoBrowser", webui)
+        # Browser auto-open must be skippable via either the -NoBrowser
+        # switch (used by direct PS invocation) or the
+        # EASYSKILLS_NO_BROWSER env var (used by the wscript launcher path
+        # where passing a switch is awkward).
+        self.assertIn("EASYSKILLS_NO_BROWSER", webui)
+        self.assertRegex(webui, r"if \(-not \$SkipBrowser")
 
     def test_webui_stop_watcher_keeps_backend_running(self):
         py_src = read("_maintenance/webui.py")

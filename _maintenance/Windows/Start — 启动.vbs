@@ -1,40 +1,67 @@
 ' ==============================================================================
 ' Script: Start — 启动.vbs (Windows)
-' Purpose: Silent launcher for EasySkills. Double-click to ensure the
-'          background services are running and open the WebUI in the
-'          default browser. Runs via wscript.exe with NO visible window.
+' Purpose: Silent launcher for EasySkills. Runs under wscript.exe so it
+'          creates NO console window. Triggers the EasySkills Scheduled
+'          Tasks via the Task Scheduler COM API (avoids spawning schtasks.exe
+'          which is a console-subsystem program). Falls back to launching
+'          run-hidden.vbs directly if the Tasks aren't registered.
 ' ==============================================================================
 Option Explicit
 On Error Resume Next
 
-Dim sh, sa, scriptDir, supervisorPath, watcherPath
-Set sh = CreateObject("WScript.Shell")
+Dim fso, scriptDir, maintDir, runHiddenVbs, supervisorPs1, watcherPs1
+Set fso = CreateObject("Scripting.FileSystemObject")
+scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
+maintDir  = fso.GetParentFolderName(scriptDir)
+runHiddenVbs   = maintDir & "\run-hidden.vbs"
+supervisorPs1  = maintDir & "\webui-service.ps1"
+watcherPs1     = maintDir & "\watcher-service.ps1"
 
-' Resolve absolute path to ../webui-service.ps1 (used as fallback below).
-scriptDir = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName)
-supervisorPath = CreateObject("Scripting.FileSystemObject").GetParentFolderName(scriptDir) & "\webui-service.ps1"
-watcherPath    = CreateObject("Scripting.FileSystemObject").GetParentFolderName(scriptDir) & "\watcher-service.ps1"
+' --- Trigger the two Scheduled Tasks via the COM API ---------------------
+' This avoids spawning schtasks.exe (a console app) which can cause a
+' brief window flash even with SW_HIDE on some Windows versions.
+Dim ts, rootFolder, task, ranWebUI, ranWatcher
+ranWebUI   = False
+ranWatcher = False
+Set ts = CreateObject("Schedule.Service")
+ts.Connect
 
-' Trigger the Scheduled Tasks (idempotent — no-op if already running).
-' Window style 0 = hidden, bWaitOnReturn True = wait for schtasks to return.
-Dim webuiResult, watcherResult
-webuiResult   = sh.Run("schtasks /Run /TN ""EasySkills WebUI""", 0, True)
-watcherResult = sh.Run("schtasks /Run /TN ""EasySkills Watcher""", 0, True)
+If Err.Number = 0 Then
+    Set rootFolder = ts.GetFolder("\")
+    If Err.Number = 0 Then
+        Set task = rootFolder.GetTask("EasySkills WebUI")
+        If Err.Number = 0 Then
+            task.Run(Null)
+            ranWebUI = True
+        End If
+        Err.Clear
 
-' If the Scheduled Tasks aren't registered (exit code 1), fall back to a
-' direct hidden PowerShell launch. This keeps the launcher useful even if
-' Task Scheduler is locked down or the install was incomplete.
-If webuiResult <> 0 Then
-    sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & supervisorPath & """", 0, False
+        Set task = rootFolder.GetTask("EasySkills Watcher")
+        If Err.Number = 0 Then
+            task.Run(Null)
+            ranWatcher = True
+        End If
+        Err.Clear
+    End If
 End If
-If watcherResult <> 0 Then
-    sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & watcherPath & """", 0, False
+Err.Clear
+
+' --- Fallback: if a task isn't registered, launch the supervisor directly
+'     via run-hidden.vbs (also windowless). -----------------------------
+Dim sh
+Set sh = CreateObject("WScript.Shell")
+If Not ranWebUI And fso.FileExists(runHiddenVbs) And fso.FileExists(supervisorPs1) Then
+    sh.Run "wscript.exe """ & runHiddenVbs & """ """ & supervisorPs1 & """", 0, False
+End If
+If Not ranWatcher And fso.FileExists(runHiddenVbs) And fso.FileExists(watcherPs1) Then
+    sh.Run "wscript.exe """ & runHiddenVbs & """ """ & watcherPs1 & """", 0, False
 End If
 
 ' Brief grace period for the HttpListener to bind to port 6633.
 WScript.Sleep 800
 
-' Open the WebUI in the default browser via Shell.Application (no console
-' window at all — this is the same code path Windows uses for the Run dialog).
+' Open the WebUI in the default browser via Shell.Application (the same
+' code path Windows uses for the Run dialog — no console window).
+Dim sa
 Set sa = CreateObject("Shell.Application")
 sa.ShellExecute "http://localhost:6633", "", "", "open", 1

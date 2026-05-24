@@ -57,6 +57,9 @@ function Stop-EasySkillsBackgroundProcesses {
     } catch {}
 }
 
+$LauncherVbs = Join-Path $ScriptDir "run-hidden.vbs"
+$WscriptExe  = "$env:WINDIR\System32\wscript.exe"
+
 function Register-EasySkillsTask {
     Param(
         [Parameter(Mandatory=$true)][string]$Name,
@@ -64,11 +67,15 @@ function Register-EasySkillsTask {
         [Parameter(Mandatory=$true)][string]$Description
     )
 
-    $PowerShellPath = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
-    if (-not $PowerShellPath) { $PowerShellPath = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" }
-
-    $Argument = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ServicePath`""
-    $Action = New-ScheduledTaskAction -Execute $PowerShellPath -Argument $Argument -WorkingDirectory $ScriptDir
+    # Launch the supervisor via wscript.exe + run-hidden.vbs instead of
+    # powershell.exe directly. wscript.exe is a GUI-subsystem app — it never
+    # creates a console window, so the spawned PowerShell child runs with a
+    # hidden console for its entire lifetime, in any session, regardless of
+    # LogonType. This is what truly eliminates the visible-window problem;
+    # `-WindowStyle Hidden` alone is unreliable under PS 5.x in interactive
+    # logon sessions.
+    $Argument = "`"$LauncherVbs`" `"$ServicePath`""
+    $Action = New-ScheduledTaskAction -Execute $WscriptExe -Argument $Argument -WorkingDirectory $ScriptDir
 
     $UserId = "$env:USERDOMAIN\$env:USERNAME"
     $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $UserId

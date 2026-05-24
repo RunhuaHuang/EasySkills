@@ -728,7 +728,8 @@ while ($true) {
         Write-Host "  =========================================="
         Write-Host ""
 
-        if (-not $NoBrowser -and -not $BrowserOpened) {
+        $SkipBrowser = $NoBrowser -or ($env:EASYSKILLS_NO_BROWSER -eq "1")
+        if (-not $SkipBrowser -and -not $BrowserOpened) {
             try { Start-Process "http://localhost:$Port" } catch {
                 Write-WebUILog "Browser open failed (ignored): $($_.Exception.Message)"
             }

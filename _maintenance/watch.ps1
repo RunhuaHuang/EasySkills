@@ -9,8 +9,16 @@ $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $CentralDir = Split-Path -Path $ScriptDir -Parent
 
 function Start-BackgroundPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
-    # Standard Start-Process — avoids the WScript.Shell COM pattern AV
-    # heuristics treat as a malware signature. Only used as Win7 fallback.
+    # Prefer wscript.exe + run-hidden.vbs (no console window ever). Only used
+    # as fallback when Scheduled Task registration isn't possible.
+    $LauncherVbs = Join-Path $WorkingDirectory "run-hidden.vbs"
+    $WscriptExe  = "$env:WINDIR\System32\wscript.exe"
+    if ((Test-Path $LauncherVbs) -and (Test-Path $WscriptExe)) {
+        Start-Process -FilePath $WscriptExe `
+            -ArgumentList @("`"$LauncherVbs`"", "`"$ScriptPath`"") `
+            -WorkingDirectory $WorkingDirectory -WindowStyle Hidden | Out-Null
+        return
+    }
     $PSExe = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
     if (-not $PSExe) { $PSExe = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" }
     Start-Process -FilePath $PSExe `
