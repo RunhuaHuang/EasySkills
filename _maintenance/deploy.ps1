@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # Script: deploy.ps1 (Windows)
 # Description: Active skills mapping and persistence CLI tool for Windows.
 # ==============================================================================
@@ -12,17 +12,18 @@ Param(
   [Parameter(Mandatory=$false)][switch]$Unwatch,
   [Parameter(Mandatory=$false)][switch]$Cleanup,
   [Parameter(Mandatory=$false)][switch]$Status,
+  [Parameter(Mandatory=$false)][switch]$WebUI,
   [Parameter(Mandatory=$false)][string[]]$CustomPath = @()
 )
 
 $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $CentralDir = Split-Path -Path $ScriptDir -Parent
-$CustomTargetsFile = Join-Path -Path $CentralDir -ChildPath "custom-targets.txt"
+$CustomTargetsFile = Join-Path -Path $ScriptDir -ChildPath "custom-targets.txt"
 
-# --- One-time migration: move custom-targets.txt from legacy _maintenance/ location ---
-$LegacyCustomTargets = Join-Path -Path $ScriptDir -ChildPath "custom-targets.txt"
-if ((Test-Path $LegacyCustomTargets) -and ($LegacyCustomTargets -ne $CustomTargetsFile)) {
-  $LegacyLines = Get-Content $LegacyCustomTargets | Where-Object { $_ -and !$_.TrimStart().StartsWith("#") }
+# --- One-time migration: move custom-targets.txt from legacy root location ---
+$LegacyRootTargets = Join-Path -Path $CentralDir -ChildPath "custom-targets.txt"
+if (Test-Path $LegacyRootTargets) {
+  $LegacyLines = Get-Content $LegacyRootTargets | Where-Object { $_ -and !$_.TrimStart().StartsWith("#") }
   if ($LegacyLines) {
     if (!(Test-Path $CustomTargetsFile)) { New-Item -ItemType File -Path $CustomTargetsFile -Force | Out-Null }
     $Existing = @(Get-Content $CustomTargetsFile -ErrorAction SilentlyContinue)
@@ -32,11 +33,25 @@ if ((Test-Path $LegacyCustomTargets) -and ($LegacyCustomTargets -ne $CustomTarge
       }
     }
   }
+  Remove-Item $LegacyRootTargets -Force
+}
+
+# --- One-time cleanup: remove stale files from root (pre-v1.2 leftovers) ---
+# Only run in installed location, skip if inside a git repo
+$GitDir = Join-Path $CentralDir ".git"
+if (-not (Test-Path $GitDir)) {
+  foreach ($Stale in @("README.md","README_CN.md","LICENSE","install.sh","install.ps1",
+                       "install_mac.command","install_windows.bat",
+                       "uninstall_mac.command","uninstall_windows.bat")) {
+    $StaleFile = Join-Path $CentralDir $Stale
+    if (Test-Path $StaleFile) { Remove-Item $StaleFile -Force -ErrorAction SilentlyContinue }
+  }
 }
 
 # Default target skills directories
 $Targets = @(
   "$Home\.gemini\config\skills",
+  "$Home\.gemini\antigravity\skills",
   "$Home\.codex\skills",
   "$Home\.claude\skills",
   "$Home\.copilot\skills",
@@ -62,8 +77,7 @@ $Targets = @(
   "$Home\.continue\skills",
   "$Home\.goose\skills",
   "$Home\.agents\skills",
-  "$Home\.run\global-skills\skills",
-  "$Home\.run\global-skills"
+  "$Home\.run\global-skills\skills"
 )
 
 # ---- Concurrency lock (named mutex, system-wide) ----
@@ -105,8 +119,13 @@ function Load-CustomTargets {
     $Lines = Get-Content $CustomTargetsFile
     foreach ($Line in $Lines) {
       if ($Line -and !(($Line.Trim()).StartsWith("#"))) {
-        if (Test-Path $Line) {
-          $script:Targets += $Line
+        $Target = $Line.Trim()
+        if ($Line.Contains("=")) {
+          $Parts = $Line.Split("=", 2)
+          $Target = $Parts[1].Trim()
+        }
+        if (Test-Path $Target) {
+          $script:Targets += $Target
         }
       }
     }
@@ -114,7 +133,8 @@ function Load-CustomTargets {
 }
 
 function Get-AgentName ([string]$Path) {
-  if ($Path -like "*\.gemini\*") { return "Antigravity (Gemini)" }
+  if ($Path -like "*\.gemini\antigravity\*") { return "Antigravity IDE" }
+  if ($Path -like "*\.gemini\*") { return "Antigravity CLI" }
   if ($Path -like "*\.codex\*") { return "Codex" }
   if ($Path -like "*\.claude\*") { return "Claude Code" }
   if ($Path -like "*\.copilot\*") { return "GitHub Copilot" }
@@ -138,7 +158,7 @@ function Get-AgentName ([string]$Path) {
   if ($Path -like "*\.continue\*") { return "Continue" }
   if ($Path -like "*\.goose\*") { return "Goose" }
   if ($Path -like "*\.agents\*") { return "Agents (Standard)" }
-  if ($Path -like "*\.run\*") { return "RunAI (Backup)" }
+  if ($Path -like "*\.run\*") { return "Run" }
   return "Custom Agent"
 }
 
@@ -320,13 +340,16 @@ function Run-Status {
   Write-Host "EasySkills Status" -ForegroundColor Cyan
   Write-Host "==========================================================" -ForegroundColor Cyan
 
-  # Watcher status
-  $WatcherProc = Get-Process -Name "powershell","pwsh" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -like "*watcher-service*" }
-  if ($WatcherProc) {
-    Write-Host "   Watcher: ✅ Running (PID $($WatcherProc.Id))" -ForegroundColor Green
+  # Watcher status (WMI for PS 5.1 compatibility)
+  $WmiProc = $null
+  try {
+    $WmiProc = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' AND CommandLine LIKE '%watcher-service.ps1%'" -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+  } catch {}
+  if ($WmiProc) {
+    Write-Host "   Watcher: [OK] Running (PID $($WmiProc.ProcessId))" -ForegroundColor Green
   } else {
-    Write-Host "   Watcher: ❌ Not running" -ForegroundColor Red
+    Write-Host "   Watcher: [--] Not running" -ForegroundColor Red
   }
 
   # Mapped agents
@@ -351,13 +374,15 @@ function Run-Status {
 }
 
 # ---- Main dispatch with mutex protection ----
-$NeedsLock = -not ($List -or $Watch -or $Unwatch -or $Status)
+$NeedsLock = -not ($List -or $Watch -or $Unwatch -or $Status -or $WebUI)
 
 if ($NeedsLock) { Acquire-Lock }
 
 try {
   if ($Status) {
     Run-Status
+  } elseif ($WebUI) {
+    & "powershell" -ExecutionPolicy Bypass -File "$ScriptDir\webui.ps1"
   } elseif ($Cleanup) {
     Run-Cleanup
   } elseif ($List) {

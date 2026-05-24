@@ -2,7 +2,7 @@
 name: EasySkills
 description: Cross-platform automated skills manager. Automatically detects macOS/Windows, creates a centralized skills directory, registers background file watchers, and maps your custom skills dynamically to all installed agents.
 homepage: https://github.com/RunhuaHuang/EasySkills
-version: 1.0.1
+version: 1.1.0
 metadata: {"clawdbot":{"emoji":"🚀","requires":{"bins":["bash","powershell"]}}}
 ---
 
@@ -45,9 +45,13 @@ If the user provides a custom path, run the installer command again, passing the
 
 Here are the default paths mapped by the installation scripts for popular local coding agents. If the user tells you that a path is different on their machine, **always respect the user's input and run the script with their custom path**.
 
-### 1. Antigravity (Gemini Core/CLI)
+### 1. Antigravity CLI (formerly Gemini CLI)
 - **macOS**: `~/.gemini/config/skills`
 - **Windows**: `%USERPROFILE%\.gemini\config\skills`
+
+### 1b. Antigravity IDE
+- **macOS**: `~/.gemini/antigravity/skills`
+- **Windows**: `%USERPROFILE%\.gemini\antigravity\skills`
 
 ### 2. Codex (OpenAI)
 - **macOS**: `~/.codex/skills`
@@ -141,6 +145,10 @@ Here are the default paths mapped by the installation scripts for popular local 
 - **macOS**: `~/.agents/skills`
 - **Windows**: `%USERPROFILE%\.agents\skills`
 
+### 25. Run
+- **macOS**: `~/.run/global-skills/skills`
+- **Windows**: `%USERPROFILE%\.run\global-skills\skills`
+
 ---
 
 ## 🛠️ Execution Plan for Agents / Agent 执行指南
@@ -161,6 +169,10 @@ To check health:
 ```bash
 bash ./_maintenance/deploy.sh --status
 ```
+To open the WebUI manager:
+```bash
+bash ./_maintenance/deploy.sh --webui
+```
 
 ### 🪟 For Windows:
 ```powershell
@@ -174,4 +186,8 @@ powershell -ExecutionPolicy Bypass -File .\_maintenance\watch.ps1 -CustomPath "C
 To check health:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\_maintenance\deploy.ps1 -Status
+```
+To open the WebUI manager:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\_maintenance\deploy.ps1 -WebUI
 ```

@@ -42,8 +42,8 @@ if /i "%CURRENT_DIR_STRIP%" neq "%PERM_DIR%" (
 
   :: Initialize custom-targets.txt at root if not present
   if not exist "%PERM_DIR%\custom-targets.txt" (
-    if exist "%PERM_DIR%\_maintenance\custom-targets.txt" (
-      copy /Y "%PERM_DIR%\_maintenance\custom-targets.txt" "%PERM_DIR%\custom-targets.txt" > nul
+    if exist "%PERM_DIR%\_maintenance\custom-targets.template.txt" (
+      copy /Y "%PERM_DIR%\_maintenance\custom-targets.template.txt" "%PERM_DIR%\custom-targets.txt" > nul
     )
   )
 
@@ -61,6 +61,10 @@ if /i "%CURRENT_DIR_STRIP%" neq "%PERM_DIR%" (
 
 :: Run watch.ps1 from the permanent location
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PERM_DIR%\_maintenance\watch.ps1"
+
+:: Launch WebUI in background
+echo Launching WebUI Manager on port 6633...
+start "" /B powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%PERM_DIR%\_maintenance\webui.ps1"
 
 echo =============================================
 echo.

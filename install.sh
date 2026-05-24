@@ -39,28 +39,31 @@ if [ -f "$PERM_DIR/_maintenance/.version" ]; then
   OLD_VERSION=$(cat "$PERM_DIR/_maintenance/.version")
 fi
 
-# Migrate custom-targets.txt from old _maintenance/ location to root (< v1.1.0)
-if [ -f "$PERM_DIR/_maintenance/custom-targets.txt" ]; then
-  USER_PATHS=$(grep -v -E '^\s*(#|$)' "$PERM_DIR/_maintenance/custom-targets.txt" 2>/dev/null || true)
-  if [ -n "$USER_PATHS" ]; then
-    touch "$PERM_DIR/custom-targets.txt"
-    echo "$USER_PATHS" | while IFS= read -r line; do
-      if ! grep -Fxq "$line" "$PERM_DIR/custom-targets.txt" 2>/dev/null; then
-        echo "$line" >> "$PERM_DIR/custom-targets.txt"
-      fi
-    done
-    echo "Migrated custom targets to ~/EasySkills/custom-targets.txt"
+# Preserve user custom-targets.txt before wiping _maintenance/
+CUSTOM_BACKUP=""
+CUSTOM_FILE="$PERM_DIR/_maintenance/custom-targets.txt"
+if [ -f "$CUSTOM_FILE" ]; then
+  CUSTOM_BACKUP=$(cat "$CUSTOM_FILE")
+fi
+# Also migrate from legacy root location (pre-v1.2)
+LEGACY_ROOT_CT="$PERM_DIR/custom-targets.txt"
+if [ -f "$LEGACY_ROOT_CT" ]; then
+  LEGACY_LINES=$(grep -v -E '^\s*(#|$)' "$LEGACY_ROOT_CT" 2>/dev/null || true)
+  if [ -n "$LEGACY_LINES" ]; then
+    CUSTOM_BACKUP="$CUSTOM_BACKUP
+$LEGACY_LINES"
   fi
+  rm -f "$LEGACY_ROOT_CT"
 fi
 
 # Clean install of _maintenance/
 rm -rf "$PERM_DIR/_maintenance"
 cp -R "$SRC_DIR/_maintenance" "$PERM_DIR/_maintenance"
-cp "$SRC_DIR/SKILL.md" "$PERM_DIR/_maintenance/SKILL.md"
+cp "$SRC_DIR/SKILL.md" "$PERM_DIR/SKILL.md"
 
-# Initialize custom-targets.txt at root if not present
-if [ ! -f "$PERM_DIR/custom-targets.txt" ]; then
-  cp "$PERM_DIR/_maintenance/custom-targets.template.txt" "$PERM_DIR/custom-targets.txt" 2>/dev/null || true
+# Restore user custom-targets.txt
+if [ -n "$CUSTOM_BACKUP" ]; then
+  echo "$CUSTOM_BACKUP" > "$CUSTOM_FILE"
 fi
 
 # Version reporting
@@ -73,7 +76,16 @@ fi
 
 # --- Activate ---
 chmod +x "$PERM_DIR/_maintenance/"*.sh
+chmod +x "$PERM_DIR/_maintenance/macOS/"*.command 2>/dev/null || true
 bash "$PERM_DIR/_maintenance/watch.sh"
+
+# --- Launch WebUI in background & pop up browser ---
+if command -v python3 &>/dev/null; then
+  echo "Launching WebUI Manager on port 6633..."
+  nohup python3 "$PERM_DIR/_maintenance/webui.py" >/dev/null 2>&1 &
+else
+  echo "Note: python3 not found — WebUI skipped. Install Python 3 to use the WebUI."
+fi
 
 # --- Verify watcher status ---
 echo ""

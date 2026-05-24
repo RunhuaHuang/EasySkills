@@ -7,25 +7,37 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CENTRAL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CUSTOM_TARGETS_FILE="$CENTRAL_DIR/custom-targets.txt"
+CUSTOM_TARGETS_FILE="$SCRIPT_DIR/custom-targets.txt"
 LOCK_FILE="$SCRIPT_DIR/.deploy.lock"
 
-# --- One-time migration: move custom-targets.txt from legacy _maintenance/ location ---
-LEGACY_CUSTOM_TARGETS="$SCRIPT_DIR/custom-targets.txt"
-if [ -f "$LEGACY_CUSTOM_TARGETS" ] && [ "$LEGACY_CUSTOM_TARGETS" != "$CUSTOM_TARGETS_FILE" ]; then
-  if grep -q -v -E '^\s*(#|$)' "$LEGACY_CUSTOM_TARGETS" 2>/dev/null; then
+# --- One-time migration: move custom-targets.txt from legacy root location ---
+LEGACY_ROOT_TARGETS="$CENTRAL_DIR/custom-targets.txt"
+if [ -f "$LEGACY_ROOT_TARGETS" ]; then
+  if grep -q -v -E '^\s*(#|$)' "$LEGACY_ROOT_TARGETS" 2>/dev/null; then
     touch "$CUSTOM_TARGETS_FILE"
-    grep -v -E '^\s*(#|$)' "$LEGACY_CUSTOM_TARGETS" | while IFS= read -r line; do
+    grep -v -E '^\s*(#|$)' "$LEGACY_ROOT_TARGETS" | while IFS= read -r line; do
       if ! grep -Fxq "$line" "$CUSTOM_TARGETS_FILE" 2>/dev/null; then
         echo "$line" >> "$CUSTOM_TARGETS_FILE"
       fi
     done
   fi
+  rm -f "$LEGACY_ROOT_TARGETS"
+fi
+
+# --- One-time cleanup: remove stale files from root (pre-v1.2 leftovers) ---
+# Only run in installed location (~/EasySkills), skip if inside a git repo
+if [ ! -d "$CENTRAL_DIR/.git" ]; then
+  for _stale in README.md README_CN.md LICENSE install.sh install.ps1 \
+                install_mac.command install_windows.bat \
+                uninstall_mac.command uninstall_windows.bat; do
+    rm -f "$CENTRAL_DIR/$_stale" 2>/dev/null
+  done
 fi
 
 # Default target skills directories
 TARGETS=(
   "$HOME/.gemini/config/skills"
+  "$HOME/.gemini/antigravity/skills"
   "$HOME/.codex/skills"
   "$HOME/.claude/skills"
   "$HOME/.copilot/skills"
@@ -52,7 +64,6 @@ TARGETS=(
   "$HOME/.goose/skills"
   "$HOME/.agents/skills"
   "$HOME/.run/global-skills/skills"
-  "$HOME/.run/global-skills"
 )
 
 # ---- Concurrency lock (PID-based, stale-safe) ----
@@ -91,8 +102,13 @@ load_custom_targets() {
   if [ -f "$CUSTOM_TARGETS_FILE" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
       [[ -z "$line" || "$line" =~ ^# ]] && continue
-      if [ -d "$line" ]; then
-        TARGETS+=("$line")
+      local target_path="$line"
+      if [[ "$line" == *"="* ]]; then
+        target_path="${line#*=}"
+        target_path="${target_path## }"
+      fi
+      if [ -d "$target_path" ]; then
+        TARGETS+=("$target_path")
       fi
     done < "$CUSTOM_TARGETS_FILE"
   fi
@@ -100,7 +116,8 @@ load_custom_targets() {
 
 get_agent_name() {
   local path="$1"
-  if [[ "$path" == *".gemini"* ]]; then echo "Antigravity (Gemini)"; return; fi
+  if [[ "$path" == *".gemini"*"antigravity"* ]]; then echo "Antigravity IDE"; return; fi
+  if [[ "$path" == *".gemini"* ]]; then echo "Antigravity CLI"; return; fi
   if [[ "$path" == *".codex"* ]]; then echo "Codex"; return; fi
   if [[ "$path" == *".claude"* ]]; then echo "Claude Code"; return; fi
   if [[ "$path" == *".copilot"* ]]; then echo "GitHub Copilot"; return; fi
@@ -124,7 +141,7 @@ get_agent_name() {
   if [[ "$path" == *".continue"* ]]; then echo "Continue"; return; fi
   if [[ "$path" == *".goose"* ]]; then echo "Goose"; return; fi
   if [[ "$path" == *".agents"* ]]; then echo "Agents (Standard)"; return; fi
-  if [[ "$path" == *".run"* ]]; then echo "RunAI (Backup)"; return; fi
+  if [[ "$path" == *".run"* ]]; then echo "Run"; return; fi
   echo "Custom Agent"
 }
 
@@ -235,7 +252,7 @@ add_target() {
   fi
   abs_path=$(cd "$path" && pwd)
   touch "$CUSTOM_TARGETS_FILE"
-  if grep -Fxq "$abs_path" "$CUSTOM_TARGETS_FILE" 2>/dev/null; then
+  if grep -q "$abs_path" "$CUSTOM_TARGETS_FILE" 2>/dev/null; then
     echo "Path is already persisted: $abs_path"
   else
     echo "$abs_path" >> "$CUSTOM_TARGETS_FILE"
@@ -251,7 +268,7 @@ remove_target() {
     exit 1
   fi
   if [ -f "$CUSTOM_TARGETS_FILE" ]; then
-    grep -v -F -x "$path" "$CUSTOM_TARGETS_FILE" > "${CUSTOM_TARGETS_FILE}.tmp"
+    grep -v -F "$path" "$CUSTOM_TARGETS_FILE" > "${CUSTOM_TARGETS_FILE}.tmp"
     mv "${CUSTOM_TARGETS_FILE}.tmp" "$CUSTOM_TARGETS_FILE"
     echo "Successfully removed path: $path"
     run_sync
@@ -331,6 +348,7 @@ show_help() {
   echo "  -u, --unwatch       Uninstall/Stop the background watcher daemon"
   echo "  -c, --cleanup       Remove all EasySkills symlinks from agent directories"
   echo "  --status            Show watcher and mapping health status"
+  echo "  --webui             Start the local WebUI Manager on port 6633"
   echo "  -h, --help          Show this help documentation"
 }
 
@@ -348,6 +366,7 @@ while [[ $# -gt 0 ]]; do
     -u|--unwatch) ACTION="unwatch"; shift ;;
     -c|--cleanup) ACTION="cleanup"; shift ;;
     --status) ACTION="status"; shift ;;
+    --webui) ACTION="webui"; shift ;;
     -h|--help) ACTION="help"; shift ;;
     *)
        ACTION="sync"
@@ -371,5 +390,6 @@ case "$ACTION" in
   unwatch) bash "$SCRIPT_DIR/unwatch.sh" ;;
   cleanup) run_cleanup ;;
   status) run_status ;;
+  webui) python3 "$SCRIPT_DIR/webui.py" ;;
   help) show_help ;;
 esac

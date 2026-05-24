@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # Script: watch.ps1 (Windows)
 # Description: Installs the background watcher to run on Windows Startup.
 # ==============================================================================
@@ -13,36 +13,40 @@ Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "Installing Windows EasySkills Watcher..." -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
-# 2. Create a Windows Startup shortcut (.lnk) pointing to the VBS launcher
+# 2. Create a Windows Startup shortcut
 $StartupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $ShortcutPath = "$StartupFolder\EasySkillsWatcher.lnk"
+
+# Remove legacy shortcut if it points to old VBS launcher
+if (Test-Path $ShortcutPath) {
+    try {
+        $OldShortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($ShortcutPath)
+        if ($OldShortcut.TargetPath -like "*watcher-launcher.vbs*") {
+            Remove-Item $ShortcutPath -Force -ErrorAction SilentlyContinue
+        }
+    } catch {}
+}
+
+$ServiceScript = "$ScriptDir\watcher-service.ps1"
 
 try {
     $WshShell = New-Object -ComObject WScript.Shell
     $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
-    $Shortcut.TargetPath = "$ScriptDir\watcher-launcher.vbs"
+    $Shortcut.TargetPath = "powershell.exe"
+    $Shortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
     $Shortcut.WorkingDirectory = $ScriptDir
+    $Shortcut.WindowStyle = 7
     $Shortcut.Description = "EasySkills Background Watcher Service"
     $Shortcut.Save()
 
-    # 3. Start the watcher immediately for the current session
-    $LauncherPath = "$ScriptDir\watcher-launcher.vbs"
-    if (Test-Path $LauncherPath) {
-        Start-Process "wscript.exe" -ArgumentList "`"$LauncherPath`"" -WindowStyle Hidden
-    }
+    # 3. Start watcher via WMI to fully detach from parent process (avoids handle inheritance deadlock)
+    $WatcherCmd = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
+    Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $WatcherCmd } | Out-Null
 
     Write-Host "=============================================" -ForegroundColor Cyan
-    Write-Host "Windows EasySkills Watcher installed successfully!" -ForegroundColor Green
+    Write-Host "Windows EasySkills Watcher installed!" -ForegroundColor Green
     Write-Host "   Watching: $CentralDir" -ForegroundColor Green
     Write-Host "=============================================" -ForegroundColor Cyan
-
-    # 4. Windows Defender guidance
-    Write-Host ""
-    Write-Host "NOTE: If Windows Defender shows a warning, you can safely allow it." -ForegroundColor Yellow
-    Write-Host "To add an exclusion, run PowerShell as Administrator:" -ForegroundColor Yellow
-    Write-Host "  Add-MpPreference -ExclusionPath `"$CentralDir`"" -ForegroundColor Gray
-    Write-Host "Or: Windows Security > Virus & threat protection > Exclusions > Add folder" -ForegroundColor Gray
-    Write-Host ""
 }
 catch {
     Write-Error "Failed to install watcher: $_"

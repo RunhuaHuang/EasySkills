@@ -46,7 +46,7 @@ if [ "$CURRENT_DIR" != "$PERM_DIR" ]; then
 
   # Initialize custom-targets.txt at root if not present
   if [ ! -f "$PERM_DIR/custom-targets.txt" ]; then
-    cp "$PERM_DIR/_maintenance/custom-targets.txt" "$PERM_DIR/custom-targets.txt" 2>/dev/null || true
+    cp "$PERM_DIR/_maintenance/custom-targets.template.txt" "$PERM_DIR/custom-targets.txt" 2>/dev/null || true
   fi
 
   # --- Version reporting ---
@@ -60,6 +60,14 @@ fi
 
 chmod +x "$PERM_DIR/_maintenance/"*.sh
 bash "$PERM_DIR/_maintenance/watch.sh"
+
+# --- Launch WebUI in background & pop up browser ---
+if command -v python3 &>/dev/null; then
+  echo "Launching WebUI Manager on port 6633..."
+  nohup python3 "$PERM_DIR/_maintenance/webui.py" >/dev/null 2>&1 &
+else
+  echo "Note: python3 not found — WebUI skipped. Install Python 3 to use the WebUI."
+fi
 
 echo "============================================="
 echo "Press any key to close this window..."

@@ -1,0 +1,2777 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EasySkills — Orchestrator</title>
+    
+    <!-- Premium Fonts Pairing: Space Grotesk (Display) & JetBrains Mono (Technical/Body) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        /* ==========================================
+           DESIGN SYSTEM TOKENS (Refined Utilitarian)
+           ========================================== */
+        :root {
+            /* Fonts */
+            --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+
+            /* Spacing Rhythm (Asymmetrical) */
+            --space-xs: 0.5rem;
+            --space-sm: 0.75rem;
+            --space-md: 1.25rem;
+            --space-lg: 2rem;
+            --space-xl: 3.5rem;
+
+            /* Transitions */
+            --transition-speed: 0.35s;
+            --transition-ease: cubic-bezier(0.16, 1, 0.3, 1);
+            --transition-smooth: all var(--transition-speed) var(--transition-ease);
+            
+            /* Elevation Shadows */
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.08);
+            --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.15);
+
+            /* Theme Constants (Dark Theme Default) */
+            --bg-base: #0a0b0d;
+            --bg-surface: rgba(18, 20, 24, 0.85);
+            --bg-surface-elevated: rgba(26, 30, 37, 0.9);
+            
+            --border-color: rgba(255, 255, 255, 0.07);
+            --border-color-active: rgba(255, 255, 255, 0.18);
+            
+            --text-main: #f3f4f6;
+            --text-muted: #8e9cae;
+            --text-dark: #000000;
+            
+            --primary: #3b82f6;
+            --primary-glow: rgba(59, 130, 246, 0.35);
+            --accent: #ff2a5f;
+            --accent-glow: rgba(255, 42, 95, 0.3);
+            
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.25);
+            --danger: #ef4444;
+            --danger-glow: rgba(239, 68, 68, 0.25);
+            --warning: #f59e0b;
+            --warning-glow: rgba(245, 158, 11, 0.25);
+
+            --glass-blur: blur(14px);
+
+            /* Terminal Theme (Dark Default) */
+            --bg-terminal: rgba(10, 11, 13, 0.9);
+            --border-terminal: rgba(255, 255, 255, 0.08);
+            --text-terminal-label: rgba(255, 255, 255, 0.45);
+            --text-terminal-body: #e2e8f0;
+            --text-terminal-main: #ffffff;
+            --icon-terminal-copy: rgba(255, 255, 255, 0.45);
+        }
+
+        /* Light Theme Overrides */
+        [data-theme="light"] {
+            --bg-base: #f4f6f8;
+            --bg-surface: rgba(255, 255, 255, 0.85);
+            --bg-surface-elevated: rgba(248, 250, 252, 0.95);
+            
+            --border-color: rgba(0, 0, 0, 0.08);
+            --border-color-active: rgba(0, 0, 0, 0.2);
+            
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            
+            --primary: #2563eb;
+            --primary-glow: rgba(37, 99, 235, 0.2);
+            
+            --border-color-active: rgba(37, 99, 235, 0.3);
+            --shadow-glow: 0 0 20px rgba(37, 99, 235, 0.1);
+
+            /* Terminal Theme (Light Override) */
+            --bg-terminal: rgba(255, 255, 255, 0.9);
+            --border-terminal: var(--border-color);
+            --text-terminal-label: var(--text-muted);
+            --text-terminal-body: var(--text-muted);
+            --text-terminal-main: var(--text-main);
+            --icon-terminal-copy: var(--text-muted);
+        }
+
+        /* Reset & Base Elements */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-mono);
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            transition: var(--transition-smooth);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            letter-spacing: -0.02em;
+        }
+
+        /* Custom Scrollbar for refined technical look */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* Background grid texture overlay */
+        .grid-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(var(--border-color) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-color) 1px, transparent 1px);
+            background-size: 80px 80px;
+            pointer-events: none;
+            opacity: 0.25;
+            z-index: 1;
+        }
+
+        /* ==========================================
+           LAYOUT: SIDEBAR & HEADER
+           ========================================== */
+        
+        /* Sidebar (Asymmetric & Sleek Geometric) */
+        .sidebar {
+            position: relative;
+            width: 280px;
+            background-color: var(--bg-surface);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: var(--space-lg) 0;
+            z-index: 10;
+            transition: var(--transition-smooth);
+        }
+
+        .brand {
+            font-family: var(--font-display);
+            font-size: 1.6rem;
+            font-weight: 700;
+            padding: 0 var(--space-lg) var(--space-xl) var(--space-lg);
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+            color: var(--text-main);
+            letter-spacing: -0.04em;
+        }
+
+        .brand i {
+            color: var(--primary);
+            font-size: 1.3rem;
+            animation: pulse-glow 3s infinite ease-in-out;
+        }
+
+        .nav-item {
+            position: relative;
+            padding: var(--space-md) var(--space-lg);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: 1.05rem;
+            color: var(--text-muted);
+            transition: var(--transition-smooth);
+            border-left: 3px solid transparent;
+            overflow: hidden;
+        }
+
+        .nav-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.03), transparent);
+            transition: var(--transition-smooth);
+        }
+
+        .nav-item:hover::before {
+            left: 100%;
+        }
+
+        .nav-item:hover {
+            color: var(--text-main);
+            background-color: rgba(255, 255, 255, 0.015);
+        }
+
+        .nav-item.active {
+            color: var(--text-main);
+            border-left-color: var(--primary);
+            background-color: rgba(59, 130, 246, 0.04);
+            text-shadow: 0 0 10px rgba(59, 130, 246, 0.15);
+        }
+
+        .nav-item.active i {
+            color: var(--primary);
+        }
+
+        .nav-item i {
+            font-size: 1.1rem;
+            transition: var(--transition-smooth);
+        }
+
+        .sidebar-footer {
+            margin-top: auto;
+            padding: 0 var(--space-lg);
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        /* Top Header */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 280px;
+            right: 0;
+            height: 80px;
+            background-color: var(--bg-surface);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 var(--space-lg);
+            z-index: 9;
+            transition: var(--transition-smooth);
+        }
+
+        .header-title {
+            font-family: var(--font-display);
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.03em;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+        }
+
+        /* ==========================================
+           INTERACTIVE BUTTONS & CONTROLS
+           ========================================== */
+        .btn {
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: 0.95rem;
+            padding: 0.7rem 1.4rem;
+            border-radius: 6px;
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+            background-color: transparent;
+            color: var(--text-main);
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-xs);
+            transition: var(--transition-smooth);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.08);
+            opacity: 0;
+            transition: var(--transition-smooth);
+            border-radius: inherit;
+        }
+
+        .btn:hover::after {
+            opacity: 1;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            border-color: var(--primary);
+            color: #ffffff;
+            box-shadow: 0 4px 14px var(--primary-glow);
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 6px 20px var(--primary-glow);
+            transform: translateY(-1px);
+        }
+
+        .btn-danger {
+            background-color: var(--danger);
+            border-color: var(--danger);
+            color: #ffffff;
+            box-shadow: 0 4px 14px var(--danger-glow);
+        }
+
+        .btn-danger:hover {
+            box-shadow: 0 6px 20px var(--danger-glow);
+            transform: translateY(-1px);
+        }
+
+        .btn-outline {
+            border-color: var(--border-color-active);
+            background-color: rgba(255, 255, 255, 0.02);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--text-main);
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .icon-btn {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            width: 42px;
+            height: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .icon-btn:hover {
+            border-color: var(--text-main);
+            background-color: rgba(255, 255, 255, 0.05);
+            transform: scale(1.05);
+        }
+
+        .lang-toggle {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            padding: 0.6rem 1rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-color-active);
+            background-color: transparent;
+            color: var(--text-main);
+            transition: var(--transition-smooth);
+        }
+        
+        .lang-toggle:hover {
+            border-color: var(--text-main);
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        /* ==========================================
+           MAIN CONTENT AREA
+           ========================================== */
+        .main-content {
+            position: relative;
+            flex: 1;
+            margin-top: 80px;
+            padding: var(--space-lg);
+            overflow-y: auto;
+            z-index: 2;
+            height: calc(100vh - 80px);
+        }
+
+        .view-section {
+            display: none;
+            max-width: 1300px;
+            margin: 0 auto;
+        }
+
+        .view-section.active {
+            display: block;
+            animation: slideUpFade 0.5s var(--transition-ease) forwards;
+        }
+
+        /* ==========================================
+           ASIMMETRIC DASHBOARD GRID
+           ========================================== */
+        
+        /* Stats asymmetric layout grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-md);
+            margin-bottom: var(--space-lg);
+        }
+
+        .stat-card {
+            background-color: var(--bg-surface);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-radius: 12px;
+            padding: var(--space-lg);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+            transition: var(--transition-smooth);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: transparent;
+            transition: var(--transition-smooth);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-3px);
+            border-color: var(--border-color-active);
+            box-shadow: var(--shadow-md);
+        }
+
+        .stat-card.featured::before {
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+        }
+
+        .stat-card.featured:hover {
+            box-shadow: var(--shadow-glow);
+        }
+
+        .stat-title {
+            font-family: var(--font-display);
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: var(--space-sm);
+            display: flex;
+            align-items: center;
+            gap: var(--space-xs);
+        }
+
+        .stat-value {
+            font-family: var(--font-display);
+            font-size: 3.2rem;
+            font-weight: 700;
+            line-height: 1;
+            letter-spacing: -0.05em;
+            color: var(--text-main);
+            margin-top: var(--space-xs);
+        }
+
+        .stat-value span.subval {
+            font-size: 1.4rem;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-weight: 400;
+        }
+
+        /* Pulsing Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-sm);
+            font-size: 0.95rem;
+            font-weight: 600;
+            padding: var(--space-sm) var(--space-md);
+            border-radius: 6px;
+            font-family: var(--font-mono);
+        }
+
+        .status-badge i {
+            font-size: 0.65rem;
+        }
+
+        .status-badge.running {
+            background-color: rgba(16, 185, 129, 0.06);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            color: var(--success);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.05);
+        }
+
+        .status-badge.running i {
+            animation: pulse-emerald 1.5s infinite alternate;
+        }
+
+        .status-badge.stopped {
+            background-color: rgba(239, 68, 68, 0.06);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+        }
+
+        .status-badge.stopped i {
+            animation: pulse-crimson 2s infinite ease-in-out;
+        }
+
+        /* Terminal Prompt motif for Central Directory */
+        .terminal-panel {
+            background-color: var(--bg-terminal);
+            border: 1px solid var(--border-terminal);
+            border-radius: 12px;
+            padding: var(--space-lg);
+            margin-bottom: var(--space-lg);
+            position: relative;
+            box-shadow: var(--shadow-sm);
+            transition: var(--transition-smooth);
+        }
+
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--space-md);
+            border-bottom: 1px solid var(--border-terminal);
+            padding-bottom: var(--space-sm);
+            transition: var(--transition-smooth);
+        }
+
+        .terminal-dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .terminal-dots span {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .terminal-dots span:nth-child(1) { background-color: #ef4444; }
+        .terminal-dots span:nth-child(2) { background-color: #f59e0b; }
+        .terminal-dots span:nth-child(3) { background-color: #10b981; }
+
+        .terminal-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-terminal-label);
+            text-transform: uppercase;
+            transition: var(--transition-smooth);
+        }
+
+        .terminal-body {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--space-md);
+            font-family: var(--font-mono);
+            font-size: 1.05rem;
+            color: var(--text-terminal-body);
+            word-break: break-all;
+            transition: var(--transition-smooth);
+        }
+
+        .terminal-prompt {
+            color: var(--primary);
+            user-select: none;
+            font-weight: 700;
+        }
+
+        .terminal-text {
+            flex: 1;
+            color: var(--text-terminal-main);
+            transition: var(--transition-smooth);
+        }
+
+        /* Action Toolbar */
+        .action-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: var(--space-md);
+            margin-bottom: var(--space-lg);
+        }
+
+        .action-bar .btn {
+            width: 100%;
+            justify-content: center;
+            height: 52px;
+            font-size: 1.02rem;
+        }
+
+        .btn-loading {
+            border-color: var(--primary) !important;
+            box-shadow: var(--shadow-glow) !important;
+            animation: pulse-glow-btn 1.4s infinite ease-in-out;
+            opacity: 0.85;
+        }
+
+        @keyframes pulse-glow-btn {
+            0%, 100% {
+                border-color: var(--primary);
+                box-shadow: 0 0 10px var(--primary-glow);
+            }
+            50% {
+                border-color: var(--accent);
+                box-shadow: 0 0 20px var(--accent-glow);
+            }
+        }
+
+        /* ==========================================
+           GRID & CARD SYSTEM (ASYNCHRONOUS WEIGHTS)
+           ========================================== */
+        
+        .grid-layout {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+            gap: var(--space-md);
+        }
+
+        .card {
+            background-color: var(--bg-surface);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            padding: var(--space-lg);
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-md);
+            transition: var(--transition-smooth);
+            position: relative;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: var(--border-color-active);
+            box-shadow: var(--shadow-md);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: var(--space-md);
+        }
+
+        .card-title {
+            font-family: var(--font-display);
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+        }
+
+        .card-title i {
+            color: var(--primary);
+        }
+
+        .card-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            word-break: break-all;
+            background-color: rgba(0, 0, 0, 0.15);
+            padding: var(--space-xs) var(--space-sm);
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            font-family: var(--font-mono);
+        }
+
+        .tag {
+            font-family: var(--font-display);
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .tag-info {
+            background-color: rgba(59, 130, 246, 0.08);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            color: var(--primary);
+        }
+
+        .tag-success {
+            background-color: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        .tag-warning {
+            background-color: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            color: var(--warning);
+        }
+
+        .tag-muted {
+            background-color: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-muted);
+        }
+
+        .card-actions {
+            margin-top: auto;
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            gap: var(--space-sm);
+            padding-top: var(--space-sm);
+            border-top: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .card-actions .btn {
+            flex: 1;
+            justify-content: center;
+        }
+
+        /* Command Input Bar Motif */
+        .command-bar {
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.6rem 1rem;
+            margin-bottom: var(--space-lg);
+            transition: var(--transition-smooth);
+        }
+
+        .command-bar:focus-within {
+            border-color: var(--primary);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .search-widget {
+            transition: var(--transition-smooth);
+        }
+
+        .search-widget:focus-within {
+            border-color: var(--primary) !important;
+            box-shadow: var(--shadow-glow);
+            background-color: rgba(255, 255, 255, 0.02) !important;
+        }
+
+        .command-prompt {
+            font-family: var(--font-mono);
+            font-weight: 700;
+            color: var(--primary);
+            font-size: 1.1rem;
+            user-select: none;
+        }
+
+        .command-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-main);
+            font-family: var(--font-mono);
+            font-size: 1rem;
+            width: 100%;
+        }
+
+        .command-input::placeholder {
+            color: var(--text-muted);
+            opacity: 0.6;
+        }
+
+        /* Custom Premium CSS Tooltip (aligned bottom-right) */
+        .tooltip-bottom {
+            position: relative;
+            overflow: visible !important;
+        }
+
+        .tooltip-bottom::before {
+            content: attr(data-tooltip);
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            background-color: var(--bg-surface-elevated);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            color: var(--text-main);
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.78rem;
+            font-family: var(--font-display);
+            font-weight: 500;
+            white-space: normal;
+            width: 280px;
+            text-align: left;
+            border: 1px solid var(--primary-glow);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 0 15px var(--primary-glow);
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 1000;
+            line-height: 1.5;
+            transform: translateY(-8px) scale(0.96);
+            transform-origin: top right;
+        }
+
+        /* Tooltip Arrow Indicator */
+        .tooltip-bottom::after {
+            content: '';
+            position: absolute;
+            top: calc(100% + 4px);
+            right: 18px;
+            border-width: 0 6px 6px 6px;
+            border-style: solid;
+            border-color: transparent transparent var(--bg-surface-elevated) transparent;
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 1001;
+            transform: translateY(-6px);
+        }
+
+        .tooltip-bottom:hover::before,
+        .tooltip-bottom:hover::after {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+
+        /* ==========================================
+           TOAST NOTIFICATIONS
+           ========================================== */
+        #toast-container {
+            position: fixed;
+            bottom: var(--space-lg);
+            left: calc(50% + 140px);
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: var(--space-sm);
+            z-index: 9999;
+            transition: left 0.3s ease;
+        }
+
+        @media (max-width: 768px) {
+            #toast-container {
+                left: 50% !important;
+            }
+        }
+
+        .toast {
+            background-color: var(--bg-surface-elevated);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            color: var(--text-main);
+            padding: var(--space-md) var(--space-lg);
+            border-radius: 8px;
+            box-shadow: var(--shadow-md);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--primary);
+            display: flex;
+            align-items: flex-start;
+            gap: var(--space-md);
+            min-width: 320px;
+            max-width: 640px;
+            max-height: 240px;
+            overflow-y: auto;
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            transform: translateY(40px);
+            opacity: 0;
+            animation: toastIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            transition: var(--transition-smooth);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .toast::-webkit-scrollbar {
+            width: 4px;
+        }
+        .toast::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .toast::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 2px;
+        }
+        .toast::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .toast.success { border-left-color: var(--success); }
+        .toast.error { border-left-color: var(--danger); }
+        .toast.warning { border-left-color: var(--warning); }
+
+        .toast.toast-out {
+            animation: toastOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        /* ==========================================
+           ANIMATIONS & KEYFRAMES
+           ========================================== */
+        @keyframes slideUpFade {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes toastIn {
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes toastOut {
+            from {
+                transform: translateY(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateY(40px);
+                opacity: 0;
+            }
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% {
+                filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.3));
+            }
+            50% {
+                filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.8));
+            }
+        }
+
+        @keyframes pulse-emerald {
+            from {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+                transform: scale(1);
+            }
+            to {
+                box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+                transform: scale(1.15);
+            }
+        }
+
+        @keyframes pulse-crimson {
+            0%, 100% {
+                opacity: 0.5;
+            }
+            50% {
+                opacity: 1;
+            }
+        }
+
+        /* ==========================================
+           RESPONSIVE BREAKPOINTS (Mobile adaptation)
+           ========================================== */
+        @media (max-width: 1024px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                height: auto;
+                padding: var(--space-sm) 0;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+            }
+
+            .brand {
+                padding: var(--space-sm) var(--space-md);
+            }
+
+            .nav-container {
+                display: flex;
+                flex-direction: row;
+                justify-content: space-around;
+            }
+
+            .nav-item {
+                padding: var(--space-sm);
+                border-left: none;
+                border-bottom: 3px solid transparent;
+            }
+
+            .nav-item.active {
+                border-left-color: transparent;
+                border-bottom-color: var(--primary);
+            }
+
+            .sidebar-footer {
+                display: none;
+            }
+
+            .header {
+                left: 0;
+                top: auto;
+                bottom: 0;
+                border-bottom: none;
+                border-top: 1px solid var(--border-color);
+                height: 60px;
+            }
+
+            .main-content {
+                margin-left: 0;
+                margin-top: 0;
+                height: calc(100vh - 120px);
+                padding: var(--space-md);
+            }
+        }
+
+        /* ==========================================
+           GUIDE TAB STYLES
+           ========================================== */
+        .guide-section-block {
+            background-color: var(--bg-surface);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            padding: var(--space-lg);
+            margin-bottom: var(--space-md);
+            transition: var(--transition-smooth);
+        }
+        .guide-section-block:hover {
+            border-color: var(--border-color-active);
+            box-shadow: var(--shadow-sm);
+        }
+        .guide-section-block h3 {
+            font-family: var(--font-display);
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.02em;
+            margin-bottom: var(--space-md);
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+        }
+        .guide-section-block h3 i {
+            color: var(--primary);
+            font-size: 1.1rem;
+        }
+        .guide-section-block p,
+        .guide-section-block li {
+            font-family: var(--font-display);
+            font-size: 0.88rem;
+            color: var(--text-muted);
+            line-height: 1.7;
+        }
+        .guide-section-block ul,
+        .guide-section-block ol {
+            padding-left: 1.4rem;
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-xs);
+        }
+        .guide-section-block code {
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            background: rgba(59, 130, 246, 0.08);
+            border: 1px solid rgba(59, 130, 246, 0.15);
+            color: var(--primary);
+            padding: 0.15rem 0.45rem;
+            border-radius: 4px;
+        }
+        .guide-section-block pre {
+            background: var(--bg-terminal);
+            border: 1px solid var(--border-terminal);
+            border-radius: 8px;
+            padding: var(--space-md);
+            margin: var(--space-sm) 0;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .guide-section-block pre code {
+            background: transparent;
+            border: none;
+            padding: 0;
+            color: var(--text-terminal-main);
+            font-size: 0.82rem;
+            line-height: 1.6;
+        }
+        .guide-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: var(--font-display);
+            font-size: 0.82rem;
+            margin: var(--space-sm) 0;
+        }
+        .guide-table th {
+            text-align: left;
+            padding: var(--space-sm) var(--space-md);
+            background: rgba(59, 130, 246, 0.06);
+            border-bottom: 2px solid var(--border-color-active);
+            color: var(--text-main);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-size: 0.75rem;
+        }
+        .guide-table td {
+            padding: var(--space-sm) var(--space-md);
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-muted);
+            vertical-align: top;
+        }
+        .guide-table tr:hover td {
+            background: rgba(255, 255, 255, 0.015);
+        }
+        .guide-step {
+            display: flex;
+            gap: var(--space-md);
+            align-items: flex-start;
+            margin-bottom: var(--space-md);
+        }
+        .guide-step-num {
+            flex-shrink: 0;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            color: #fff;
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .guide-step-content {
+            flex: 1;
+        }
+        .guide-step-content strong {
+            font-family: var(--font-display);
+            color: var(--text-main);
+            font-size: 0.92rem;
+        }
+        .guide-step-content p {
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Background Grid Texture -->
+    <div class="grid-overlay"></div>
+
+    <!-- Sidebar Geometric Navigation -->
+    <aside class="sidebar">
+        <div class="brand">
+            <i class="fa-solid fa-square-poll-horizontal"></i>
+            <span>EasySkills</span>
+        </div>
+        <div class="nav-container">
+            <div class="nav-item active" data-target="dashboard">
+                <i class="fa-solid fa-terminal"></i>
+                <span class="t-dashboard">Dashboard</span>
+            </div>
+            <div class="nav-item" data-target="skills">
+                <i class="fa-solid fa-code-fork"></i>
+                <span class="t-skills">Skills</span>
+            </div>
+            <div class="nav-item" data-target="agents">
+                <i class="fa-solid fa-cube"></i>
+                <span class="t-agents">Agents</span>
+            </div>
+            <div class="nav-item" data-target="guide">
+                <i class="fa-solid fa-book-open"></i>
+                <span class="t-guide">Guide</span>
+            </div>
+            <div class="nav-item" data-target="about">
+                <i class="fa-solid fa-circle-info"></i>
+                <span class="t-about">About</span>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <span>EasySkills Core</span>
+        </div>
+    </aside>
+
+    <!-- Header Actions Tray -->
+    <header class="header">
+        <div class="header-title" id="page-title">Dashboard</div>
+        <div class="header-actions">
+            <button class="btn btn-primary tooltip-bottom" onclick="apiCall('/api/sync', {}, this)" id="btn-sync-all" data-tooltip="Force a manual full synchronization to link all active skills to all registered agents instantly.">
+                <i class="fa-solid fa-circle-notch"></i> <span class="t-sync-all">Sync All</span>
+            </button>
+            <button class="icon-btn" onclick="toggleTheme()" title="Toggle Theme">
+                <i class="fa-solid fa-moon" id="theme-icon"></i>
+            </button>
+            <button class="lang-toggle" onclick="toggleLang()" id="lang-btn">EN / 中文</button>
+        </div>
+    </header>
+
+    <!-- Main Dynamic Content Views -->
+    <main class="main-content">
+        
+        <!-- Dashboard Section -->
+        <section id="dashboard" class="view-section active">
+            
+            <!-- Terminal panel containing Central Directory Path -->
+            <div class="terminal-panel">
+                <div class="terminal-header">
+                    <div class="terminal-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                    <div class="terminal-label t-central-dir">Central Skills Registry</div>
+                </div>
+                <div class="terminal-body" onclick="copyCentralPath()" style="cursor: pointer;" title="Click to copy path">
+                    <span class="terminal-prompt">$</span>
+                    <span class="terminal-text" id="stat-central-dir">/loading/central/skills/directory...</span>
+                    <i class="fa-regular fa-copy" style="font-size: 0.9rem; color: var(--icon-terminal-copy); transition: var(--transition-smooth);"></i>
+                </div>
+            </div>
+
+            <!-- Stats Asymmetric Grid -->
+            <div class="stats-grid">
+                <div class="stat-card featured">
+                    <div class="stat-title">
+                        <i class="fa-solid fa-microchip"></i>
+                        <span class="t-watcher-status">Watcher Daemon</span>
+                    </div>
+                    <div style="margin-top: var(--space-sm);" id="stat-watcher">
+                        <span class="status-badge stopped"><i class="fa-solid fa-circle"></i> Loading...</span>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-title">
+                        <i class="fa-solid fa-folder-open"></i>
+                        <span class="t-total-skills">Mapped Skills</span>
+                    </div>
+                    <div class="stat-value" id="stat-skills">0</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-title">
+                        <i class="fa-solid fa-link"></i>
+                        <span class="t-mapped-agents">Active Bridges</span>
+                    </div>
+                    <div class="stat-value">
+                        <span id="stat-mapped">0</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Quick Action Toolbar -->
+            <div class="action-bar">
+                <button class="btn btn-outline" onclick="apiCall('/api/watcher/start', {}, this)">
+                    <i class="fa-solid fa-play" style="color: var(--success);"></i> 
+                    <span class="t-start-watcher">Start Daemon</span>
+                </button>
+                <button class="btn btn-outline" onclick="apiCall('/api/watcher/stop', {}, this)">
+                    <i class="fa-solid fa-stop" style="color: var(--danger);"></i> 
+                    <span class="t-stop-watcher">Stop Daemon</span>
+                </button>
+                <button class="btn btn-outline" onclick="apiCall('/api/cleanup', {}, this)">
+                    <i class="fa-solid fa-broom" style="color: var(--warning);"></i> 
+                    <span class="t-cleanup">Prune Invalid Symlinks</span>
+                </button>
+            </div>
+
+            <!-- Maintenance Guide -->
+            <div style="margin-top: var(--space-lg); border-top: 1px dashed var(--border-color); padding-top: var(--space-md);">
+                <h4 style="font-family: var(--font-display); font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--space-md); display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-circle-info" style="color: var(--primary);"></i>
+                    <span class="t-maintenance-guide">Maintenance Controls Manual</span>
+                </h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--space-md); font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; font-family: var(--font-display);">
+                    <div class="card" style="padding: var(--space-md); gap: 4px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
+                        <strong style="color: var(--text-main); font-size: 0.88rem;" class="t-start-watcher">Start Daemon</strong>
+                        <span class="t-start-watcher-desc">Installs a launchd daemon to automatically synchronize the registry folder. Any additions/removals of skills will propagate instantly to all active agent clients.</span>
+                    </div>
+                    <div class="card" style="padding: var(--space-md); gap: 4px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
+                        <strong style="color: var(--text-main); font-size: 0.88rem;" class="t-cleanup-desc-title">Prune Invalid Symlinks</strong>
+                        <span class="t-cleanup-desc">Scans agent skill targets, detecting and unlinking broken junctions (symlinks pointing to deleted skills). Keeps your agent environments clean and prevents load trace errors.</span>
+                    </div>
+                </div>
+            </div>
+            
+        </section>
+
+        <!-- Skills Section -->
+        <section id="skills" class="view-section">
+            <div class="grid-layout" id="skills-grid">
+                <!-- Javascript Injection -->
+            </div>
+        </section>
+
+        <!-- Agents Section -->
+        <section id="agents" class="view-section">
+            
+            <!-- Command line registration bar -->
+            <div class="command-bar">
+                <span class="command-prompt">></span>
+                <input type="text" id="custom-agent-path" class="command-input" placeholder="Enter absolute target agent path to register...">
+                <button class="btn btn-primary" onclick="addCustomAgent(this)">
+                    <i class="fa-solid fa-circle-plus"></i> <span class="t-add-custom">Register</span>
+                </button>
+            </div>
+
+            <!-- List Header with Micro-Expandable Filter -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); flex-wrap: wrap; gap: var(--space-sm);">
+                <h3 style="font-family: var(--font-display); font-weight: 700; color: var(--text-muted); font-size: 1.15rem; margin-bottom: 0;" class="t-agent-list">
+                    Linked Agent Terminals
+                </h3>
+                <div class="search-widget" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(0, 0, 0, 0.12); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 6px; transition: var(--transition-smooth); height: 32px;">
+                    <i class="fa-solid fa-filter" style="color: var(--primary); font-size: 0.8rem;"></i>
+                    <input type="text" id="agent-search-input" placeholder="筛选..." oninput="filterAgents()" style="font-size: 0.8rem; padding: 2px 0px; background: transparent; border: none; outline: none; color: var(--text-main); font-family: var(--font-mono); width: 80px; height: 100%;">
+                    <span style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-display); font-weight: 700; white-space: nowrap; user-select: none; margin-left: 2px;" class="t-search">Filter</span>
+                </div>
+            </div>
+            <div class="grid-layout" id="agents-grid">
+                <!-- Javascript Injection -->
+            </div>
+        </section>
+        <!-- Guide Section -->
+        <section id="guide" class="view-section">
+
+            <!-- Hero Banner -->
+            <div class="guide-section-block" style="border-top: 3px solid var(--primary); background: rgba(0,0,0,0.04); text-align: center; padding: var(--space-xl) var(--space-lg);">
+                <i class="fa-solid fa-rocket" style="font-size: 2.5rem; color: var(--primary); margin-bottom: var(--space-sm); display: block; animation: pulse-glow 3s infinite ease-in-out;"></i>
+                <h2 style="font-family: var(--font-display); font-size: 1.8rem; font-weight: 700; letter-spacing: -0.04em; color: var(--text-main); margin-bottom: var(--space-xs);" class="t-guide-title">Usage Guide</h2>
+                <p style="font-size: 0.92rem; color: var(--text-muted); max-width: 640px; margin: 0 auto; font-family: var(--font-display); line-height: 1.6;" class="t-guide-subtitle">Everything you need to know to get the most out of EasySkills.</p>
+            </div>
+
+            <!-- Quick Start -->
+            <div class="guide-section-block">
+                <h3><i class="fa-solid fa-bolt"></i> <span class="t-guide-quickstart-title">Quick Start</span></h3>
+                <div class="guide-step">
+                    <div class="guide-step-num">1</div>
+                    <div class="guide-step-content">
+                        <strong class="t-guide-qs1-title">Install EasySkills</strong>
+                        <p class="t-guide-qs1-desc">Run the one-line install command, or double-click the installer for your platform. The engine is installed to ~/EasySkills.</p>
+                    </div>
+                </div>
+                <div class="guide-step">
+                    <div class="guide-step-num">2</div>
+                    <div class="guide-step-content">
+                        <strong class="t-guide-qs2-title">Drop Your Skills</strong>
+                        <p class="t-guide-qs2-desc">Place any skill folder into ~/EasySkills. The background watcher detects it and maps it to all installed agents within seconds.</p>
+                    </div>
+                </div>
+                <div class="guide-step">
+                    <div class="guide-step-num">3</div>
+                    <div class="guide-step-content">
+                        <strong class="t-guide-qs3-title">Done &#8212; All Agents Synced</strong>
+                        <p class="t-guide-qs3-desc">Every supported agent (Claude, Gemini, Cursor, etc.) now sees your skill via symlink. Edit the skill once, all agents reflect it instantly.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Installation Methods -->
+            <div class="guide-section-block">
+                <h3><i class="fa-solid fa-download"></i> <span class="t-guide-install-title">Installation Methods</span></h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-md);">
+                    <div class="card" style="padding: var(--space-md); gap: 6px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
+                        <strong style="color: var(--text-main); font-size: 0.92rem; display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-terminal" style="color: var(--success);"></i> <span class="t-guide-install-a-title">Method A: One-Line Install (Recommended)</span></strong>
+                        <pre><code><i class="fa-brands fa-apple" style="color: var(--text-terminal-label);"></i> curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+
+<i class="fa-brands fa-windows" style="color: var(--text-terminal-label);"></i> irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex</code></pre>
+                    </div>
+                    <div class="card" style="padding: var(--space-md); gap: 6px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
+                        <strong style="color: var(--text-main); font-size: 0.92rem; display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-mouse-pointer" style="color: var(--warning);"></i> <span class="t-guide-install-b-title">Method B: Double-Click</span></strong>
+                        <p class="t-guide-install-b-desc">Clone or download the repo, then double-click <code>install_mac.command</code> (macOS) or <code>install_windows.bat</code> (Windows).</p>
+                    </div>
+                    <div class="card" style="padding: var(--space-md); gap: 6px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
+                        <strong style="color: var(--text-main); font-size: 0.92rem; display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-robot" style="color: var(--primary);"></i> <span class="t-guide-install-c-title">Method C: Let Your AI Agent Do It</span></strong>
+                        <p class="t-guide-install-c-desc">Just tell your agent: "Help me initialize EasySkills". It reads the SKILL.md, runs the script, and asks about custom paths.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Start / Stop Services -->
+            <div class="guide-section-block">
+                <h3><i class="fa-solid fa-power-off"></i> <span class="t-guide-startstop-title">Starting & Stopping Services</span></h3>
+                <p class="t-guide-startstop-desc">EasySkills consists of two components: the background watcher daemon and the local WebUI panel. Here is how to control them:</p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-md); margin-top: var(--space-sm);">
+                    <div class="card" style="padding: var(--space-md); gap: 6px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
+                        <strong style="color: var(--text-main); font-size: 0.92rem; display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-microchip" style="color: var(--primary);"></i> <span class="t-guide-ss-daemon-title">1. Background Watcher Daemon</span></strong>
+                        <p class="t-guide-ss-daemon-desc" style="font-size: 0.82rem; margin-bottom: 4px;">Automatically detects changes and syncs your skills in real-time.</p>
+                        <ul style="padding-left: 1.2rem; font-size: 0.82rem; display: flex; flex-direction: column; gap: 4px; color: var(--text-muted);">
+                            <li><strong style="color: var(--success);" class="t-guide-ss-start">Start:</strong> <span class="t-guide-ss-daemon-start-desc">Click "Start Watcher" on the Dashboard, or run CLI:</span>
+                                <pre style="margin: 4px 0;"><code style="font-size:0.78rem;"># macOS:
+bash ~/EasySkills/_maintenance/deploy.sh --watch
+# Windows:
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Watch</code></pre>
+                            </li>
+                            <li><strong style="color: var(--danger);" class="t-guide-ss-stop">Stop:</strong> <span class="t-guide-ss-daemon-stop-desc">Click "Stop Watcher" on the Dashboard, or run CLI:</span>
+                                <pre style="margin: 4px 0;"><code style="font-size:0.78rem;"># macOS:
+bash ~/EasySkills/_maintenance/deploy.sh --unwatch
+# Windows:
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Unwatch</code></pre>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="card" style="padding: var(--space-md); gap: 6px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
+                        <strong style="color: var(--text-main); font-size: 0.92rem; display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-window-restore" style="color: var(--warning);"></i> <span class="t-guide-ss-webui-title">2. WebUI Dashboard Control</span></strong>
+                        <p class="t-guide-ss-webui-desc" style="font-size: 0.82rem; margin-bottom: 4px;">The visual panel running locally at http://localhost:6633.</p>
+                        <ul style="padding-left: 1.2rem; font-size: 0.82rem; display: flex; flex-direction: column; gap: 4px; color: var(--text-muted);">
+                            <li><strong style="color: var(--success);" class="t-guide-ss-start">Start:</strong> <span class="t-guide-ss-webui-start-desc">Double-click the launcher script, or run CLI:</span>
+                                <pre style="margin: 4px 0;"><code style="font-size:0.78rem;"># macOS:
+~/EasySkills/_maintenance/macOS/Start — 启动.command
+# Windows:
+~/EasySkills/_maintenance/Windows/Start — 启动.bat
+# CLI:
+deploy.sh --webui / deploy.ps1 -WebUI</code></pre>
+                            </li>
+                            <li><strong style="color: var(--danger);" class="t-guide-ss-stop">Stop:</strong> <span class="t-guide-ss-webui-stop-desc">Simply close the launcher terminal window, or press Ctrl+C in the CLI terminal.</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- WebUI Dashboard -->
+            <div class="guide-section-block">
+                <h3><i class="fa-solid fa-gauge-high"></i> <span class="t-guide-webui-title">WebUI Dashboard</span></h3>
+                <p class="t-guide-webui-desc">After installation, open <code>http://localhost:6633</code> in your browser, or launch manually:</p>
+                <pre><code># macOS / Linux
+bash ~/EasySkills/_maintenance/deploy.sh --webui
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI</code></pre>
+                <p class="t-guide-webui-features">The dashboard lets you monitor watcher status, browse skills, connect/disconnect agents, edit paths, and check for updates. Requires Python 3 (macOS/Linux) or PowerShell 5.1+ (Windows).</p>
+            </div>
+
+            <!-- CLI Reference -->
+            <div class="guide-section-block">
+                <h3><i class="fa-solid fa-terminal"></i> <span class="t-guide-cli-title">CLI Reference</span></h3>
+                <pre><code># macOS
+bash ~/EasySkills/_maintenance/deploy.sh [option]
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]</code></pre>
+                <table class="guide-table">
+                    <thead>
+                        <tr>
+                            <th class="t-guide-cli-option">Option</th>
+                            <th class="t-guide-cli-desc-h">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>--sync</code></td><td class="t-guide-cli-sync">Sync all skills to all agents (default)</td></tr>
+                        <tr><td><code>--list</code></td><td class="t-guide-cli-list">List all active mappings</td></tr>
+                        <tr><td><code>--add &lt;path&gt;</code></td><td class="t-guide-cli-add">Add &amp; persist a custom agent path</td></tr>
+                        <tr><td><code>--remove &lt;path&gt;</code></td><td class="t-guide-cli-remove">Remove a persisted custom path</td></tr>
+                        <tr><td><code>--watch</code></td><td class="t-guide-cli-watch">Install the background watcher daemon</td></tr>
+                        <tr><td><code>--unwatch</code></td><td class="t-guide-cli-unwatch">Uninstall the background watcher daemon</td></tr>
+                        <tr><td><code>--cleanup</code></td><td class="t-guide-cli-cleanup">Remove all EasySkills symlinks</td></tr>
+                        <tr><td><code>--status</code></td><td class="t-guide-cli-status">Show watcher and mapping health status</td></tr>
+                        <tr><td><code>--webui</code></td><td class="t-guide-cli-webui">Start the local WebUI on port 6633</td></tr>
+                        <tr><td><code>--help</code></td><td class="t-guide-cli-help">Show help</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Custom Path Overrides -->
+            <div class="guide-section-block">
+                <h3><i class="fa-solid fa-sliders"></i> <span class="t-guide-custom-title">Custom Path Overrides</span></h3>
+                <p class="t-guide-custom-desc">Override any agent's default skills path via <code>_maintenance/custom-targets.txt</code> using the <code>AgentName=/new/path</code> syntax. Useful when an agent is installed in a non-standard location.</p>
+                <pre><code># Example: custom-targets.txt
+MyCustomAgent=/opt/my-agent/skills
+Cursor=/Users/me/custom-cursor/skills</code></pre>
+                <p class="t-guide-custom-alt">You can also add custom paths via the CLI (<code>deploy.sh --add /path</code>), the Agents tab in this WebUI, or by asking your AI agent.</p>
+            </div>
+
+            <!-- Agent Chat Commands -->
+            <div class="guide-section-block">
+                <h3><i class="fa-solid fa-comments"></i> <span class="t-guide-chat-title">Agent Chat Commands</span></h3>
+                <p class="t-guide-chat-desc">Once EasySkills is loaded as a skill, you can manage everything through natural language:</p>
+                <table class="guide-table">
+                    <thead>
+                        <tr>
+                            <th class="t-guide-chat-task-h">Task</th>
+                            <th class="t-guide-chat-prompt-h">Prompt</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td class="t-guide-chat-init">Initialize</td><td><em class="t-guide-chat-init-prompt">"Run EasySkills and set up my skills sync"</em></td></tr>
+                        <tr><td class="t-guide-chat-addpath">Add custom path</td><td><em class="t-guide-chat-addpath-prompt">"Map EasySkills to /path/to/agent/skills"</em></td></tr>
+                        <tr><td class="t-guide-chat-view">View mappings</td><td><em class="t-guide-chat-view-prompt">"Show all active EasySkills mappings"</em></td></tr>
+                        <tr><td class="t-guide-chat-remove">Remove a path</td><td><em class="t-guide-chat-remove-prompt">"Remove /path/to/agent/skills from EasySkills"</em></td></tr>
+                        <tr><td class="t-guide-chat-openui">Open WebUI</td><td><em class="t-guide-chat-openui-prompt">"Open the EasySkills WebUI dashboard"</em></td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Installed Directory Structure -->
+            <div class="guide-section-block">
+                <h3><i class="fa-solid fa-folder-tree"></i> <span class="t-guide-structure-title">Installed Directory Structure</span></h3>
+                <pre><code>~/EasySkills/
+&#x251C;&#x2500;&#x2500; SKILL.md                   # AI Agent skill interface
+&#x251C;&#x2500;&#x2500; _maintenance/              # Core engine (excluded from mapping)
+&#x2502;   &#x251C;&#x2500;&#x2500; macOS/                 # Double-click launchers
+&#x2502;   &#x2502;   &#x251C;&#x2500;&#x2500; Start &#x2014; &#x542F;&#x52A8;.command
+&#x2502;   &#x2502;   &#x2514;&#x2500;&#x2500; Uninstall &#x2014; &#x5378;&#x8F7D;.command
+&#x2502;   &#x251C;&#x2500;&#x2500; Windows/               # Double-click launchers
+&#x2502;   &#x2502;   &#x251C;&#x2500;&#x2500; Start &#x2014; &#x542F;&#x52A8;.bat
+&#x2502;   &#x2502;   &#x2514;&#x2500;&#x2500; Uninstall &#x2014; &#x5378;&#x8F7D;.bat
+&#x2502;   &#x251C;&#x2500;&#x2500; deploy.sh / deploy.ps1 # Mapping &amp; CLI engine
+&#x2502;   &#x251C;&#x2500;&#x2500; webui.py / webui.ps1   # WebUI backend (port 6633)
+&#x2502;   &#x251C;&#x2500;&#x2500; custom-targets.txt     # User config (custom agent paths)
+&#x2502;   &#x2514;&#x2500;&#x2500; .version               # Version tracker
+&#x2514;&#x2500;&#x2500; [YourSkills]/              # Drop your custom skills here</code></pre>
+                <p class="t-guide-structure-desc">The root directory is kept clean. README, LICENSE, and install scripts exist only in the Git repository for GitHub display.</p>
+            </div>
+
+            <!-- Notes -->
+            <div class="guide-section-block" style="border-left: 3px solid var(--warning);">
+                <h3><i class="fa-solid fa-triangle-exclamation" style="color: var(--warning) !important;"></i> <span class="t-guide-notes-title">Notes</span></h3>
+                <ul>
+                    <li><strong>Windows Defender</strong> &#8212; <span class="t-guide-note-defender-text">If Windows Defender flags EasySkills, you can whitelist the ~/EasySkills folder in Windows Security settings.</span></li>
+                    <li><strong>Watcher Scope</strong> &#8212; <span class="t-guide-note-watcher-text">The watcher monitors only the top-level of ~/EasySkills (folder additions/removals). It does not watch inside subdirectories since skills are symlinked.</span></li>
+                    <li><strong>WebUI Port</strong> &#8212; <span class="t-guide-note-port-text">The WebUI listens on localhost:6633 only. It does not accept connections from other machines.</span></li>
+                </ul>
+            </div>
+
+        </section>
+
+        <!-- About Section -->
+        <section id="about" class="view-section">
+            
+            <!-- Logo display block -->
+            <div class="card" style="align-items: center; text-align: center; padding: var(--space-xl) var(--space-lg); border-top: 3px solid var(--primary); position: relative; overflow: hidden; background: rgba(0,0,0,0.04);">
+                <i class="fa-solid fa-square-poll-horizontal" style="font-size: 3.5rem; color: var(--primary); animation: pulse-glow 3s infinite ease-in-out;"></i>
+                <h2 style="font-family: var(--font-display); font-size: 2.2rem; font-weight: 700; margin-top: var(--space-md); letter-spacing: -0.04em; color: var(--text-main);">EasySkills</h2>
+                <span class="tag tag-info" id="update-status-tag" style="margin-top: var(--space-xs); font-size: 0.8rem; padding: 0.35rem 0.8rem; font-family: var(--font-mono);">Loading...</span>
+                <p style="font-size: 0.92rem; color: var(--text-muted); max-width: 620px; margin-top: var(--space-md); line-height: 1.6; font-family: var(--font-display);" class="t-about-desc">
+                    Cross-platform automated skills manager for advanced agent coding. Automatically detects agent configurations, orchestrates background watches, and maps symlinks dynamically.
+                </p>
+            </div>
+
+            <!-- Double Column Information Grid -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--space-md); margin-top: var(--space-lg);">
+                
+                <!-- GitHub Card -->
+                <div class="card" style="justify-content: space-between;">
+                    <div style="display: flex; flex-direction: column; gap: var(--space-sm);">
+                        <div style="display: flex; align-items: center; gap: var(--space-sm);">
+                            <i class="fa-brands fa-github" style="font-size: 2.2rem; color: var(--text-main);"></i>
+                            <div style="display: flex; flex-direction: column;">
+                                <strong style="font-family: var(--font-display); font-size: 1.15rem; color: var(--text-main);">RunhuaHuang/EasySkills</strong>
+                                <span style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">github.com/RunhuaHuang/EasySkills</span>
+                            </div>
+                        </div>
+                        <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: var(--space-xs); line-height: 1.5; font-family: var(--font-display);" class="t-github-desc">
+                            Automate your workflow. Setup custom skills repositories and map them to Claude, Gemini, Cursor, Trae, and more. Open-source under MIT License.
+                        </p>
+                        <div style="display: flex; gap: var(--space-md); font-size: 0.8rem; color: var(--text-main); font-weight: 600; margin-top: var(--space-xs); font-family: var(--font-display);">
+                            <span><i class="fa-regular fa-star" style="color: var(--warning); margin-right: 4px;"></i>MIT License</span>
+                            <span><i class="fa-solid fa-code-fork" style="color: var(--primary); margin-right: 4px;"></i><span id="about-fork-version">Loading...</span></span>
+                        </div>
+                    </div>
+                    <div class="card-actions" style="border-top: none; padding-top: 0; margin-top: var(--space-md);">
+                        <a href="https://github.com/RunhuaHuang/EasySkills" target="_blank" class="btn btn-primary" style="width: 100%; justify-content: center; text-decoration: none;">
+                            <i class="fa-solid fa-arrow-up-right-from-square"></i> <span class="t-visit-github">Visit Repository</span>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Update Center -->
+                <div class="card" style="justify-content: space-between;">
+                    <div style="display: flex; flex-direction: column; gap: var(--space-sm);">
+                        <h3 style="font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-arrows-rotate" style="color: var(--success);"></i>
+                            <span class="t-update-center">Update Center</span>
+                        </h3>
+                        <div style="display: flex; flex-direction: column; gap: var(--space-xs); font-size: 0.82rem; margin-top: var(--space-xs); font-family: var(--font-display);">
+                            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: var(--space-xs);">
+                                <span class="t-current-version">Installed Version:</span>
+                                <strong style="color: var(--text-main); font-family: var(--font-mono);" id="installed-version-label">Loading...</strong>
+							</div>
+                            <div style="display: flex; justify-content: space-between; padding-top: 2px;">
+                                <span class="t-latest-version">Latest Release:</span>
+                                <strong id="latest-version" style="color: var(--text-main); font-family: var(--font-mono);">Loading...</strong>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-actions" style="border-top: none; padding-top: 0; margin-top: var(--space-md); display: flex; flex-direction: column; gap: var(--space-xs);">
+                        <button class="btn btn-outline" onclick="checkUpdates(this)" style="width: 100%; justify-content: center;">
+                            <i class="fa-solid fa-arrows-spin"></i> <span class="t-check-updates">Check for Updates</span>
+                        </button>
+                        <button class="btn btn-primary" id="btn-update-now" onclick="performUpdate(this)" style="width: 100%; justify-content: center; display: none;">
+                            <i class="fa-solid fa-download"></i> <span class="t-update-now">Update Now</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- WebUI Access Card -->
+                <div class="card" style="justify-content: space-between;">
+                    <div style="display: flex; flex-direction: column; gap: var(--space-sm);">
+                        <h3 style="font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-gauge-high" style="color: var(--primary);"></i>
+                            <span class="t-webui-access-title">Dashboard Access</span>
+                        </h3>
+                        <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: var(--space-xs); line-height: 1.5; font-family: var(--font-display);" class="t-webui-access-desc">
+                            Bookmark this address for fast management. The WebUI server runs locally on port 6633 and does not require internet connection.
+                        </p>
+                        <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.18); padding: var(--space-sm); border-radius: 6px; border: 1px solid var(--border-color); margin-top: var(--space-xs); cursor: pointer;" onclick="copyWebUiUrl()" title="Click to copy WebUI URL">
+                            <code style="color: var(--primary); font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600;">http://localhost:6633</code>
+                            <i class="fa-regular fa-copy" style="font-size: 0.85rem; color: var(--icon-terminal-copy);"></i>
+                        </div>
+                    </div>
+                    <div class="card-actions" style="border-top: none; padding-top: 0; margin-top: var(--space-md);">
+                        <button class="btn btn-outline" onclick="addBookmark()" style="width: 100%; justify-content: center;">
+                            <i class="fa-regular fa-star"></i> <span class="t-add-bookmark">Add to Bookmarks</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- One-Click update terminal commands -->
+            <div class="terminal-panel" style="margin-top: var(--space-lg); margin-bottom: 0;">
+                <div class="terminal-header">
+                    <div class="terminal-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                    <div class="terminal-label t-one-click-title">One-Click Upgrade Command</div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: var(--space-md); font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-terminal-body);">
+                    <div onclick="copyUpdateCommand('mac')" style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); background: rgba(0,0,0,0.22); padding: var(--space-sm) var(--space-md); border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);" title="Click to copy macOS update command">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-brands fa-apple" style="font-size: 1.15rem; color: var(--text-terminal-label);"></i>
+                            <span style="color: var(--text-terminal-main);">curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash</span>
+                        </div>
+                        <i class="fa-regular fa-copy" style="font-size: 0.85rem; color: var(--icon-terminal-copy);"></i>
+                    </div>
+                    <div onclick="copyUpdateCommand('win')" style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); background: rgba(0,0,0,0.22); padding: var(--space-sm) var(--space-md); border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);" title="Click to copy Windows update command">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-brands fa-windows" style="font-size: 1.15rem; color: var(--text-terminal-label);"></i>
+                            <span style="color: var(--text-terminal-main);">irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex</span>
+                        </div>
+                        <i class="fa-regular fa-copy" style="font-size: 0.85rem; color: var(--icon-terminal-copy);"></i>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Toast Notifications Layer -->
+    <div id="toast-container"></div>
+
+    <!-- Premium Custom Modal Dialog Backdrop -->
+    <div id="custom-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); z-index: 9999; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease;">
+        <div class="card" id="custom-modal-content" style="width: 100%; max-width: 520px; padding: var(--space-lg); border-top: 3px solid var(--primary); transform: translateY(20px); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); box-shadow: var(--shadow-md), var(--shadow-glow); background-color: var(--bg-surface-elevated); gap: var(--space-md); margin: var(--space-md);">
+            <div style="display: flex; align-items: center; gap: var(--space-sm); font-family: var(--font-display); font-size: 1.35rem; font-weight: 700; color: var(--text-main);">
+                <i class="fa-solid fa-sliders" style="color: var(--primary);"></i>
+                <span id="modal-title">Configure Skills Path</span>
+            </div>
+            <p id="modal-desc" style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.5; font-family: var(--font-display); margin-top: -4px;">
+                Specify the custom path for this agent's skills mapping destination.
+            </p>
+            
+            <!-- Technical Monospace Input Bar -->
+            <div class="command-bar" style="margin-bottom: 0; margin-top: var(--space-xs);">
+                <span class="command-prompt">></span>
+                <input type="text" id="modal-path-input" class="command-input" placeholder="Enter absolute target path..." style="width: 100%;">
+            </div>
+            
+            <div class="card-actions" style="margin-top: var(--space-sm); padding-top: var(--space-md); border-top: 1px solid rgba(255,255,255,0.04); display: flex; gap: var(--space-sm); width: 100%;">
+                <button class="btn btn-outline" style="flex: 1; justify-content: center;" onclick="closeCustomModal()"><i class="fa-solid fa-xmark"></i> <span class="t-cancel">Cancel</span></button>
+                <button class="btn btn-primary" style="flex: 1; justify-content: center;" id="modal-save-btn"><i class="fa-solid fa-check"></i> <span class="t-save">Save</span></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+       JAVASCRIPT APPLICATION CONTROLLER
+       ========================================== -->
+    <script>
+        // --- State Management ---
+        let currentLang = localStorage.getItem('es_lang') || 'en';
+        let currentTheme = localStorage.getItem('es_theme') || 'dark';
+        
+        // --- Language Dictionary (EN / ZH-CN) ---
+        const dict = {
+            en: {
+                't-dashboard': 'Dashboard',
+                't-skills': 'Registry',
+                't-agents': 'Bridges',
+                't-sync-all': 'Synchronize',
+                't-total-skills': 'Mapped Skills',
+                't-mapped-agents': 'Linked Bridges',
+                't-watcher-status': 'Watcher Status',
+                't-start-watcher': 'Start Daemon',
+                't-stop-watcher': 'Stop Daemon',
+                't-cleanup': 'Prune Invalid Symlinks',
+                't-central-dir': 'Central Directory Path',
+                't-add-custom': 'Add Custom',
+                't-agent-list': 'Available & Registered Agents',
+                't-running': 'Monitoring (Active)',
+                't-stopped': 'Offline (Idle)',
+                't-map': 'Connect Bridge',
+                't-unmap': 'Sever Link',
+                't-remove': 'Deregister',
+                't-installed': 'Discovered',
+                't-missing': 'Unreachable',
+                't-search': 'Filter',
+                't-edit-config': 'Edit Config',
+                't-save': 'Save',
+                't-cancel': 'Cancel',
+                't-maintenance-guide': 'Maintenance Controls Manual',
+                't-start-watcher-desc': 'Installs a launchd daemon to automatically synchronize the registry folder. Any additions/removals of skills will propagate instantly to all active agent clients.',
+                't-cleanup-desc-title': 'Prune Invalid Symlinks',
+                't-cleanup-desc': 'Scans agent skill targets, detecting and unlinking broken junctions (symlinks pointing to deleted skills). Keeps your agent environments clean and prevents load trace errors.',
+                't-about': 'About',
+                't-about-desc': 'Cross-platform automated skills manager for advanced agent coding. Automatically detects agent configurations, orchestrates background watches, and maps symlinks dynamically.',
+                't-github-desc': 'Automate your workflow. Setup custom skills repositories and map them to Claude, Gemini, Cursor, Trae, and more. Open-source under MIT License.',
+                't-visit-github': 'Visit Repository',
+                't-update-center': 'Update Center',
+                't-current-version': 'Installed Version:',
+                't-latest-version': 'Latest Release:',
+                't-check-updates': 'Check for Updates',
+                't-update-now': 'Update Now',
+                't-one-click-title': 'One-Click Upgrade script Command',
+                't-webui-access-title': 'Dashboard Access',
+                't-webui-access-desc': 'We strongly recommend bookmarking this URL in your browser. The EasySkills local WebUI runs on port 6633 offline.',
+                't-add-bookmark': 'Add to Bookmarks',
+                't-guide': 'Guide',
+                't-guide-title': 'Usage Guide',
+                't-guide-subtitle': 'Everything you need to know to get the most out of EasySkills.',
+                't-guide-startstop-title': 'Starting & Stopping Services',
+                't-guide-startstop-desc': 'EasySkills consists of two components: the background watcher daemon (handles real-time skill mapping) and the local WebUI panel (visual dashboard). Here is how to control them:',
+                't-guide-ss-daemon-title': '1. Background Watcher Daemon',
+                't-guide-ss-daemon-desc': 'Automatically detects changes and syncs your skills in real-time.',
+                't-guide-ss-start': 'Start:',
+                't-guide-ss-stop': 'Stop:',
+                't-guide-ss-daemon-start-desc': 'Click "Start Watcher" on the Dashboard, or run CLI:',
+                't-guide-ss-daemon-stop-desc': 'Click "Stop Watcher" on the Dashboard, or run CLI:',
+                't-guide-ss-webui-title': '2. WebUI Dashboard Control',
+                't-guide-ss-webui-desc': 'The visual panel running locally at http://localhost:6633.',
+                't-guide-ss-webui-start-desc': 'Double-click the launcher script, or run CLI:',
+                't-guide-ss-webui-stop-desc': 'Simply close the launcher terminal window, or press Ctrl+C in the CLI terminal.',
+                't-guide-quickstart-title': 'Quick Start',
+                't-guide-qs1-title': 'Install EasySkills',
+                't-guide-qs1-desc': 'Run the one-line install command, or double-click the installer for your platform. The engine is installed to ~/EasySkills.',
+                't-guide-qs2-title': 'Drop Your Skills',
+                't-guide-qs2-desc': 'Place any skill folder into ~/EasySkills. The background watcher detects it and maps it to all installed agents within seconds.',
+                't-guide-qs3-title': 'Done \u2014 All Agents Synced',
+                't-guide-qs3-desc': 'Every supported agent (Claude, Gemini, Cursor, etc.) now sees your skill via symlink. Edit the skill once, all agents reflect it instantly.',
+                't-guide-install-title': 'Installation Methods',
+                't-guide-install-a-title': 'Method A: One-Line Install (Recommended)',
+                't-guide-install-b-title': 'Method B: Double-Click',
+                't-guide-install-b-desc': 'Clone or download the repo, then double-click install_mac.command (macOS) or install_windows.bat (Windows).',
+                't-guide-install-c-title': 'Method C: Let Your AI Agent Do It',
+                't-guide-install-c-desc': 'Just tell your agent: "Help me initialize EasySkills". It reads the SKILL.md, runs the script, and asks about custom paths.',
+                't-guide-cli-title': 'CLI Reference',
+                't-guide-cli-option': 'Option',
+                't-guide-cli-desc-h': 'Description',
+                't-guide-cli-sync': 'Sync all skills to all agents (default)',
+                't-guide-cli-list': 'List all active mappings',
+                't-guide-cli-add': 'Add & persist a custom agent path',
+                't-guide-cli-remove': 'Remove a persisted custom path',
+                't-guide-cli-watch': 'Install the background watcher daemon',
+                't-guide-cli-unwatch': 'Uninstall the background watcher daemon',
+                't-guide-cli-cleanup': 'Remove all EasySkills symlinks',
+                't-guide-cli-status': 'Show watcher and mapping health status',
+                't-guide-cli-webui': 'Start the local WebUI on port 6633',
+                't-guide-cli-help': 'Show help',
+                't-guide-webui-title': 'WebUI Dashboard',
+                't-guide-webui-desc': 'After installation, open http://localhost:6633 in your browser, or launch manually:',
+                't-guide-webui-features': 'The dashboard lets you monitor watcher status, browse skills, connect/disconnect agents, edit paths, and check for updates. Requires Python 3 (macOS/Linux) or PowerShell 5.1+ (Windows).',
+                't-guide-custom-title': 'Custom Path Overrides',
+                't-guide-custom-desc': 'Override any agent\'s default skills path via _maintenance/custom-targets.txt using the AgentName=/new/path syntax. Useful when an agent is installed in a non-standard location.',
+                't-guide-custom-alt': 'You can also add custom paths via the CLI (deploy.sh --add /path), the Agents tab in this WebUI, or by asking your AI agent.',
+                't-guide-chat-title': 'Agent Chat Commands',
+                't-guide-chat-desc': 'Once EasySkills is loaded as a skill, you can manage everything through natural language:',
+                't-guide-chat-task-h': 'Task',
+                't-guide-chat-prompt-h': 'Prompt',
+                't-guide-chat-init': 'Initialize',
+                't-guide-chat-init-prompt': '"Run EasySkills and set up my skills sync"',
+                't-guide-chat-addpath': 'Add custom path',
+                't-guide-chat-addpath-prompt': '"Map EasySkills to /path/to/agent/skills"',
+                't-guide-chat-view': 'View mappings',
+                't-guide-chat-view-prompt': '"Show all active EasySkills mappings"',
+                't-guide-chat-remove': 'Remove a path',
+                't-guide-chat-remove-prompt': '"Remove /path/to/agent/skills from EasySkills"',
+                't-guide-chat-openui': 'Open WebUI',
+                't-guide-chat-openui-prompt': '"Open the EasySkills WebUI dashboard"',
+                't-guide-structure-title': 'Installed Directory Structure',
+                't-guide-structure-desc': 'The root directory is kept clean. README, LICENSE, and install scripts exist only in the Git repository for GitHub display.',
+                't-guide-notes-title': 'Notes',
+                't-guide-note-defender-text': 'If Windows Defender flags EasySkills, you can whitelist the ~/EasySkills folder in Windows Security settings.',
+                't-guide-note-watcher-text': 'The watcher monitors only the top-level of ~/EasySkills (folder additions/removals). It does not watch inside subdirectories since skills are symlinked.',
+                't-guide-note-port-text': 'The WebUI listens on localhost:6633 only. It does not accept connections from other machines.'
+            },
+            zh: {
+                't-dashboard': '控制台',
+                't-skills': '技能库',
+                't-agents': '智能体',
+                't-sync-all': '全量同步',
+                't-total-skills': '映射技能数',
+                't-mapped-agents': '已连接Agent',
+                't-watcher-status': '后台守护状态',
+                't-start-watcher': '开启守护',
+                't-stop-watcher': '停止守护',
+                't-cleanup': '清理失效软链接',
+                't-central-dir': '中央技能库目录',
+                't-add-custom': '注册通道',
+                't-agent-list': '智能体环境列表',
+                't-running': '监听中 (运行)',
+                't-stopped': '未监听 (闲置)',
+                't-map': '连接通道',
+                't-unmap': '断开通道',
+                't-remove': '注销',
+                't-installed': '正常激活',
+                't-missing': '未探测到',
+                't-search': '筛选',
+                't-edit-config': '配置编辑',
+                't-save': '保存',
+                't-cancel': '取消',
+                't-maintenance-guide': '维护命令控制指南',
+                't-start-watcher-desc': '在系统后台注册 launchd 守护进程。启动后将实时监听您的中央技能目录，任何技能的增加、修改或删除都将瞬间全自动映射同步到所有激活的智能体终端。',
+                't-cleanup-desc-title': '清理失效软链接',
+                't-cleanup-desc': '深度扫描所有已注册智能体的 skills 目录，探测并强制拔除“失效软链接”（即指向已删除技能文件夹的死链接），避免 AI 客户端在加载运行时发生寻址报错。',
+                't-about': '关于',
+                't-about-desc': '专为大语言智能体（Agent）设计的跨平台、全自动技能分发与热重载管理器。自适应宿主环境，动态监听技能库变更，秒级完成多端软链接深度连接。',
+                't-github-desc': '极客级的自动化开发利器。配置自定义技能注册表，支持 Claude, Gemini, Cursor, Trae, Continue 等所有主流编码客户端，项目遵循 MIT 开源许可。',
+                't-visit-github': '访问 GitHub 仓库',
+                't-update-center': '升级控制中心',
+                't-current-version': '已安装版本:',
+                't-latest-version': '最新发行版:',
+                't-check-updates': '检查最新版本',
+                't-update-now': '立即更新',
+                't-one-click-title': '一键升级命令指令',
+                't-webui-access-title': '控制台快捷访问',
+                't-webui-access-desc': '强烈建议将此网址添加至浏览器收藏夹。EasySkills 本地 WebUI 运行于 6633 端口，无需联网即可离线运行。',
+                't-add-bookmark': '一键浏览器添加收藏',
+                't-guide': '使用教程',
+                't-guide-title': '使用教程',
+                't-guide-subtitle': '帮助您快速上手并充分利用 EasySkills 的完整指南。',
+                't-guide-startstop-title': '开启与关闭服务',
+                't-guide-startstop-desc': 'EasySkills 由两个部分组成：后台监听守护进程（处理实时技能同步）与本地 WebUI 管理面板（可视化控制台）。以下是控制它们的方法：',
+                't-guide-ss-daemon-title': '1. 后台监听守护进程',
+                't-guide-ss-daemon-desc': '在后台自动检测 ~/EasySkills 目录变化并在几秒内自动同步。',
+                't-guide-ss-start': '开启：',
+                't-guide-ss-stop': '关闭：',
+                't-guide-ss-daemon-start-desc': '在控制台“仪表盘”页面点击“开启监听”按钮，或运行命令行：',
+                't-guide-ss-daemon-stop-desc': '在控制台“仪表盘”页面点击“关闭监听”按钮，或运行命令行：',
+                't-guide-ss-webui-title': '2. WebUI 管理面板',
+                't-guide-ss-webui-desc': '运行在本地 http://localhost:6633 的可视化操作面板。',
+                't-guide-ss-webui-start-desc': '双击启动脚本，或运行命令行：',
+                't-guide-ss-webui-stop-desc': '直接关闭弹出的命令行/终端窗口，或在命令行终端中按 Ctrl+C 中断运行。',
+                't-guide-quickstart-title': '快速开始',
+                't-guide-qs1-title': '安装 EasySkills',
+                't-guide-qs1-desc': '运行一行命令安装，或双击对应平台的安装器。引擎将被安装到 ~/EasySkills 目录。',
+                't-guide-qs2-title': '放入技能文件夹',
+                't-guide-qs2-desc': '将任意技能文件夹放入 ~/EasySkills。后台守护进程会在几秒内自动检测并映射到所有已安装的 Agent。',
+                't-guide-qs3-title': '完成 — 所有 Agent 已同步',
+                't-guide-qs3-desc': '所有支持的 Agent（Claude, Gemini, Cursor 等）现在都能通过软链接看到你的技能。修改一次，所有 Agent 立刻同步。',
+                't-guide-install-title': '安装方式',
+                't-guide-install-a-title': '方案 A：一行命令安装（推荐）',
+                't-guide-install-b-title': '方案 B：双击安装',
+                't-guide-install-b-desc': '克隆或下载仓库，然后双击 install_mac.command（macOS）或 install_windows.bat（Windows）。',
+                't-guide-install-c-title': '方案 C：让 AI Agent 自动安装',
+                't-guide-install-c-desc': '直接对你的 Agent 说："帮我运行 EasySkills 初始化"。Agent 会读取 SKILL.md，执行安装脚本，并主动询问自定义路径。',
+                't-guide-cli-title': '命令行工具',
+                't-guide-cli-option': '选项',
+                't-guide-cli-desc-h': '说明',
+                't-guide-cli-sync': '同步所有技能到所有 Agent（默认）',
+                't-guide-cli-list': '列出所有活跃映射',
+                't-guide-cli-add': '添加并持久化自定义 Agent 路径',
+                't-guide-cli-remove': '移除已持久化的自定义路径',
+                't-guide-cli-watch': '安装后台监听守护进程',
+                't-guide-cli-unwatch': '卸载后台监听守护进程',
+                't-guide-cli-cleanup': '清除所有 EasySkills 创建的软链接',
+                't-guide-cli-status': '查看守护进程和映射健康状态',
+                't-guide-cli-webui': '启动本地 WebUI 管理面板（端口 6633）',
+                't-guide-cli-help': '显示帮助',
+                't-guide-webui-title': 'WebUI 管理面板',
+                't-guide-webui-desc': '安装完成后，在浏览器中打开 http://localhost:6633，或手动启动：',
+                't-guide-webui-features': '通过面板即可实时监控守护状态、浏览已安装技能、一键连接/断开 Agent、编辑配置路径、检查版本更新。依赖：Python 3（macOS/Linux）或 PowerShell 5.1+（Windows）。',
+                't-guide-custom-title': '自定义路径覆盖',
+                't-guide-custom-desc': '通过 _maintenance/custom-targets.txt 中的 Agent名称=/新/路径 语法，可覆盖任何默认 Agent 的技能目录位置。',
+                't-guide-custom-alt': '也可以通过命令行（deploy.sh --add /路径）、本面板的智能体标签页、或直接对 AI 对话来添加自定义路径。',
+                't-guide-chat-title': '自然语言管理',
+                't-guide-chat-desc': 'EasySkills 加载为技能后，直接对你的 AI 助手说：',
+                't-guide-chat-task-h': '任务',
+                't-guide-chat-prompt-h': '提示词',
+                't-guide-chat-init': '初始化',
+                't-guide-chat-init-prompt': '"运行 EasySkills，帮我初始化技能同步系统"',
+                't-guide-chat-addpath': '添加自定义路径',
+                't-guide-chat-addpath-prompt': '"帮我把技能映射到 /path/to/agent/skills"',
+                't-guide-chat-view': '查看映射状态',
+                't-guide-chat-view-prompt': '"列出 EasySkills 当前所有映射"',
+                't-guide-chat-remove': '移除路径',
+                't-guide-chat-remove-prompt': '"从 EasySkills 移除 /path/to/agent/skills"',
+                't-guide-chat-openui': '打开 WebUI',
+                't-guide-chat-openui-prompt': '"打开 EasySkills 管理面板"',
+                't-guide-structure-title': '安装目录结构',
+                't-guide-structure-desc': '根目录保持整洁。README、LICENSE、安装脚本仅存在于 Git 仓库中供 GitHub 展示。',
+                't-guide-notes-title': '注意事项',
+                't-guide-note-defender-text': '如果 Windows Defender 误报，可在 Windows 安全中心将 ~/EasySkills 文件夹加入排除项。',
+                't-guide-note-watcher-text': '后台监听只监控 ~/EasySkills 顶层目录的文件夹增删。不监听子目录——因为技能通过软链映射，内部文件修改会即时反映到所有 Agent。',
+                't-guide-note-port-text': 'WebUI 仅监听 localhost:6633，不接受外部连接。'
+            }
+        };
+
+        // --- Core App Initializer ---
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        updateThemeIcon();
+        applyLanguage();
+        refreshAll();
+
+        // 5-Second Watchdog Auto Refresh (pauses when tab is not visible)
+        let refreshIntervalId = setInterval(refreshAll, 5000);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                clearInterval(refreshIntervalId);
+                refreshIntervalId = null;
+            } else {
+                refreshAll();
+                refreshIntervalId = setInterval(refreshAll, 5000);
+            }
+        });
+
+        // --- Navigation Controller ---
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+                item.classList.add('active');
+                
+                const target = item.getAttribute('data-target');
+                document.querySelectorAll('.view-section').forEach(s => s.classList.remove('active'));
+                document.getElementById(target).classList.add('active');
+                
+                const titleKey = `t-${target}`;
+                document.getElementById('page-title').innerText = dict[currentLang][titleKey] || target;
+                
+                refreshAll();
+            });
+        });
+
+        // --- Theme Swap Module ---
+        function toggleTheme() {
+            currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', currentTheme);
+            localStorage.setItem('es_theme', currentTheme);
+            updateThemeIcon();
+        }
+
+        function updateThemeIcon() {
+            const icon = document.getElementById('theme-icon');
+            if (currentTheme === 'dark') {
+                icon.className = 'fa-solid fa-sun';
+            } else {
+                icon.className = 'fa-solid fa-moon';
+            }
+        }
+
+        // --- Translation Module ---
+        function toggleLang() {
+            currentLang = currentLang === 'en' ? 'zh' : 'en';
+            localStorage.setItem('es_lang', currentLang);
+            applyLanguage();
+            refreshAll(); 
+        }
+
+        function applyLanguage() {
+            for (const [key, val] of Object.entries(dict[currentLang])) {
+                document.querySelectorAll(`.${key}`).forEach(el => {
+                    el.innerText = val;
+                });
+            }
+            document.getElementById('lang-btn').innerText = currentLang === 'en' ? 'EN / 中文' : '中文 / EN';
+            
+            const activeNav = document.querySelector('.nav-item.active')?.getAttribute('data-target');
+            if(activeNav) document.getElementById('page-title').innerText = dict[currentLang][`t-${activeNav}`] || '';
+            
+            const syncBtn = document.getElementById('btn-sync-all');
+            if (syncBtn) {
+                syncBtn.setAttribute('data-tooltip', currentLang === 'en' ? 
+                    'Force a manual full synchronization to link all active skills to all registered agents instantly.' : 
+                    '强制执行全量同步：立即扫描中央技能库并重新映射所有已激活的智能体技能通道。');
+            }
+            
+            // Dynamic placeholder updating
+            const customInput = document.getElementById('custom-agent-path');
+            if(customInput) {
+                customInput.placeholder = currentLang === 'en' ? 
+                    'Enter absolute target agent path to register...' : 
+                    '请输入目标智能体 skills 目录的绝对路径...';
+            }
+            const searchInput = document.getElementById('agent-search-input');
+            if(searchInput) {
+                searchInput.placeholder = currentLang === 'en' ? 
+                    'Filter...' : 
+                    '筛选...';
+            }
+        }
+
+        // --- Custom Clip Board Helper ---
+        function copyCentralPath() {
+            const pathText = document.getElementById('stat-central-dir').innerText;
+            navigator.clipboard.writeText(pathText).then(() => {
+                showToast(currentLang === 'en' ? 'Path copied to clipboard!' : '路径已复制到剪贴板！', 'success');
+            }).catch(() => {
+                showToast(currentLang === 'en' ? 'Failed to copy path' : '复制路径失败', 'error');
+            });
+        }
+
+        function showToast(message, type = "info") {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            
+            // 1. Enforce container centering relative to main content area (> 768px: left calc(50% + 140px), mobile: left 50% via CSS override)
+            container.style.position = 'fixed';
+            container.style.bottom = 'var(--space-lg)';
+            container.style.left = 'calc(50% + 140px)';
+            container.style.transform = 'translateX(-50%)';
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.alignItems = 'center';
+            container.style.gap = 'var(--space-sm)';
+            container.style.zIndex = '9999';
+            container.style.transition = 'left 0.3s ease';
+
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            const iconClass = type === 'success' ? 'fa-solid fa-circle-check' :
+                             type === 'error' ? 'fa-solid fa-circle-xmark' :
+                             type === 'warning' ? 'fa-solid fa-circle-exclamation' : 'fa-solid fa-circle-info';
+            const iconColor = type === 'success' ? 'var(--success)' :
+                             type === 'error' ? 'var(--danger)' :
+                             type === 'warning' ? 'var(--warning)' : 'var(--primary)';
+            
+            const icon = document.createElement('i');
+            icon.className = iconClass;
+            icon.style.color = iconColor;
+            icon.style.fontSize = '1.15rem';
+            icon.style.marginTop = '2px';
+            toast.appendChild(icon);
+            
+            // Content Wrapper
+            const contentWrapper = document.createElement('div');
+            contentWrapper.style.flex = "1";
+            contentWrapper.style.display = "flex";
+            contentWrapper.style.flexDirection = "column";
+            contentWrapper.style.gap = "4px";
+            contentWrapper.style.marginRight = "var(--space-sm)";
+
+            // 2. Structured log splitting for elegant render
+            if (message.includes('\n\n')) {
+                const parts = message.split('\n\n');
+                const titleText = parts[0].replace(/\[.*\]/g, '').replace(/:/g, '').trim();
+                const logText = parts.slice(1).join('\n\n').trim();
+
+                // Bold localized header
+                const titleEl = document.createElement('strong');
+                titleEl.textContent = titleText;
+                titleEl.style.color = 'var(--text-main)';
+                titleEl.style.fontSize = '0.92rem';
+                titleEl.style.fontFamily = 'var(--font-display)';
+                titleEl.style.letterSpacing = '-0.01em';
+                contentWrapper.appendChild(titleEl);
+
+                // Nested terminal log container with slightly higher max-height, transparent unified styling
+                if (logText) {
+                    const logContainer = document.createElement('pre');
+                    logContainer.style.background = 'transparent';
+                    logContainer.style.border = 'none';
+                    logContainer.style.borderRadius = '0';
+                    logContainer.style.padding = '0';
+                    logContainer.style.margin = '8px 0 0 0';
+                    logContainer.style.maxHeight = '260px';
+                    logContainer.style.overflowY = 'auto';
+                    logContainer.style.fontFamily = 'var(--font-mono)';
+                    logContainer.style.fontSize = '0.78rem';
+                    logContainer.style.color = 'var(--text-muted)';
+                    logContainer.style.whiteSpace = 'pre-wrap';
+                    logContainer.style.wordBreak = 'break-all';
+                    
+                    // Webkit scrollbars for inner terminal
+                    logContainer.style.scrollbarWidth = 'thin';
+                    logContainer.style.scrollbarColor = 'rgba(120, 120, 120, 0.2) transparent';
+
+                    const codeEl = document.createElement('code');
+                    codeEl.textContent = logText;
+                    logContainer.appendChild(codeEl);
+                    contentWrapper.appendChild(logContainer);
+                }
+            } else {
+                // Brief simple single-line message
+                const textEl = document.createElement('span');
+                textEl.textContent = message;
+                textEl.style.color = 'var(--text-main)';
+                textEl.style.fontSize = '0.86rem';
+                textEl.style.fontFamily = 'var(--font-display)';
+                contentWrapper.appendChild(textEl);
+            }
+            toast.appendChild(contentWrapper);
+            
+            // Premium Sleek Close Button
+            const closeBtn = document.createElement('button');
+            closeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+            closeBtn.style.background = 'none';
+            closeBtn.style.border = 'none';
+            closeBtn.style.color = 'var(--text-muted)';
+            closeBtn.style.cursor = 'pointer';
+            closeBtn.style.fontSize = '0.85rem';
+            closeBtn.style.padding = '2px var(--space-xs)';
+            closeBtn.style.display = 'flex';
+            closeBtn.style.alignItems = 'center';
+            closeBtn.style.opacity = '0.6';
+            closeBtn.style.transition = 'var(--transition-smooth)';
+            closeBtn.onmouseenter = () => closeBtn.style.opacity = '1';
+            closeBtn.onmouseleave = () => closeBtn.style.opacity = '0.6';
+            
+            // 3. Force strict inline styling on toast to bypass browser cache
+            toast.style.background = 'var(--bg-surface-elevated)';
+            toast.style.backdropFilter = 'var(--glass-blur)';
+            toast.style.webkitBackdropFilter = 'var(--glass-blur)';
+            toast.style.color = 'var(--text-main)';
+            toast.style.padding = 'var(--space-md) var(--space-lg)';
+            toast.style.borderRadius = '16px'; // Elegant curved borders
+            toast.style.boxShadow = '0 20px 40px rgba(0, 0, 0, 0.35), var(--shadow-glow)';
+            toast.style.border = '1px solid var(--border-color)';
+            toast.style.borderLeft = '4px solid ' + iconColor;
+            toast.style.display = 'flex';
+            toast.style.alignItems = 'flex-start';
+            toast.style.gap = 'var(--space-md)';
+            toast.style.minWidth = '340px';
+            toast.style.maxWidth = '640px';
+            toast.style.maxHeight = '380px'; // Slightly taller as requested
+            toast.style.overflow = 'hidden'; // Kept rigid so inner pre handles scrolling
+            toast.style.boxSizing = 'border-box';
+            
+            // Setup Entry JS Transition
+            toast.style.transition = 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(40px)';
+            
+            const dismissToast = () => {
+                if (toast.parentNode) {
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateY(40px)';
+                    setTimeout(() => {
+                        toast.remove();
+                    }, 400);
+                }
+            };
+            closeBtn.onclick = dismissToast;
+            toast.appendChild(closeBtn);
+            
+            container.appendChild(toast);
+            
+            // Trigger entry transition
+            setTimeout(() => {
+                toast.style.opacity = '1';
+                toast.style.transform = 'translateY(0)';
+            }, 10);
+            
+            // 4. Auto dismissal set to exactly 3 seconds as requested
+            setTimeout(() => {
+                dismissToast();
+            }, 3000);
+        }
+
+        // --- REST API Service Layer ---
+        async function apiCall(endpoint, payload = null, btnElement = null) {
+            let originalHtml = '';
+            
+            // Dynamic text indicator mappings for obvious progress reporting
+            const loadingTexts = {
+                'start daemon': 'Booting Daemon...',
+                'stop daemon': 'Stopping Daemon...',
+                'prune invalid': 'Purging Links...',
+                'sync all': 'Syncing Registry...',
+                'connect bridge': 'Connecting...',
+                'sever link': 'Disconnecting...',
+                'register': 'Registering...',
+                'deregister': 'Deregistering...',
+                
+                '开启守护': '正在装载守护...',
+                '停止守护': '正在终止守护...',
+                '清理失效软链接': '正在净化坏链接...',
+                '全量同步': '正在全量同步...',
+                '连接通道': '正在架设通道...',
+                '断开通道': '正在拆除通道...',
+                '注册': '正在注册中...',
+                '注销': '正在注销中...'
+            };
+
+            if (btnElement) {
+                btnElement.disabled = true;
+                btnElement.classList.add('btn-loading');
+                originalHtml = btnElement.innerHTML;
+                
+                const txt = btnElement.innerText.trim();
+                let loadText = currentLang === 'en' ? 'Processing...' : '正在处理...';
+                for (const [key, val] of Object.entries(loadingTexts)) {
+                    if (txt.toLowerCase().includes(key.toLowerCase())) {
+                        loadText = val;
+                        break;
+                    }
+                }
+                
+                btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: var(--primary); font-size: 1.15rem; margin-right: 6px;"></i> <span style="font-family: var(--font-display); font-weight: 600;">${loadText}</span>`;
+            }
+            
+            try {
+                const options = { method: payload !== null ? 'POST' : 'GET' };
+                if (payload !== null) {
+                    options.headers = { 'Content-Type': 'application/json' };
+                    options.body = JSON.stringify(payload);
+                }
+                
+                // Show dynamic indicator on sync click
+                const syncBtn = document.getElementById('btn-sync-all');
+                if (endpoint === '/api/sync' && syncBtn && !btnElement) {
+                    syncBtn.querySelector('i').classList.add('fa-spin');
+                }
+
+                const res = await fetch(endpoint, options);
+                const data = await res.json();
+                
+                if (endpoint === '/api/sync' && syncBtn && !btnElement) {
+                    setTimeout(() => syncBtn.querySelector('i').classList.remove('fa-spin'), 600);
+                }
+
+                if (payload || endpoint.includes('/watcher/') || endpoint.includes('/cleanup') || endpoint.includes('/sync')) { 
+                    let heading = '';
+                    const isZh = currentLang === 'zh';
+                    
+                    if (endpoint.includes('/watcher/start')) {
+                        heading = isZh ? '守护进程已开启！\n\n[运行日志]:\n' : 'Daemon started successfully!\n\n[Log Output]:\n';
+                    } else if (endpoint.includes('/watcher/stop')) {
+                        heading = isZh ? '守护进程已关闭！\n\n[运行日志]:\n' : 'Daemon stopped successfully!\n\n[Log Output]:\n';
+                    } else if (endpoint.includes('/sync')) {
+                        heading = isZh ? '技能同步完成！\n\n[运行日志]:\n' : 'Synchronization completed!\n\n[Log Output]:\n';
+                    } else if (endpoint.includes('/cleanup')) {
+                        heading = isZh ? '失效软链接清理完毕！\n\n[运行日志]:\n' : 'Pruned invalid symlinks successfully!\n\n[Log Output]:\n';
+                    } else if (endpoint.includes('/agents/custom/add')) {
+                        heading = isZh ? '已添加自定义 Agent！\n\n[运行日志]:\n' : 'Custom agent added successfully!\n\n[Log Output]:\n';
+                    } else if (endpoint.includes('/agents/custom/remove')) {
+                        heading = isZh ? '已移除自定义 Agent！\n\n[运行日志]:\n' : 'Custom agent removed successfully!\n\n[Log Output]:\n';
+                    }
+                    
+                    const logData = data.message || data.output || '';
+                    const msgText = heading ? heading + logData : logData;
+                    
+                    if (data.success) {
+                        showToast(msgText || (isZh ? '操作执行成功。' : 'Action executed successfully.'), 'success');
+                    } else {
+                        const errHeading = isZh ? '操作执行失败！\n\n[错误详情]:\n' : 'Execution error occurred!\n\n[Error Details]:\n';
+                        showToast(errHeading + logData, 'error');
+                    }
+                    setTimeout(refreshAll, 600); 
+                }
+                return data;
+            } catch (err) {
+                console.error(err);
+                if (payload) showToast('Network offline or backend dead', 'error');
+                return null;
+            } finally {
+                if (btnElement) {
+                    btnElement.disabled = false;
+                    btnElement.classList.remove('btn-loading');
+                    btnElement.innerHTML = originalHtml;
+                    applyLanguage(); // Ensures localization matches active language after recovery
+                }
+            }
+        }
+
+        // --- Dynamic Interface Data Refresher ---
+        async function refreshAll() {
+            const activeNav = document.querySelector('.nav-item.active').getAttribute('data-target');
+            
+            if (activeNav === 'dashboard') {
+                const status = await apiCall('/api/status');
+                if (status) {
+                    document.getElementById('stat-skills').innerText = status.skills_count;
+                    document.getElementById('stat-mapped').innerText = status.agents_mapped;
+                    const statTotal = document.getElementById('stat-total');
+                    if (statTotal) {
+                        statTotal.innerText = status.agents_total;
+                    }
+                    document.getElementById('stat-central-dir').innerText = status.central_dir;
+                    
+                    // Update version display from backend
+                    if (status.version) {
+                        const versionStr = status.version.startsWith('v') ? status.version : 'v' + status.version;
+                        const footerVer = document.querySelector('.sidebar-footer span');
+                        if (footerVer) footerVer.textContent = 'EasySkills Core ' + versionStr;
+                        const aboutTag = document.getElementById('update-status-tag');
+                        if (aboutTag && !aboutTag.classList.contains('tag-warning') && !aboutTag.classList.contains('tag-success')) {
+                            aboutTag.textContent = versionStr;
+                        }
+                        const forkVer = document.getElementById('about-fork-version');
+                        if (forkVer) forkVer.textContent = versionStr;
+                        const installedVer = document.getElementById('installed-version-label');
+                        if (installedVer) installedVer.textContent = versionStr;
+                        // Store for update check comparison
+                        window._esCurrentVersion = versionStr;
+                    }
+                    
+                    const watcherDiv = document.getElementById('stat-watcher');
+                    if (status.watcher.running) {
+                        watcherDiv.innerHTML = `
+                            <div style="display: flex; flex-direction: column; gap: var(--space-xs);">
+                                <span class="status-badge running"><i class="fa-solid fa-circle"></i> ${dict[currentLang]['t-running']}</span>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); margin-top: 4px; padding-left: 2px;">PID: ${status.watcher.pid || (currentLang === 'en' ? 'on-demand (launchd)' : '路径触发 (launchd)')}</div>
+                            </div>
+                        `;
+                    } else {
+                        watcherDiv.innerHTML = `
+                            <span class="status-badge stopped"><i class="fa-solid fa-circle"></i> ${dict[currentLang]['t-stopped']}</span>
+                        `;
+                    }
+                }
+            }
+            
+            if (activeNav === 'skills') {
+                const skills = await apiCall('/api/skills');
+                if (skills) renderSkills(skills);
+            }
+            
+            if (activeNav === 'agents') {
+                const agents = await apiCall('/api/agents');
+                if (agents) renderAgents(agents);
+            }
+
+            if (activeNav === 'about') {
+                const latestLabel = document.getElementById('latest-version');
+                if (latestLabel && latestLabel.innerText === 'Loading...') {
+                    // Quietly fetch updates on first load
+                    fetch('https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest')
+                        .then(res => res.json())
+                        .then(data => {
+                            const latestVer = data.tag_name || 'unknown';
+                            latestLabel.innerText = latestVer;
+                        }).catch(() => {
+                            latestLabel.innerText = window._esCurrentVersion || 'unknown';
+                        });
+                }
+            }
+        }
+
+        // --- Helper: Escape HTML ---
+        function escapeHtml(text) {
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        // --- Render UI Component: Skills Grid ---
+        let lastSkillsJson = '';
+        function renderSkills(skills) {
+            const skillsJson = JSON.stringify(skills);
+            if (skillsJson === lastSkillsJson) return;
+            lastSkillsJson = skillsJson;
+
+            const grid = document.getElementById('skills-grid');
+            grid.innerHTML = '';
+            
+            if (skills.length === 0) {
+                grid.innerHTML = `
+                    <div style="grid-column: 1/-1; text-align: center; padding: var(--space-xl) 0; color: var(--text-muted); font-family: var(--font-display);">
+                        <i class="fa-solid fa-folder-open" style="font-size: 2.5rem; margin-bottom: var(--space-md); opacity: 0.4; display: block;"></i>
+                        No Skills detected in registry directory.
+                    </div>
+                `;
+                return;
+            }
+
+            const parts = [];
+            skills.forEach(s => {
+                const badge = s.has_skill_md ? 
+                    `<span class="tag tag-success">SKILL.md</span>` : 
+                    `<span class="tag tag-muted">Raw Folder</span>`;
+                
+                parts.push(`
+                    <div class="card" style="border-left: 3px solid ${s.has_skill_md ? 'var(--success)' : 'var(--border-color)'};">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fa-solid fa-cube" style="color: ${s.has_skill_md ? 'var(--success)' : 'var(--text-muted)'};" ></i>
+                                <span>${escapeHtml(s.name)}</span>
+                            </div>
+                            ${badge}
+                        </div>
+                        <div class="card-subtitle">${escapeHtml(s.path)}</div>
+                    </div>
+                `);
+            });
+            grid.innerHTML = parts.join('');
+        }
+
+        // --- Safe path escaping for inline JS ---
+        function escapeJsString(str) {
+            return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+        }
+
+        // --- Render UI Component: Agents List ---
+        let lastAgentsJson = '';
+        function renderAgents(agents) {
+            // Sort agents: mapped first (A-Z by name), then unmapped (A-Z by name)
+            agents.sort((x, y) => {
+                if (x.mapped && !y.mapped) return -1;
+                if (!x.mapped && y.mapped) return 1;
+                return x.name.localeCompare(y.name, undefined, { sensitivity: 'base' });
+            });
+
+            const agentsJson = JSON.stringify(agents);
+            if (agentsJson === lastAgentsJson) {
+                filterAgents();
+                return;
+            }
+            lastAgentsJson = agentsJson;
+
+            const grid = document.getElementById('agents-grid');
+            grid.innerHTML = '';
+            
+            if (agents.length === 0) {
+                grid.innerHTML = `
+                    <div style="grid-column: 1/-1; text-align: center; padding: var(--space-xl) 0; color: var(--text-muted); font-family: var(--font-display);">
+                        <i class="fa-solid fa-robot" style="font-size: 2.5rem; margin-bottom: var(--space-md); opacity: 0.4; display: block;"></i>
+                        No Target Agent environment folders registered.
+                    </div>
+                `;
+                return;
+            }
+
+            const agentParts = [];
+            agents.forEach((a, i) => {
+                let badge = '';
+                if (a.active) {
+                    badge = `<span class="tag tag-success">${dict[currentLang]['t-installed']}</span>`;
+                } else {
+                    badge = `<span class="tag tag-muted">${dict[currentLang]['t-missing']}</span>`;
+                }
+                
+                let customBadge = a.custom ? `<span class="tag tag-warning">Custom</span>` : '';
+                
+                const safeName = escapeJsString(a.name);
+                const safePath = escapeJsString(a.path);
+                
+                let actions = '';
+                // "配置编辑" (Edit Config) button
+                actions += `<button class="btn btn-outline" style="border-color: var(--border-color-active);" onclick="startEditAgentPrompt('${safeName}', '${safePath}')"><i class="fa-solid fa-sliders" style="color: var(--primary);"></i> <span>${dict[currentLang]['t-edit-config']}</span></button>`;
+                
+                if (a.mapped) {
+                    actions += `<button class="btn btn-outline" style="color: var(--accent); border-color: var(--accent);" onclick="apiCall('/api/agents/unmap', {path: '${safePath}'}, this)"><i class="fa-solid fa-link-slash"></i> ${dict[currentLang]['t-unmap']}</button>`;
+                } else {
+                    actions += `<button class="btn btn-primary" onclick="apiCall('/api/agents/map', {path: '${safePath}'}, this)"><i class="fa-solid fa-link"></i> ${dict[currentLang]['t-map']}</button>`;
+                }
+                
+                if (a.custom) {
+                    actions += `<button class="btn btn-outline" onclick="apiCall('/api/agents/custom/remove', {path: '${safePath}'}, this)"><i class="fa-solid fa-trash-can"></i> ${dict[currentLang]['t-remove']}</button>`;
+                }
+
+                // Staggered slide in animation effect
+                agentParts.push(`
+                    <div class="card" style="opacity: ${a.active || a.custom ? '1' : '0.55'}; animation: slideUpFade 0.4s var(--transition-ease) forwards; animation-delay: ${i * 45}ms; border-top: 2px solid ${a.mapped ? 'var(--primary)' : 'transparent'};">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fa-solid fa-terminal" style="color: ${a.mapped ? 'var(--primary)' : 'var(--text-muted)'};"></i>
+                                <span>${escapeHtml(a.name)}</span>
+                                ${customBadge}
+                            </div>
+                            ${badge}
+                        </div>
+                        <div class="card-subtitle">${escapeHtml(a.path)}</div>
+                        <div class="card-actions">
+                            ${actions}
+                        </div>
+                    </div>
+                `);
+            });
+            grid.innerHTML = agentParts.join('');
+
+            // Preserves active filter after live refresh
+            filterAgents();
+        }
+
+        // --- Live Agent Search Filter logic (Crash-safe & TypeError proof) ---
+        function filterAgents() {
+            const queryInput = document.getElementById('agent-search-input');
+            if (!queryInput) return;
+            const query = queryInput.value.toLowerCase().trim();
+            const cards = document.querySelectorAll('#agents-grid .card');
+            cards.forEach(card => {
+                const titleEl = card.querySelector('.card-title span');
+                const subtitleEl = card.querySelector('.card-subtitle');
+                if (!titleEl || !subtitleEl) return;
+                
+                const name = titleEl.textContent.toLowerCase();
+                let path = subtitleEl.textContent.toLowerCase();
+                
+                // Strip macOS/Linux user home directory prefix to prevent false positive matching on username (e.g. 'runhua')
+                path = path.replace(/^\/users\/[^\/]+/, '~').replace(/^\/home\/[^\/]+/, '~');
+                
+                if (name.includes(query) || path.includes(query)) {
+                    card.style.display = 'flex';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+
+        // --- Toggle Expandable Search Input ---
+        function toggleSearchInput(btn) {
+            const input = document.getElementById('agent-search-input');
+            if (!input) return;
+            if (input.style.width === '0px' || !input.style.width) {
+                input.style.width = '38px';
+                input.style.opacity = '1';
+                input.style.padding = '4px 2px';
+                input.style.border = '1px solid var(--border-color)';
+                input.style.marginRight = '4px';
+                input.focus();
+            } else {
+                input.style.width = '0px';
+                input.style.opacity = '0';
+                input.style.padding = '0px';
+                input.style.border = '1px solid transparent';
+                input.style.marginRight = '0px';
+                input.value = '';
+                filterAgents(); // Reset filter when closing
+            }
+        }
+
+        // --- Agent Path Configuration Dialog Editing ---
+        let activeEditName = '';
+        let activeEditOldPath = '';
+
+        function startEditAgentPrompt(name, oldPath) {
+            activeEditName = name;
+            activeEditOldPath = oldPath;
+            
+            const modal = document.getElementById('custom-modal');
+            const content = document.getElementById('custom-modal-content');
+            const input = document.getElementById('modal-path-input');
+            const title = document.getElementById('modal-title');
+            const desc = document.getElementById('modal-desc');
+            const saveBtn = document.getElementById('modal-save-btn');
+            
+            title.textContent = currentLang === 'en' ? 'Configure Agent Environment' : '配置智能体开发环境';
+            desc.textContent = currentLang === 'en' 
+                ? `Specify target skills folder path for [${name}]:` 
+                : `请指定智能体 [${name}] 的 skills 目标文件夹路径:`;
+            input.value = oldPath;
+            
+            saveBtn.onclick = () => saveCustomModalEdit();
+            
+            // Show modal with animation
+            modal.style.display = 'flex';
+            content.style.transform = 'translateY(20px)'; // Reset to initial state first
+            modal.offsetHeight; // Force reflow
+            modal.style.opacity = '1';
+            content.style.transform = 'translateY(0)';
+            
+            input.focus();
+            const len = input.value.length;
+            input.setSelectionRange(len, len);
+        }
+
+        function closeCustomModal() {
+            const modal = document.getElementById('custom-modal');
+            const content = document.getElementById('custom-modal-content');
+            
+            modal.style.opacity = '0';
+            content.style.transform = 'translateY(20px)';
+            
+            setTimeout(() => {
+                modal.style.display = 'none';
+            }, 300);
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('custom-modal');
+                if (modal && modal.style.display === 'flex') {
+                    closeCustomModal();
+                }
+            }
+        });
+
+        async function saveCustomModalEdit() {
+            const input = document.getElementById('modal-path-input');
+            const newPath = input.value.trim();
+            if (!newPath) {
+                showToast(currentLang === 'en' ? 'Path cannot be empty' : '路径不能为空', 'error');
+                return;
+            }
+            if (newPath === activeEditOldPath) {
+                closeCustomModal();
+                return;
+            }
+            
+            const btn = document.getElementById('modal-save-btn');
+            btn.disabled = true;
+            btn.classList.add('btn-loading');
+            
+            try {
+                const res = await fetch('/api/agents/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: activeEditName, old_path: activeEditOldPath, new_path: newPath })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(currentLang === 'en' ? `Updated config path for ${activeEditName}` : `已更新 ${activeEditName} 的配置路径`, 'success');
+                    closeCustomModal();
+                    refreshAll(); // Live updates
+                } else {
+                    showToast(data.message || (currentLang === 'en' ? 'Failed to update path' : '更新路径失败'), 'error');
+                }
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('btn-loading');
+            }
+        }
+
+        // --- Custom Agent Registration ---
+        function addCustomAgent(btn) {
+            const input = document.getElementById('custom-agent-path');
+            const path = input.value.trim();
+            if (!path) return;
+            apiCall('/api/agents/custom/add', { path }, btn);
+            input.value = '';
+        }
+
+        // --- GitHub Live Update Service ---
+        async function checkUpdates(btn) {
+            if (btn) {
+                btn.disabled = true;
+                btn.classList.add('btn-loading');
+                const orig = btn.innerHTML;
+                btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: var(--primary); font-size: 1.15rem; margin-right: 6px;"></i> <span>${currentLang === 'en' ? 'Checking...' : '正在检索...'}</span>`;
+                
+                try {
+                    const res = await fetch('https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest');
+                    const data = await res.json();
+                    const latestVer = data.tag_name || 'unknown';
+                    
+                    document.getElementById('latest-version').innerText = latestVer;
+                    
+                    const currentVer = window._esCurrentVersion || 'v1.0.1';
+                    const tagBadge = document.getElementById('update-status-tag');
+                    
+                    const updateBtn = document.getElementById('btn-update-now');
+                    if (latestVer !== 'unknown' && latestVer !== currentVer) {
+                        showToast(currentLang === 'en' ? 'New version available: ' + latestVer : '检测到新版本: ' + latestVer, 'warning');
+                        if (tagBadge) {
+                            tagBadge.className = 'tag tag-warning';
+                            tagBadge.innerText = currentLang === 'en' ? 'Update Available' : '有新版本';
+                        }
+                        if (updateBtn) updateBtn.style.display = 'flex';
+                    } else {
+                        showToast(currentLang === 'en' ? 'EasySkills is up to date!' : 'EasySkills 已是最新版本！', 'success');
+                        if (tagBadge) {
+                            tagBadge.className = 'tag tag-success';
+                            tagBadge.innerText = currentLang === 'en' ? 'Up to Date' : '最新版';
+                        }
+                        if (updateBtn) updateBtn.style.display = 'none';
+                    }
+                } catch (err) {
+                    console.error(err);
+                    showToast(currentLang === 'en' ? 'Failed to fetch updates' : '获取更新失败，请重试', 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.classList.remove('btn-loading');
+                    btn.innerHTML = orig;
+                }
+            }
+        }
+
+        async function performUpdate(btn) {
+            if (btn) {
+                btn.disabled = true;
+                btn.classList.add('btn-loading');
+                const loadText = currentLang === 'en' ? 'Updating...' : '正在更新...';
+                btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #fff; font-size: 1.15rem; margin-right: 6px;"></i> <span>${loadText}</span>`;
+            }
+            try {
+                const res = await fetch('/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(currentLang === 'en' ? 'Update complete! Reloading...' : '更新完成！正在刷新...', 'success');
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showToast(data.message || (currentLang === 'en' ? 'Update failed' : '更新失败'), 'error');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.classList.remove('btn-loading');
+                        btn.innerHTML = `<i class="fa-solid fa-download"></i> <span class="t-update-now">${currentLang === 'en' ? 'Update Now' : '立即更新'}</span>`;
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+                showToast(currentLang === 'en' ? 'Update request failed' : '更新请求失败', 'error');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.classList.remove('btn-loading');
+                    btn.innerHTML = `<i class="fa-solid fa-download"></i> <span class="t-update-now">${currentLang === 'en' ? 'Update Now' : '立即更新'}</span>`;
+                }
+            }
+        }
+
+        // --- Copy Update Scripts Helper ---
+        function copyUpdateCommand(os) {
+            const macCmd = "curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash";
+            const winCmd = "irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex";
+            const targetCmd = os === 'mac' ? macCmd : winCmd;
+            
+            navigator.clipboard.writeText(targetCmd).then(() => {
+                showToast(currentLang === 'en' ? 'Upgrade command copied!' : '升级指令已复制到剪贴板！', 'success');
+            }).catch(() => {
+                showToast(currentLang === 'en' ? 'Failed to copy command' : '复制命令失败', 'error');
+            });
+        }
+
+        // --- Bookmark WebUI helper ---
+        function addBookmark() {
+            const platform = (navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || '').toUpperCase();
+            const isMac = platform.indexOf('MAC') >= 0 || platform.indexOf('DARWIN') >= 0 || platform.indexOf('IPHONE') >= 0 || platform.indexOf('IPAD') >= 0;
+            const key = isMac ? '⌘ + D' : 'Ctrl + D';
+            const msg = currentLang === 'en'
+                ? `To bookmark: Press ${key} on your keyboard!`
+                : `添加收藏：请按下键盘上的 ${key} 键！`;
+            showToast(msg, 'info');
+        }
+    </script>
+</body>
+</html>

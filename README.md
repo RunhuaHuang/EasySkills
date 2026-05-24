@@ -79,7 +79,7 @@ Windows symbolic links require admin privileges or Developer Mode. EasySkills us
 ### Silent Background Daemon
 | | macOS | Windows |
 |---|---|---|
-| **Mechanism** | `launchd` + `WatchPaths` (kernel FSEvents) | Startup `.lnk` → `.vbs` → `FileSystemWatcher` |
+| **Mechanism** | `launchd` + `WatchPaths` (kernel FSEvents) | Startup `.lnk` → `FileSystemWatcher` |
 | **Idle CPU** | 0% | 0% |
 | **Auto-start** | LaunchAgent plist | Startup folder shortcut |
 | **Console window** | None (daemon) | Hidden (`WindowStyle=0`) |
@@ -181,7 +181,8 @@ Once EasySkills is loaded as a skill, you can manage everything through natural 
 
 | # | Agent | macOS Path | Windows Path |
 |:-:|:---|:---|:---|
-| 1 | **Antigravity (Gemini)** | `~/.gemini/config/skills` | `%USERPROFILE%\.gemini\config\skills` |
+| 1 | **Antigravity CLI** | `~/.gemini/config/skills` | `%USERPROFILE%\.gemini\config\skills` |
+| 1b | **Antigravity IDE** | `~/.gemini/antigravity/skills` | `%USERPROFILE%\.gemini\antigravity\skills` |
 | 2 | **Codex (OpenAI)** | `~/.codex/skills` | `%USERPROFILE%\.codex\skills` |
 | 3 | **Claude Code** | `~/.claude/skills` | `%USERPROFILE%\.claude\skills` |
 | 4 | **GitHub Copilot** | `~/.copilot/skills` | `%USERPROFILE%\.copilot\skills` |
@@ -229,7 +230,6 @@ EasySkills/
 │   ├── watch.sh / watch.ps1   # Watcher installer
 │   ├── unwatch.sh / unwatch.ps1 # Watcher uninstaller
 │   ├── watcher-service.ps1    # Windows FileSystemWatcher service
-│   ├── watcher-launcher.vbs   # Windows silent launcher
 │   └── .version               # Version tracker
 └── [YourSkills]/              # Drop your custom skills here
 ```
@@ -238,7 +238,7 @@ EasySkills/
 
 ## Notes
 
-**Windows Defender** — The `.vbs` silent launcher may trigger a false positive. The installer can automatically add a Defender exclusion via UAC prompt. You can also manually whitelist `%USERPROFILE%\EasySkills` in Windows Security settings.
+**Windows Defender** — The installer can automatically add a Defender exclusion via UAC prompt. You can also manually whitelist `%USERPROFILE%\EasySkills` in Windows Security settings.
 
 **Watcher Scope** — The watcher monitors only the **top-level** of `~/EasySkills` (folder additions/removals). It does not watch inside subdirectories — since skills are symlinked, internal file changes are instantly reflected everywhere without re-syncing.
 

@@ -79,7 +79,7 @@ Windows 创建软链接需要管理员权限或开发者模式。EasySkills 使�
 ### 静默后台守护
 | | macOS | Windows |
 |---|---|---|
-| **机制** | `launchd` + `WatchPaths`（内核 FSEvents） | 启动快捷方式 `.lnk` → `.vbs` → `FileSystemWatcher` |
+| **机制** | `launchd` + `WatchPaths`（内核 FSEvents） | 启动快捷方式 `.lnk` → `FileSystemWatcher` |
 | **空闲 CPU** | 0% | 0% |
 | **开机自启** | LaunchAgent plist | 启动文件夹快捷方式 |
 | **控制台窗口** | 无（守护进程） | 隐藏（`WindowStyle=0`） |
@@ -181,7 +181,8 @@ EasySkills 加载为技能后，直接对你的 AI 助手说：
 
 | # | Agent | macOS 路径 | Windows 路径 |
 |:-:|:---|:---|:---|
-| 1 | **Antigravity (Gemini)** | `~/.gemini/config/skills` | `%USERPROFILE%\.gemini\config\skills` |
+| 1 | **Antigravity CLI** | `~/.gemini/config/skills` | `%USERPROFILE%\.gemini\config\skills` |
+| 1b | **Antigravity IDE** | `~/.gemini/antigravity/skills` | `%USERPROFILE%\.gemini\antigravity\skills` |
 | 2 | **Codex (OpenAI)** | `~/.codex/skills` | `%USERPROFILE%\.codex\skills` |
 | 3 | **Claude Code** | `~/.claude/skills` | `%USERPROFILE%\.claude\skills` |
 | 4 | **GitHub Copilot** | `~/.copilot/skills` | `%USERPROFILE%\.copilot\skills` |
@@ -229,7 +230,6 @@ EasySkills/
 │   ├── watch.sh / watch.ps1   # 监听安装器
 │   ├── unwatch.sh / unwatch.ps1 # 监听卸载器
 │   ├── watcher-service.ps1    # Windows FileSystemWatcher 服务
-│   ├── watcher-launcher.vbs   # Windows 静默启动器
 │   └── .version               # 版本号
 └── [你的技能]/                 # 把自定义技能放这里
 ```
@@ -238,7 +238,7 @@ EasySkills/
 
 ## 注意事项
 
-**Windows Defender 误报** — `.vbs` 静默启动器可能触发 Defender 误报。安装器可通过 UAC 弹窗自动添加白名单。也可以手动在 Windows 安全中心将 `%USERPROFILE%\EasySkills` 加入排除项。
+**Windows Defender** — 安装器可通过 UAC 弹窗自动添加白名单。也可以手动在 Windows 安全中心将 `%USERPROFILE%\EasySkills` 加入排除项。
 
 **监听范围** — 后台监听只监控 `~/EasySkills` **顶层目录**的文件夹增删。不监听子目录内部——因为技能是通过软链映射的，内部文件修改会即时反映到所有 Agent，无需重新同步。
 

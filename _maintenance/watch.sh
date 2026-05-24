@@ -57,8 +57,9 @@ EOF
 # 3. Unload any existing service, then load the new one
 #    Modern API (macOS 13+): bootstrap/bootout
 #    Legacy API fallback: load/unload
-launchctl bootout "$SERVICE_TARGET" 2>/dev/null || launchctl unload "$PLIST_PATH" 2>/dev/null
-launchctl bootstrap "$DOMAIN_TARGET" "$PLIST_PATH" 2>/dev/null || launchctl load "$PLIST_PATH" 2>/dev/null
+launchctl bootout "$SERVICE_TARGET" 2>/dev/null || launchctl unload -w "$PLIST_PATH" 2>/dev/null
+launchctl enable "$SERVICE_TARGET" 2>/dev/null
+launchctl bootstrap "$DOMAIN_TARGET" "$PLIST_PATH" 2>/dev/null || launchctl load -w "$PLIST_PATH" 2>/dev/null
 launchctl kickstart -k "$SERVICE_TARGET" 2>/dev/null || launchctl start "$LABEL" 2>/dev/null
 
 echo "============================================="
