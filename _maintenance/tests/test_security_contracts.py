@@ -26,25 +26,29 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("X-EasySkills-Token", src)
         self.assertIn("Test-PostAllowed", src)
         self.assertIn("Send-ForbiddenResponse", src)
-        self.assertIn("Could not automatically open browser", src)
+        # Browser auto-open failure must not crash the listener
+        self.assertIn("Browser open failed", src)
 
     def test_windows_webui_isolates_request_errors_from_listener_lifetime(self):
         src = read("_maintenance/webui.ps1")
         self.assertIn("function Invoke-WebUIRequest", src)
         self.assertIn("function Close-ResponseQuietly", src)
-        self.assertIn("WebUI request error", src)
-        self.assertIn("WebUI listener accept error", src)
+        self.assertIn("Request handler error", src)
+        self.assertIn("GetContext transient error", src)
 
-        loop = re.search(
-            r"while \(\$Listener\.IsListening\) \{(?P<body>.*?)\n    \}",
+        # Outer retry loop ensures the listener is rebuilt if it dies.
+        self.assertIn("function Start-WebUIListener", src)
+        outer = re.search(
+            r"while \(\$true\) \{(?P<body>.*?)\n\}\s*$",
             src,
             re.DOTALL,
         )
-        self.assertIsNotNone(loop)
-        body = loop.group("body")
+        self.assertIsNotNone(outer, "outermost while($true) loop not found in webui.ps1")
+        body = outer.group("body")
+        self.assertIn("Start-WebUIListener", body)
+        self.assertIn("$Listener.IsListening", body)
         self.assertIn("$Listener.GetContext()", body)
         self.assertIn("Invoke-WebUIRequest $Context", body)
-        self.assertIn("continue", body)
 
     def test_webui_hides_proma_workspace_targets_from_agent_list(self):
         py_src = read("_maintenance/webui.py")
@@ -93,60 +97,125 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("25 agents are pre-configured", read("README.md"))
         self.assertIn("开箱即用支持 25 个 Agent", read("README_CN.md"))
 
-    def test_windows_launchers_do_not_use_wmi_for_background_start(self):
-        for rel in ("install.ps1", "_maintenance/watch.ps1"):
+    # -------------------------------------------------------------------------
+    # Windows background launching — Scheduled Tasks (S4U) + AV-safe launchers
+    # -------------------------------------------------------------------------
+
+    def test_windows_scripts_do_not_use_wscript_shell_run_pattern(self):
+        """WScript.Shell.Run(cmd, 0, ...) inside a PowerShell script is a
+        well-known AV heuristic flag (used by script-based malware). We use
+        Scheduled Tasks for true persistence and plain Start-Process for
+        background launches."""
+        for rel in (
+            "install.ps1",
+            "_maintenance/watch.ps1",
+            "_maintenance/deploy.ps1",
+        ):
             src = read(rel)
-            self.assertNotIn("Invoke-CimMethod -ClassName Win32_Process", src, rel)
-            self.assertIn("WScript.Shell", src, rel)
-            self.assertIn(".Run(", src, rel)
-            self.assertIn("$false", src, rel)
+            # CreateShortcut via WScript.Shell is OK (just makes a .lnk file).
+            # We forbid .Run with hidden-window flag from PowerShell scripts.
+            self.assertNotRegex(
+                src,
+                r"New-Object -ComObject WScript\.Shell[\s\S]{0,400}\.Run\(",
+                rel,
+            )
 
-    def test_windows_launchers_detach_from_calling_console(self):
-        for rel in ("install.ps1", "_maintenance/watch.ps1"):
-            src = read(rel)
-            self.assertIn("Start-HiddenPowerShell", src, rel)
-            self.assertIn("-WindowStyle Hidden", src, rel)
+    def test_windows_persistence_uses_scheduled_tasks_with_s4u(self):
+        """Persistence is provided by user-level Scheduled Tasks running with
+        S4U logon (Session 0, zero visible console window). Interactive logon
+        is only the fallback path when S4U is denied by policy."""
+        reg = read("_maintenance/register-tasks.ps1")
+        self.assertIn("Register-ScheduledTask", reg)
+        self.assertIn("-LogonType S4U", reg)
+        self.assertIn("New-ScheduledTaskTrigger -AtLogOn", reg)
+        self.assertIn("EasySkills WebUI", reg)
+        self.assertIn("EasySkills Watcher", reg)
+        # Restart-on-failure count is conservative (AV-friendly).
+        self.assertRegex(reg, r"-RestartCount\s+\d{1,2}(?!\d)")
+        # Must reap stale supervisor processes before re-registering so an old
+        # Interactive-style supervisor's window doesn't linger.
+        self.assertIn("Stop-EasySkillsBackgroundProcesses", reg)
 
-        self.assertNotIn("start \"\" /B powershell", read("install_windows.bat"))
-        self.assertNotIn("start \"\" powershell", read("install_windows.bat"))
-        self.assertIn("WScript.Shell", read("install_windows.bat"))
-        self.assertNotIn('powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\\webui.ps1"', read("_maintenance/Windows/Start — 启动.bat"))
-        self.assertNotIn("start \"\" powershell", read("_maintenance/Windows/Start — 启动.bat"))
-        self.assertIn("WScript.Shell", read("_maintenance/Windows/Start — 启动.bat"))
-        self.assertIn("Start-HiddenPowerShell", read("_maintenance/deploy.ps1"))
-
-    def test_windows_installer_registers_watcher_and_webui_startup_shortcuts(self):
         install = read("install.ps1")
-        self.assertIn("EasySkillsWatcher.lnk", install)
-        self.assertIn("EasySkillsWebUI.lnk", install)
-        self.assertIn("watcher-service.ps1", install)
-        self.assertIn("webui-service.ps1", install)
-
+        self.assertIn("register-tasks.ps1", install)
         watch = read("_maintenance/watch.ps1")
-        self.assertIn("EasySkillsWatcher.lnk", watch)
-        self.assertIn("EasySkillsWebUI.lnk", watch)
-        self.assertIn("watcher-service.ps1", watch)
-        self.assertIn("webui-service.ps1", watch)
+        self.assertIn("register-tasks.ps1", watch)
 
+    def test_windows_uninstaller_removes_scheduled_tasks(self):
         unwatch = read("_maintenance/unwatch.ps1")
+        self.assertIn("Unregister-ScheduledTask", unwatch)
+        self.assertIn("EasySkills WebUI", unwatch)
+        self.assertIn("EasySkills Watcher", unwatch)
+        # Legacy startup shortcuts (old install scheme) are also cleaned up.
         self.assertIn("EasySkillsWatcher.lnk", unwatch)
         self.assertIn("EasySkillsWebUI.lnk", unwatch)
-        self.assertIn("webui.ps1", unwatch)
-        self.assertIn("webui-service.ps1", unwatch)
+
+    def test_windows_launcher_is_silent_vbs_not_visible_bat(self):
+        """The user-facing 'Start' launcher must be a .vbs running under
+        wscript.exe so it shows ZERO console window. The old .bat is gone."""
+        from pathlib import Path
+        vbs = ROOT / "_maintenance/Windows/Start — 启动.vbs"
+        bat = ROOT / "_maintenance/Windows/Start — 启动.bat"
+        self.assertTrue(vbs.exists(), "Start — 启动.vbs missing")
+        self.assertFalse(bat.exists(), "Legacy Start — 启动.bat must be removed")
+
+        src = vbs.read_text(encoding="utf-8")
+        # VBS escapes inner quotes by doubling them (""...""):
+        self.assertIn('schtasks /Run /TN ""EasySkills WebUI""', src)
+        self.assertIn('schtasks /Run /TN ""EasySkills Watcher""', src)
+        self.assertIn("Shell.Application", src)
+        # WScript.Shell.Run with window-style 0 (hidden) is the canonical
+        # silent-launch pattern for a standalone .vbs. Inner quotes are
+        # VBS-escaped as "" so allow them inside the quoted argument.
+        self.assertRegex(src, r'\.Run\s+"(?:[^"]|"")+",\s*0,\s*')
+
+    def test_windows_bat_files_auto_close_instead_of_blocking_on_pause(self):
+        """Foreground .bat windows must auto-close (timeout) instead of
+        waiting for a keypress (pause)."""
+        for rel in (
+            "install_windows.bat",
+            "uninstall_windows.bat",
+            "_maintenance/Windows/Uninstall — 卸载.bat",
+        ):
+            src = read(rel)
+            self.assertNotIn("pause > nul", src, rel)
+            self.assertIn("timeout /t", src, rel)
+
+    def test_windows_supervisor_has_single_instance_mutex(self):
+        """webui-service.ps1 and watcher-service.ps1 must guard against
+        multiple concurrent instances via a named mutex (Local\\ scope —
+        Global\\ would look like cross-session malware persistence to AV)."""
+        webui_svc = read("_maintenance/webui-service.ps1")
+        watcher_svc = read("_maintenance/watcher-service.ps1")
+        for src in (webui_svc, watcher_svc):
+            self.assertIn("System.Threading.Mutex", src)
+            self.assertIn("Local\\EasySkills", src)
+            self.assertNotIn("Global\\EasySkills", src)
 
     def test_windows_webui_uses_supervisor_service(self):
         service = read("_maintenance/webui-service.ps1")
-        self.assertIn("Test-WebUIPort", service)
+        self.assertIn("function Test-WebUIPort", service)
         self.assertIn("while ($true)", service)
         self.assertIn("webui.ps1", service)
         self.assertIn("-NoBrowser", service)
 
-        for rel in ("install.ps1", "_maintenance/watch.ps1", "_maintenance/deploy.ps1", "install_windows.bat", "_maintenance/Windows/Start — 启动.bat"):
+        # The supervisor script is referenced directly by install/watch and
+        # by the Scheduled Task registration helper. install_windows.bat
+        # delegates to watch.ps1 instead of referencing the supervisor directly.
+        for rel in (
+            "install.ps1",
+            "_maintenance/watch.ps1",
+            "_maintenance/deploy.ps1",
+            "_maintenance/register-tasks.ps1",
+        ):
             self.assertIn("webui-service.ps1", read(rel), rel)
+        # install_windows.bat must hand off to watch.ps1 (which then registers
+        # the Scheduled Tasks that ultimately invoke webui-service.ps1).
+        self.assertIn("watch.ps1", read("install_windows.bat"))
 
         webui = read("_maintenance/webui.ps1")
         self.assertIn("[switch]$NoBrowser", webui)
-        self.assertIn("if (-not $NoBrowser)", webui)
+        self.assertIn("if (-not $NoBrowser", webui)
 
     def test_webui_stop_watcher_keeps_backend_running(self):
         py_src = read("_maintenance/webui.py")

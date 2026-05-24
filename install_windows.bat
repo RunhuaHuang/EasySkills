@@ -68,10 +68,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "for ($i=0;$i -lt 20;$i++
 
 echo =============================================
 echo.
-echo NOTE: This is an open-source project ^(https://github.com/RunhuaHuang/EasySkills^).
-echo If Windows SmartScreen shows a warning the first time, choose "More info"
-echo and then "Run anyway". EasySkills runs entirely on your machine and does
-echo not send data anywhere ^(WebUI is bound to 127.0.0.1 only^).
+echo Open source: https://github.com/RunhuaHuang/EasySkills
+echo This window will close automatically in a few seconds.
 echo.
-echo Press any key to close this window...
-pause > nul
+timeout /t 3 /nobreak > nul

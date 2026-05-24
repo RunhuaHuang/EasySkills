@@ -16,6 +16,5 @@ if exist "%PERM_DIR%\_maintenance\deploy.ps1" (
 )
 
 echo =============================================
-echo Uninstallation complete.
-echo Press any key to close...
-pause > nul
+echo Uninstallation complete. This window will close in a moment.
+timeout /t 3 /nobreak > nul
