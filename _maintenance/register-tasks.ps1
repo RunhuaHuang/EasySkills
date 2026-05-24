@@ -34,6 +34,29 @@ function Remove-LegacyStartupShortcuts {
     }
 }
 
+function Stop-EasySkillsBackgroundProcesses {
+    # Terminate any currently-running supervisor/server processes from a
+    # previous install (legacy or upgrade). This is required because
+    # Unregister-ScheduledTask does NOT kill running task instances; if we
+    # don't reap them, an old Interactive-logon-style supervisor will keep
+    # showing its console window even after the new S4U task takes over.
+    try {
+        $Procs = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.CommandLine -and (
+                    $_.CommandLine -like '*webui-service.ps1*' -or
+                    $_.CommandLine -like '*watcher-service.ps1*' -or
+                    $_.CommandLine -like '*webui.ps1*'
+                ) -and $_.ProcessId -ne $PID
+            }
+        foreach ($P in $Procs) {
+            try {
+                $P | Invoke-CimMethod -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null
+            } catch {}
+        }
+    } catch {}
+}
+
 function Register-EasySkillsTask {
     Param(
         [Parameter(Mandatory=$true)][string]$Name,
@@ -64,15 +87,32 @@ function Register-EasySkillsTask {
         -ExecutionTimeLimit (New-TimeSpan -Seconds 0) `
         -MultipleInstances IgnoreNew
 
-    $Principal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Limited
-
     if (Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue) {
         Unregister-ScheduledTask -TaskName $Name -Confirm:$false -ErrorAction SilentlyContinue
     }
 
-    Register-ScheduledTask -TaskName $Name `
-        -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal `
-        -Description $Description -Force | Out-Null
+    # S4U principal = run in Session 0 (services session), NO visible console
+    # window ever. This is the *only* reliable way to hide a PowerShell-hosted
+    # scheduled task on Windows PowerShell 5.x — `-WindowStyle Hidden` alone is
+    # not respected inside an interactive logon session.
+    # Falls back to Interactive (+window-hide) if S4U is denied by policy.
+    $RegisteredOK = $false
+    try {
+        $PrincipalS4U = New-ScheduledTaskPrincipal -UserId $UserId -LogonType S4U -RunLevel Limited
+        Register-ScheduledTask -TaskName $Name `
+            -Action $Action -Trigger $Trigger -Settings $Settings -Principal $PrincipalS4U `
+            -Description $Description -Force -ErrorAction Stop | Out-Null
+        $RegisteredOK = $true
+    } catch {
+        Write-Warning "S4U registration for '$Name' failed ($($_.Exception.Message)); falling back to Interactive."
+    }
+
+    if (-not $RegisteredOK) {
+        $PrincipalInteractive = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Limited
+        Register-ScheduledTask -TaskName $Name `
+            -Action $Action -Trigger $Trigger -Settings $Settings -Principal $PrincipalInteractive `
+            -Description $Description -Force | Out-Null
+    }
 }
 
 if (-not (Test-ScheduledTaskModule)) {
@@ -81,6 +121,7 @@ if (-not (Test-ScheduledTaskModule)) {
 }
 
 Remove-LegacyStartupShortcuts
+Stop-EasySkillsBackgroundProcesses
 
 $VersionTag = ""
 $VersionFile = Join-Path $ScriptDir ".version"
