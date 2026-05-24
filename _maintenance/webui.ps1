@@ -575,8 +575,12 @@ try {
     Write-Host "  =========================================="
     Write-Host ""
 
-    # Auto-open browser
-    Start-Process "http://localhost:$Port"
+    # Auto-opening can fail in hidden/non-interactive launches; the server must keep running.
+    try {
+        Start-Process "http://localhost:$Port"
+    } catch {
+        Write-Warning "Could not automatically open browser in background: $_"
+    }
 
     while ($Listener.IsListening) {
         $Context = $Listener.GetContext()

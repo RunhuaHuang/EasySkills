@@ -92,23 +92,27 @@ try {
     Write-Warning "Failed to create startup shortcut: $_"
   }
 
-  # --- Start watcher now via WMI (fully detached, no handle inheritance) ---
-  $WatcherCmd = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
+  # --- Start watcher now via Start-Process (lower false-positive risk than WMI process creation) ---
+  $WatcherCmd = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
   try {
-    Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $WatcherCmd } | Out-Null
+    Start-Process powershell.exe -ArgumentList $WatcherCmd
     Write-Host "[OK] Background watcher started." -ForegroundColor Green
   } catch {
     Write-Warning "Failed to start watcher: $_"
   }
 
-  # --- Launch WebUI via WMI (fully detached, no handle inheritance) ---
+  # --- Launch WebUI via Start-Process (lower false-positive risk than WMI process creation) ---
   $WebUIScript = Join-Path $MaintDir "webui.ps1"
-  $WebUICmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$WebUIScript`""
+  $WebUICmd = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WebUIScript`""
   try {
-    Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $WebUICmd } | Out-Null
+    Start-Process powershell.exe -ArgumentList $WebUICmd
     Write-Host "[OK] WebUI launching on http://localhost:6633" -ForegroundColor Green
     Start-Sleep -Seconds 2
-    Start-Process "http://localhost:6633"
+    try {
+      Start-Process "http://localhost:6633"
+    } catch {
+      Write-Warning "Could not automatically open browser: $_"
+    }
   } catch {
     Write-Warning "Failed to start WebUI: $_"
   }

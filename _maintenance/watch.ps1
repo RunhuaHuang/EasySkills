@@ -39,9 +39,9 @@ try {
     $Shortcut.Description = "EasySkills Background Watcher Service"
     $Shortcut.Save()
 
-    # 3. Start watcher via WMI to fully detach from parent process (avoids handle inheritance deadlock)
-    $WatcherCmd = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
-    Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $WatcherCmd } | Out-Null
+    # 3. Start watcher without WMI to avoid Defender/ASR false positives.
+    $WatcherCmd = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
+    Start-Process powershell.exe -ArgumentList $WatcherCmd
 
     Write-Host "=============================================" -ForegroundColor Cyan
     Write-Host "Windows EasySkills Watcher installed!" -ForegroundColor Green

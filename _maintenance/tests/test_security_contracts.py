@@ -26,6 +26,7 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("X-EasySkills-Token", src)
         self.assertIn("Test-PostAllowed", src)
         self.assertIn("Send-ForbiddenResponse", src)
+        self.assertIn("Could not automatically open browser", src)
 
     def test_double_click_installers_copy_skill_md_to_root(self):
         self.assertIn('cp "$CURRENT_DIR/SKILL.md" "$PERM_DIR/SKILL.md"', read("install_mac.command"))
@@ -56,6 +57,12 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("版本-1.1.0", read("README_CN.md"))
         self.assertIn("25 agents are pre-configured", read("README.md"))
         self.assertIn("开箱即用支持 25 个 Agent", read("README_CN.md"))
+
+    def test_windows_launchers_do_not_use_wmi_for_background_start(self):
+        for rel in ("install.ps1", "_maintenance/watch.ps1"):
+            src = read(rel)
+            self.assertNotIn("Invoke-CimMethod -ClassName Win32_Process", src, rel)
+            self.assertIn("Start-Process powershell.exe", src, rel)
 
 
 if __name__ == "__main__":
