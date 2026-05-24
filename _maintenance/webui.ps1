@@ -9,10 +9,29 @@ Param(
     [Parameter(Mandatory=$false)][switch]$NoBrowser
 )
 
+$ErrorActionPreference = 'Continue'
+
 $Port = 6633
 $WebUIToken = [Guid]::NewGuid().ToString("N")
 $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $CentralDir = Split-Path -Path $ScriptDir -Parent
+
+$WebUILogDir  = Join-Path $ScriptDir "logs"
+$WebUILogFile = Join-Path $WebUILogDir "webui.log"
+if (-not (Test-Path $WebUILogDir)) {
+    try { New-Item -ItemType Directory -Path $WebUILogDir -Force | Out-Null } catch {}
+}
+function Write-WebUILog([string]$Message) {
+    try {
+        $Line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [pid=$PID] $Message"
+        Add-Content -Path $WebUILogFile -Value $Line -Encoding UTF8 -ErrorAction SilentlyContinue
+        $Info = Get-Item $WebUILogFile -ErrorAction SilentlyContinue
+        if ($Info -and $Info.Length -gt 1048576) {
+            $Tail = Get-Content $WebUILogFile -Tail 500 -ErrorAction SilentlyContinue
+            if ($Tail) { $Tail | Set-Content -Path $WebUILogFile -Encoding UTF8 }
+        }
+    } catch {}
+}
 
 # Dynamically resolve to official home directory installation if it exists
 $HomeCentralDir = Join-Path $Home "EasySkills"
@@ -680,50 +699,78 @@ function Invoke-WebUIRequest($Context) {
     }
 }
 
-$Listener = New-Object System.Net.HttpListener
-$Listener.Prefixes.Add("http://localhost:$Port/")
-try {
-    $Listener.Start()
-    Write-Host ""
-    Write-Host "  EasySkills WebUI (Windows)"
-    Write-Host "  =========================================="
-    Write-Host "    http://localhost:$Port"
-    Write-Host "    Press Ctrl+C to stop"
-    Write-Host "  =========================================="
-    Write-Host ""
+function Start-WebUIListener {
+    $L = New-Object System.Net.HttpListener
+    $L.Prefixes.Add("http://localhost:$Port/")
+    $L.Prefixes.Add("http://127.0.0.1:$Port/")
+    $L.Start()
+    return $L
+}
 
-    if (-not $NoBrowser) {
-        # Auto-opening can fail in hidden/non-interactive launches; the server must keep running.
-        try {
-            Start-Process "http://localhost:$Port"
-        } catch {
-            Write-Warning "Could not automatically open browser in background: $_"
-        }
-    }
+Write-WebUILog "webui.ps1 starting up."
 
-    while ($Listener.IsListening) {
-        $Context = $null
-        try {
-            $Context = $Listener.GetContext()
-        } catch {
-            if ($Listener.IsListening) {
-                Write-Warning "WebUI listener accept error: $_"
+$BrowserOpened = $false
+$ListenerAttempts = 0
+
+# Outer retry loop: if the listener dies for any reason, rebuild it.
+while ($true) {
+    $Listener = $null
+    try {
+        $Listener = Start-WebUIListener
+        $ListenerAttempts = 0
+        Write-WebUILog "HttpListener bound to port $Port."
+
+        Write-Host ""
+        Write-Host "  EasySkills WebUI (Windows)"
+        Write-Host "  =========================================="
+        Write-Host "    http://localhost:$Port"
+        Write-Host "    Press Ctrl+C to stop"
+        Write-Host "  =========================================="
+        Write-Host ""
+
+        if (-not $NoBrowser -and -not $BrowserOpened) {
+            try { Start-Process "http://localhost:$Port" } catch {
+                Write-WebUILog "Browser open failed (ignored): $($_.Exception.Message)"
             }
-            continue
+            $BrowserOpened = $true
         }
 
-        try {
-            Invoke-WebUIRequest $Context
-        } catch {
-            Write-Warning "WebUI request error: $_"
-            Close-ResponseQuietly $Context
-            continue
+        while ($Listener.IsListening) {
+            $Context = $null
+            try {
+                $Context = $Listener.GetContext()
+            } catch {
+                if ($Listener.IsListening) {
+                    Write-WebUILog "GetContext transient error: $($_.Exception.Message)"
+                    Start-Sleep -Milliseconds 200
+                }
+                continue
+            }
+
+            try {
+                Invoke-WebUIRequest $Context
+            } catch {
+                Write-WebUILog "Request handler error: $($_.Exception.Message)"
+                Close-ResponseQuietly $Context
+                continue
+            }
+        }
+
+        Write-WebUILog "Listener stopped listening; will rebuild."
+    } catch {
+        $ListenerAttempts++
+        Write-WebUILog "Listener fatal error (attempt $ListenerAttempts): $($_.Exception.Message)"
+        # Back off but never give up — the outer supervisor will restart us
+        # if even this loop dies.
+        $Sleep = [Math]::Min(30, [Math]::Max(2, $ListenerAttempts * 2))
+        Start-Sleep -Seconds $Sleep
+    } finally {
+        if ($Listener) {
+            try { if ($Listener.IsListening) { $Listener.Stop() } } catch {}
+            try { $Listener.Close() } catch {}
         }
     }
-} catch {
-    Write-Warning "WebUI server error: $_"
-} finally {
-    if ($Listener -and $Listener.IsListening) {
-        $Listener.Stop()
-    }
+
+    # Small breather before recreating the listener
+    Start-Sleep -Seconds 1
 }

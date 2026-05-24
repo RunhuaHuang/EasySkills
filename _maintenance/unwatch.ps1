@@ -1,6 +1,7 @@
 # ==============================================================================
 # Script: unwatch.ps1 (Windows)
-# Description: Removes the EasySkillsWatcher startup shortcut and stops background tasks.
+# Description: Removes EasySkills Scheduled Tasks (or legacy startup shortcuts)
+#              and terminates running background processes.
 # ==============================================================================
 
 Param(
@@ -8,37 +9,55 @@ Param(
 )
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host "[*] Uninstalling Windows EasySkills Watcher..." -ForegroundColor Cyan
+Write-Host "[*] Uninstalling Windows EasySkills services..." -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
-# 1. Remove startup shortcuts
+# 1. Unregister Scheduled Tasks (new mechanism)
+$TaskNames = @("EasySkills Watcher")
+if (-not $KeepWebUI) { $TaskNames += "EasySkills WebUI" }
+
+if (Get-Command Unregister-ScheduledTask -ErrorAction SilentlyContinue) {
+    foreach ($Name in $TaskNames) {
+        $T = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+        if ($T) {
+            try { Stop-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue } catch {}
+            try {
+                Unregister-ScheduledTask -TaskName $Name -Confirm:$false -ErrorAction Stop
+                Write-Host "[OK] Removed scheduled task: $Name" -ForegroundColor Green
+            } catch {
+                Write-Warning "Could not remove scheduled task ${Name}: $_"
+            }
+        }
+    }
+}
+
+# 2. Remove any legacy startup shortcuts
 $StartupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $ShortcutPaths = @("$StartupFolder\EasySkillsWatcher.lnk")
 if (-not $KeepWebUI) {
     $ShortcutPaths += "$StartupFolder\EasySkillsWebUI.lnk"
 }
-
 foreach ($ShortcutPath in $ShortcutPaths) {
     if (Test-Path $ShortcutPath) {
         Remove-Item $ShortcutPath -Force
         Write-Host "[OK] Removed startup shortcut: $([System.IO.Path]::GetFileName($ShortcutPath))" -ForegroundColor Green
-    } else {
-        Write-Host "[--] Startup shortcut not found: $([System.IO.Path]::GetFileName($ShortcutPath))" -ForegroundColor Gray
     }
 }
 
-# 2. Terminate running background processes via WMI
+# 3. Terminate any currently-running background processes
 try {
     $Filter = if ($KeepWebUI) {
         "Name = 'powershell.exe' AND CommandLine LIKE '%watcher-service.ps1%'"
     } else {
         "Name = 'powershell.exe' AND (CommandLine LIKE '%watcher-service.ps1%' OR CommandLine LIKE '%webui-service.ps1%' OR CommandLine LIKE '%webui.ps1%')"
     }
-    $Processes = Get-CimInstance Win32_Process -Filter $Filter
+    $Processes = Get-CimInstance Win32_Process -Filter $Filter -ErrorAction SilentlyContinue
     if ($Processes) {
         foreach ($Proc in $Processes) {
-            $Proc | Invoke-CimMethod -MethodName Terminate | Out-Null
-            Write-Host "[OK] Terminated background process (PID: $($Proc.ProcessId))." -ForegroundColor Green
+            try {
+                $Proc | Invoke-CimMethod -MethodName Terminate | Out-Null
+                Write-Host "[OK] Terminated process (PID: $($Proc.ProcessId))." -ForegroundColor Green
+            } catch {}
         }
     } else {
         Write-Host "[--] No active background process found." -ForegroundColor Gray

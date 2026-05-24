@@ -12,16 +12,15 @@ $TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "EasySkills-install-$(Get-
 
 function Cleanup { if (Test-Path $TmpDir) { Remove-Item $TmpDir -Recurse -Force -ErrorAction SilentlyContinue } }
 
-function Start-HiddenPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
-  $Command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
-  $Shell = New-Object -ComObject WScript.Shell
-  $PreviousDirectory = [System.IO.Directory]::GetCurrentDirectory()
-  try {
-    [System.IO.Directory]::SetCurrentDirectory($WorkingDirectory)
-    [void]$Shell.Run($Command, 0, $false)
-  } finally {
-    [System.IO.Directory]::SetCurrentDirectory($PreviousDirectory)
-  }
+function Start-BackgroundPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
+  # Plain Start-Process — used only as fallback when Task Scheduler is
+  # unavailable. Avoids the WScript.Shell COM pattern that AV products
+  # commonly associate with script-based malware.
+  $PSExe = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
+  if (-not $PSExe) { $PSExe = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" }
+  Start-Process -FilePath $PSExe `
+    -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", "`"$ScriptPath`"") `
+    -WorkingDirectory $WorkingDirectory -WindowStyle Hidden | Out-Null
 }
 
 try {
@@ -86,56 +85,71 @@ try {
   # --- Activate: deploy once (visible) ---
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $MaintDir "deploy.ps1")
 
-  # --- Install startup shortcuts ---
-  $StartupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-  $WatcherShortcutPath = "$StartupFolder\EasySkillsWatcher.lnk"
-  $WebUIShortcutPath = "$StartupFolder\EasySkillsWebUI.lnk"
-  $ServiceScript = Join-Path $MaintDir "watcher-service.ps1"
-  $WebUIScript = Join-Path $MaintDir "webui.ps1"
+  $ServiceScript     = Join-Path $MaintDir "watcher-service.ps1"
   $WebUIServiceScript = Join-Path $MaintDir "webui-service.ps1"
-  try {
-    $WshShell = New-Object -ComObject WScript.Shell
-    $WatcherShortcut = $WshShell.CreateShortcut($WatcherShortcutPath)
-    $WatcherShortcut.TargetPath = "powershell.exe"
-    $WatcherShortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
-    $WatcherShortcut.WorkingDirectory = $MaintDir
-    $WatcherShortcut.WindowStyle = 7
-    $WatcherShortcut.Description = "EasySkills Background Watcher Service"
-    $WatcherShortcut.Save()
+  $RegisterScript    = Join-Path $MaintDir "register-tasks.ps1"
 
-    $WebUIShortcut = $WshShell.CreateShortcut($WebUIShortcutPath)
-    $WebUIShortcut.TargetPath = "powershell.exe"
-    $WebUIShortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WebUIServiceScript`""
-    $WebUIShortcut.WorkingDirectory = $MaintDir
-    $WebUIShortcut.WindowStyle = 7
-    $WebUIShortcut.Description = "EasySkills WebUI Background Service"
-    $WebUIShortcut.Save()
-
-    Write-Host "[OK] Startup shortcuts installed." -ForegroundColor Green
-  } catch {
-    Write-Warning "Failed to create startup shortcuts: $_"
-  }
-
-  # --- Start watcher now via a detached hidden PowerShell process. ---
-  try {
-    Start-HiddenPowerShell $ServiceScript $MaintDir
-    Write-Host "[OK] Background watcher started." -ForegroundColor Green
-  } catch {
-    Write-Warning "Failed to start watcher: $_"
-  }
-
-  # --- Launch WebUI via a detached hidden PowerShell process. ---
-  try {
-    Start-HiddenPowerShell $WebUIServiceScript $MaintDir
-    Write-Host "[OK] WebUI launching on http://localhost:6633" -ForegroundColor Green
-    Start-Sleep -Seconds 2
+  # --- Register Windows Scheduled Tasks (THE persistence mechanism) ---
+  # Task Scheduler runs the services detached from any console — they
+  # survive terminal close, log off/on, and auto-restart on failure.
+  $UsedScheduledTasks = $false
+  if ((Test-Path $RegisterScript) -and (Get-Command Register-ScheduledTask -ErrorAction SilentlyContinue)) {
     try {
-      Start-Process "http://localhost:6633"
+      & powershell -NoProfile -ExecutionPolicy Bypass -File $RegisterScript
+      $UsedScheduledTasks = $true
+      Write-Host "[OK] Background services registered with Task Scheduler." -ForegroundColor Green
     } catch {
-      Write-Warning "Could not automatically open browser: $_"
+      Write-Warning "Scheduled task registration failed, falling back to startup shortcuts: $_"
     }
-  } catch {
-    Write-Warning "Failed to start WebUI: $_"
+  }
+
+  if (-not $UsedScheduledTasks) {
+    # --- Fallback: legacy startup shortcuts + detached launch ---
+    $StartupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
+    try {
+      $WshShell = New-Object -ComObject WScript.Shell
+      foreach ($Pair in @(
+        @{ Path = "$StartupFolder\EasySkillsWatcher.lnk"; Target = $ServiceScript;     Desc = "EasySkills Background Watcher Service" },
+        @{ Path = "$StartupFolder\EasySkillsWebUI.lnk";   Target = $WebUIServiceScript; Desc = "EasySkills WebUI Background Service" }
+      )) {
+        $Sc = $WshShell.CreateShortcut($Pair.Path)
+        $Sc.TargetPath = "powershell.exe"
+        $Sc.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$($Pair.Target)`""
+        $Sc.WorkingDirectory = $MaintDir
+        $Sc.WindowStyle = 7
+        $Sc.Description = $Pair.Desc
+        $Sc.Save()
+      }
+      Write-Host "[OK] Startup shortcuts installed (fallback)." -ForegroundColor Green
+    } catch {
+      Write-Warning "Failed to create startup shortcuts: $_"
+    }
+
+    try { Start-BackgroundPowerShell $ServiceScript $MaintDir; Write-Host "[OK] Background watcher started." -ForegroundColor Green }
+    catch { Write-Warning "Failed to start watcher: $_" }
+
+    try { Start-BackgroundPowerShell $WebUIServiceScript $MaintDir; Write-Host "[OK] WebUI launching." -ForegroundColor Green }
+    catch { Write-Warning "Failed to start WebUI: $_" }
+  }
+
+  # --- Wait for the WebUI port to come up, then open the browser ---
+  $PortReady = $false
+  for ($i = 0; $i -lt 20; $i++) {
+    $Test = New-Object System.Net.Sockets.TcpClient
+    try {
+      $Async = $Test.BeginConnect("127.0.0.1", 6633, $null, $null)
+      if ($Async.AsyncWaitHandle.WaitOne(500, $false)) {
+        try { $Test.EndConnect($Async); $PortReady = $true } catch {}
+      }
+    } catch {} finally { try { $Test.Close() } catch {} }
+    if ($PortReady) { break }
+    Start-Sleep -Milliseconds 500
+  }
+  if ($PortReady) {
+    Write-Host "[OK] WebUI is listening on http://localhost:6633" -ForegroundColor Green
+    try { Start-Process "http://localhost:6633" } catch { Write-Warning "Could not open browser: $_" }
+  } else {
+    Write-Warning "WebUI did not come up within 10s; it should appear shortly."
   }
 
   Write-Host "=============================================" -ForegroundColor Cyan

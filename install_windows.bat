@@ -59,19 +59,19 @@ if /i "%CURRENT_DIR_STRIP%" neq "%PERM_DIR%" (
   )
 )
 
-:: Run watch.ps1 from the permanent location
+:: Run watch.ps1 — registers Scheduled Tasks for both Watcher and WebUI,
+:: starts them detached, and they survive this window closing.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PERM_DIR%\_maintenance\watch.ps1"
 
-:: Launch WebUI in background
-echo Launching WebUI Manager on port 6633...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=New-Object -ComObject WScript.Shell; [void]$s.Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""%PERM_DIR%\_maintenance\webui-service.ps1""', 0, $false)"
+:: Open the WebUI once the port is up.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "for ($i=0;$i -lt 20;$i++) { $c=New-Object System.Net.Sockets.TcpClient; try { $a=$c.BeginConnect('127.0.0.1',6633,$null,$null); if ($a.AsyncWaitHandle.WaitOne(500,$false)) { try { $c.EndConnect($a); Start-Process 'http://localhost:6633'; break } catch {} } } catch {} finally { try { $c.Close() } catch {} }; Start-Sleep -Milliseconds 500 }"
 
 echo =============================================
 echo.
-echo NOTE: If Windows Defender shows a warning, you can safely allow it.
-echo To add an exclusion, run PowerShell as Administrator:
-echo   Add-MpPreference -ExclusionPath "%PERM_DIR%"
-echo Or: Windows Security ^> Virus ^& threat protection ^> Exclusions ^> Add folder
+echo NOTE: This is an open-source project ^(https://github.com/RunhuaHuang/EasySkills^).
+echo If Windows SmartScreen shows a warning the first time, choose "More info"
+echo and then "Run anyway". EasySkills runs entirely on your machine and does
+echo not send data anywhere ^(WebUI is bound to 127.0.0.1 only^).
 echo.
 echo Press any key to close this window...
 pause > nul

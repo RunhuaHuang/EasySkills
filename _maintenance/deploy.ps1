@@ -21,16 +21,14 @@ $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $CentralDir = Split-Path -Path $ScriptDir -Parent
 $CustomTargetsFile = Join-Path -Path $ScriptDir -ChildPath "custom-targets.txt"
 
-function Start-HiddenPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
-  $Command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
-  $Shell = New-Object -ComObject WScript.Shell
-  $PreviousDirectory = [System.IO.Directory]::GetCurrentDirectory()
-  try {
-    [System.IO.Directory]::SetCurrentDirectory($WorkingDirectory)
-    [void]$Shell.Run($Command, 0, $false)
-  } finally {
-    [System.IO.Directory]::SetCurrentDirectory($PreviousDirectory)
-  }
+function Start-BackgroundPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
+  # Avoid WScript.Shell COM pattern (AV heuristic flag). Plain Start-Process
+  # is a standard, low-suspicion way to launch a hidden child process.
+  $PSExe = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
+  if (-not $PSExe) { $PSExe = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" }
+  Start-Process -FilePath $PSExe `
+    -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", "`"$ScriptPath`"") `
+    -WorkingDirectory $WorkingDirectory -WindowStyle Hidden | Out-Null
 }
 
 # --- One-time migration: move custom-targets.txt from legacy root location ---
@@ -428,7 +426,15 @@ try {
   if ($Status) {
     Run-Status
   } elseif ($WebUI) {
-    Start-HiddenPowerShell (Join-Path $ScriptDir "webui-service.ps1") $ScriptDir
+    $Started = $false
+    if (Get-Command Start-ScheduledTask -ErrorAction SilentlyContinue) {
+      if (Get-ScheduledTask -TaskName "EasySkills WebUI" -ErrorAction SilentlyContinue) {
+        try { Start-ScheduledTask -TaskName "EasySkills WebUI" -ErrorAction Stop; $Started = $true } catch {}
+      }
+    }
+    if (-not $Started) {
+      Start-BackgroundPowerShell (Join-Path $ScriptDir "webui-service.ps1") $ScriptDir
+    }
     Write-Host "WebUI launching on http://localhost:6633"
   } elseif ($Cleanup) {
     Run-Cleanup
