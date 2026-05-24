@@ -92,6 +92,7 @@ try {
   $WebUIShortcutPath = "$StartupFolder\EasySkillsWebUI.lnk"
   $ServiceScript = Join-Path $MaintDir "watcher-service.ps1"
   $WebUIScript = Join-Path $MaintDir "webui.ps1"
+  $WebUIServiceScript = Join-Path $MaintDir "webui-service.ps1"
   try {
     $WshShell = New-Object -ComObject WScript.Shell
     $WatcherShortcut = $WshShell.CreateShortcut($WatcherShortcutPath)
@@ -104,7 +105,7 @@ try {
 
     $WebUIShortcut = $WshShell.CreateShortcut($WebUIShortcutPath)
     $WebUIShortcut.TargetPath = "powershell.exe"
-    $WebUIShortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WebUIScript`""
+    $WebUIShortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WebUIServiceScript`""
     $WebUIShortcut.WorkingDirectory = $MaintDir
     $WebUIShortcut.WindowStyle = 7
     $WebUIShortcut.Description = "EasySkills WebUI Background Service"
@@ -125,7 +126,7 @@ try {
 
   # --- Launch WebUI via a detached hidden PowerShell process. ---
   try {
-    Start-HiddenPowerShell $WebUIScript $MaintDir
+    Start-HiddenPowerShell $WebUIServiceScript $MaintDir
     Write-Host "[OK] WebUI launching on http://localhost:6633" -ForegroundColor Green
     Start-Sleep -Seconds 2
     try {

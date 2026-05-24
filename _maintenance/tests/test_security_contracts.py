@@ -49,9 +49,15 @@ class SecurityContractsTest(unittest.TestCase):
     def test_webui_hides_proma_workspace_targets_from_agent_list(self):
         py_src = read("_maintenance/webui.py")
         ps_src = read("_maintenance/webui.ps1")
+        html_src = read("_maintenance/webui/index.html")
 
         self.assertIn("def is_proma_workspace_target", py_src)
+        self.assertIn("def get_visible_agents", py_src)
         self.assertIn("function Is-PromaWorkspaceTarget", ps_src)
+        self.assertIn("$Normalized = $PathStr -replace '/', '\\'", ps_src)
+        self.assertIn("function Get-VisibleAgentsData", ps_src)
+        self.assertIn("function getVisibleAgents", html_src)
+        self.assertIn("isPromaWorkspaceAgent", html_src)
         self.assertNotIn('return f"Proma Workspace', py_src)
         self.assertNotIn('return "Proma Workspace', ps_src)
         self.assertNotRegex(py_src, r"custom_list\.append\(\(get_agent_name\(str\(ws_skills\)\)")
@@ -114,18 +120,33 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("EasySkillsWatcher.lnk", install)
         self.assertIn("EasySkillsWebUI.lnk", install)
         self.assertIn("watcher-service.ps1", install)
-        self.assertIn("webui.ps1", install)
+        self.assertIn("webui-service.ps1", install)
 
         watch = read("_maintenance/watch.ps1")
         self.assertIn("EasySkillsWatcher.lnk", watch)
         self.assertIn("EasySkillsWebUI.lnk", watch)
         self.assertIn("watcher-service.ps1", watch)
-        self.assertIn("webui.ps1", watch)
+        self.assertIn("webui-service.ps1", watch)
 
         unwatch = read("_maintenance/unwatch.ps1")
         self.assertIn("EasySkillsWatcher.lnk", unwatch)
         self.assertIn("EasySkillsWebUI.lnk", unwatch)
         self.assertIn("webui.ps1", unwatch)
+        self.assertIn("webui-service.ps1", unwatch)
+
+    def test_windows_webui_uses_supervisor_service(self):
+        service = read("_maintenance/webui-service.ps1")
+        self.assertIn("Test-WebUIPort", service)
+        self.assertIn("while ($true)", service)
+        self.assertIn("webui.ps1", service)
+        self.assertIn("-NoBrowser", service)
+
+        for rel in ("install.ps1", "_maintenance/watch.ps1", "_maintenance/deploy.ps1", "install_windows.bat", "_maintenance/Windows/Start — 启动.bat"):
+            self.assertIn("webui-service.ps1", read(rel), rel)
+
+        webui = read("_maintenance/webui.ps1")
+        self.assertIn("[switch]$NoBrowser", webui)
+        self.assertIn("if (-not $NoBrowser)", webui)
 
     def test_webui_stop_watcher_keeps_backend_running(self):
         py_src = read("_maintenance/webui.py")

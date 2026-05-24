@@ -32,7 +32,7 @@ try {
     $Filter = if ($KeepWebUI) {
         "Name = 'powershell.exe' AND CommandLine LIKE '%watcher-service.ps1%'"
     } else {
-        "Name = 'powershell.exe' AND (CommandLine LIKE '%watcher-service.ps1%' OR CommandLine LIKE '%webui.ps1%')"
+        "Name = 'powershell.exe' AND (CommandLine LIKE '%watcher-service.ps1%' OR CommandLine LIKE '%webui-service.ps1%' OR CommandLine LIKE '%webui.ps1%')"
     }
     $Processes = Get-CimInstance Win32_Process -Filter $Filter
     if ($Processes) {

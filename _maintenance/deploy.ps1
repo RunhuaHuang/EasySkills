@@ -428,7 +428,7 @@ try {
   if ($Status) {
     Run-Status
   } elseif ($WebUI) {
-    Start-HiddenPowerShell (Join-Path $ScriptDir "webui.ps1") $ScriptDir
+    Start-HiddenPowerShell (Join-Path $ScriptDir "webui-service.ps1") $ScriptDir
     Write-Host "WebUI launching on http://localhost:6633"
   } elseif ($Cleanup) {
     Run-Cleanup

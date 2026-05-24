@@ -212,6 +212,16 @@ def get_agents():
     return agents
 
 
+def is_proma_workspace_agent(agent: dict) -> bool:
+    name = str(agent.get("name", ""))
+    path = str(agent.get("path", ""))
+    return name.startswith("Proma Workspace") or is_proma_workspace_target(path)
+
+
+def get_visible_agents():
+    return [agent for agent in get_agents() if not is_proma_workspace_agent(agent)]
+
+
 def get_version():
     version_file = SCRIPT_DIR / ".version"
     if version_file.exists():
@@ -559,7 +569,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         elif path == "/api/status":
             watcher = get_watcher_status()
-            agents  = get_agents()
+            agents  = get_visible_agents()
             skills  = get_skills()
             self._json({
                 "watcher":       watcher,
@@ -574,7 +584,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(get_skills())
 
         elif path == "/api/agents":
-            self._json(get_agents())
+            self._json(get_visible_agents())
 
         else:
             self.send_response(404)

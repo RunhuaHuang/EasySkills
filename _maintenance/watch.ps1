@@ -42,6 +42,7 @@ if (Test-Path $WatcherShortcutPath) {
 
 $ServiceScript = "$ScriptDir\watcher-service.ps1"
 $WebUIScript = "$ScriptDir\webui.ps1"
+$WebUIServiceScript = "$ScriptDir\webui-service.ps1"
 
 try {
     $WshShell = New-Object -ComObject WScript.Shell
@@ -55,7 +56,7 @@ try {
 
     $WebUIShortcut = $WshShell.CreateShortcut($WebUIShortcutPath)
     $WebUIShortcut.TargetPath = "powershell.exe"
-    $WebUIShortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WebUIScript`""
+    $WebUIShortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WebUIServiceScript`""
     $WebUIShortcut.WorkingDirectory = $ScriptDir
     $WebUIShortcut.WindowStyle = 7
     $WebUIShortcut.Description = "EasySkills WebUI Background Service"
@@ -63,6 +64,7 @@ try {
 
     # 3. Start watcher detached from the installer console.
     Start-HiddenPowerShell $ServiceScript $ScriptDir
+    Start-HiddenPowerShell $WebUIServiceScript $ScriptDir
 
     Write-Host "=============================================" -ForegroundColor Cyan
     Write-Host "Windows EasySkills Watcher installed!" -ForegroundColor Green

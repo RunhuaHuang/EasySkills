@@ -5,6 +5,10 @@
 #        or: deploy.ps1 -WebUI
 # ==============================================================================
 
+Param(
+    [Parameter(Mandatory=$false)][switch]$NoBrowser
+)
+
 $Port = 6633
 $WebUIToken = [Guid]::NewGuid().ToString("N")
 $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
@@ -97,7 +101,8 @@ function Get-CustomTargets {
 }
 
 function Is-PromaWorkspaceTarget([string]$PathStr) {
-    return ($PathStr -like "*\.proma\agent-workspaces\*")
+    $Normalized = $PathStr -replace '/', '\'
+    return ($Normalized -like "*\.proma\agent-workspaces\*")
 }
 
 function Get-AgentNameFromPath([string]$PathStr) {
@@ -234,6 +239,14 @@ function Get-AgentsData {
         }
     }
     return $Agents
+}
+
+function Is-PromaWorkspaceAgent($Agent) {
+    return (($Agent.name -like "Proma Workspace*") -or (Is-PromaWorkspaceTarget $Agent.path))
+}
+
+function Get-VisibleAgentsData {
+    return @(Get-AgentsData | Where-Object { -not (Is-PromaWorkspaceAgent $_) })
 }
 
 function Run-DeployCommand([string[]]$ArgsArr) {
@@ -587,7 +600,7 @@ function Invoke-WebUIRequest($Context) {
             $Context.Response.Close()
         } elseif ($UrlPath -eq "/api/status") {
             $Skills = @(Get-SkillsData)
-            $Agents = @(Get-AgentsData)
+            $Agents = @(Get-VisibleAgentsData)
             $MappedCount = @($Agents | Where-Object { $_.mapped }).Count
             $Data = @{
                 watcher = Get-WatcherStatus
@@ -601,7 +614,7 @@ function Invoke-WebUIRequest($Context) {
         } elseif ($UrlPath -eq "/api/skills") {
             Send-JsonResponse $Context (Get-SkillsData)
         } elseif ($UrlPath -eq "/api/agents") {
-            Send-JsonResponse $Context (Get-AgentsData)
+            Send-JsonResponse $Context (Get-VisibleAgentsData)
         } else {
             $Context.Response.StatusCode = 404
             $Context.Response.Close()
@@ -679,11 +692,13 @@ try {
     Write-Host "  =========================================="
     Write-Host ""
 
-    # Auto-opening can fail in hidden/non-interactive launches; the server must keep running.
-    try {
-        Start-Process "http://localhost:$Port"
-    } catch {
-        Write-Warning "Could not automatically open browser in background: $_"
+    if (-not $NoBrowser) {
+        # Auto-opening can fail in hidden/non-interactive launches; the server must keep running.
+        try {
+            Start-Process "http://localhost:$Port"
+        } catch {
+            Write-Warning "Could not automatically open browser in background: $_"
+        }
     }
 
     while ($Listener.IsListening) {

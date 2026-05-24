@@ -2463,7 +2463,18 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
 
         // --- Render UI Component: Agents List ---
         let lastAgentsJson = '';
+        function isPromaWorkspaceAgent(agent) {
+            const name = String(agent?.name || '');
+            const path = String(agent?.path || '').replace(/\\/g, '/').toLowerCase();
+            return name.startsWith('Proma Workspace') || path.includes('/.proma/agent-workspaces/');
+        }
+
+        function getVisibleAgents(agents) {
+            return (agents || []).filter(agent => !isPromaWorkspaceAgent(agent));
+        }
+
         function renderAgents(agents) {
+            agents = getVisibleAgents(agents);
             // Sort agents: mapped first (A-Z by name), then unmapped (A-Z by name)
             agents.sort((x, y) => {
                 if (x.mapped && !y.mapped) return -1;
