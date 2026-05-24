@@ -13,8 +13,15 @@ $TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "EasySkills-install-$(Get-
 function Cleanup { if (Test-Path $TmpDir) { Remove-Item $TmpDir -Recurse -Force -ErrorAction SilentlyContinue } }
 
 function Start-HiddenPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
-  $ArgList = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
-  Start-Process -FilePath "powershell.exe" -ArgumentList $ArgList -WindowStyle Hidden -WorkingDirectory $WorkingDirectory | Out-Null
+  $Command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
+  $Shell = New-Object -ComObject WScript.Shell
+  $PreviousDirectory = [System.IO.Directory]::GetCurrentDirectory()
+  try {
+    [System.IO.Directory]::SetCurrentDirectory($WorkingDirectory)
+    [void]$Shell.Run($Command, 0, $false)
+  } finally {
+    [System.IO.Directory]::SetCurrentDirectory($PreviousDirectory)
+  }
 }
 
 try {

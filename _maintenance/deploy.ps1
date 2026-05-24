@@ -21,8 +21,15 @@ $CentralDir = Split-Path -Path $ScriptDir -Parent
 $CustomTargetsFile = Join-Path -Path $ScriptDir -ChildPath "custom-targets.txt"
 
 function Start-HiddenPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
-  $ArgList = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
-  Start-Process -FilePath "powershell.exe" -ArgumentList $ArgList -WindowStyle Hidden -WorkingDirectory $WorkingDirectory | Out-Null
+  $Command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
+  $Shell = New-Object -ComObject WScript.Shell
+  $PreviousDirectory = [System.IO.Directory]::GetCurrentDirectory()
+  try {
+    [System.IO.Directory]::SetCurrentDirectory($WorkingDirectory)
+    [void]$Shell.Run($Command, 0, $false)
+  } finally {
+    [System.IO.Directory]::SetCurrentDirectory($PreviousDirectory)
+  }
 }
 
 # --- One-time migration: move custom-targets.txt from legacy root location ---

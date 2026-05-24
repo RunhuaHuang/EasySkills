@@ -62,7 +62,9 @@ class SecurityContractsTest(unittest.TestCase):
         for rel in ("install.ps1", "_maintenance/watch.ps1"):
             src = read(rel)
             self.assertNotIn("Invoke-CimMethod -ClassName Win32_Process", src, rel)
-            self.assertIn('Start-Process -FilePath "powershell.exe"', src, rel)
+            self.assertIn("WScript.Shell", src, rel)
+            self.assertIn(".Run(", src, rel)
+            self.assertIn("$false", src, rel)
 
     def test_windows_launchers_detach_from_calling_console(self):
         for rel in ("install.ps1", "_maintenance/watch.ps1"):
@@ -71,9 +73,11 @@ class SecurityContractsTest(unittest.TestCase):
             self.assertIn("-WindowStyle Hidden", src, rel)
 
         self.assertNotIn("start \"\" /B powershell", read("install_windows.bat"))
-        self.assertIn("start \"\" powershell", read("install_windows.bat"))
+        self.assertNotIn("start \"\" powershell", read("install_windows.bat"))
+        self.assertIn("WScript.Shell", read("install_windows.bat"))
         self.assertNotIn('powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\\webui.ps1"', read("_maintenance/Windows/Start — 启动.bat"))
-        self.assertIn("start \"\" powershell", read("_maintenance/Windows/Start — 启动.bat"))
+        self.assertNotIn("start \"\" powershell", read("_maintenance/Windows/Start — 启动.bat"))
+        self.assertIn("WScript.Shell", read("_maintenance/Windows/Start — 启动.bat"))
         self.assertIn("Start-HiddenPowerShell", read("_maintenance/deploy.ps1"))
 
     def test_macos_webui_launches_detached(self):

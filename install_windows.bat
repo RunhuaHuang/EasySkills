@@ -64,7 +64,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%PERM_DIR%\_maintenance\wat
 
 :: Launch WebUI in background
 echo Launching WebUI Manager on port 6633...
-start "" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%PERM_DIR%\_maintenance\webui.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=New-Object -ComObject WScript.Shell; [void]$s.Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""%PERM_DIR%\_maintenance\webui.ps1""', 0, $false)"
 
 echo =============================================
 echo.
