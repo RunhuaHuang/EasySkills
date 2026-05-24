@@ -92,11 +92,11 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("addEventListener('click'", src)
 
     def test_readme_version_and_agent_count_match_release(self):
-        self.assertIn("Version-1.1.2", read("README.md"))
-        self.assertIn("版本-1.1.2", read("README_CN.md"))
+        self.assertIn("Version-1.1.3", read("README.md"))
+        self.assertIn("版本-1.1.3", read("README_CN.md"))
         self.assertIn("25 agents are pre-configured", read("README.md"))
         self.assertIn("开箱即用支持 25 个 Agent", read("README_CN.md"))
-        self.assertEqual("1.1.2", read("_maintenance/.version").strip())
+        self.assertEqual("1.1.3", read("_maintenance/.version").strip())
 
     # -------------------------------------------------------------------------
     # Windows background launching — Scheduled Tasks (S4U) + AV-safe launchers
@@ -259,8 +259,23 @@ class SecurityContractsTest(unittest.TestCase):
         deploy_ps = read("_maintenance/deploy.ps1")
         unwatch_ps = read("_maintenance/unwatch.ps1")
 
+        # macOS still uses the deploy-script path (launchctl unload is light).
         self.assertIn('"/api/watcher/stop":         lambda: run_deploy("--unwatch")', py_src)
-        self.assertIn('Run-DeployCommand @("-Unwatch", "-KeepWebUI")', ps_src)
+
+        # Windows uses dedicated narrow functions for start/stop so the
+        # WebUI request handler is never killed by the very action it
+        # spawned (which would surface as a "Network offline" flash).
+        self.assertIn("function Start-WatcherTask", ps_src)
+        self.assertIn("function Stop-WatcherTask", ps_src)
+        self.assertRegex(ps_src, r'/api/watcher/start"\s*\)\s*\{\s*\n\s*Send-JsonResponse\s+\$Context\s+\(Start-WatcherTask\)')
+        self.assertRegex(ps_src, r'/api/watcher/stop"\s*\)\s*\{\s*\n\s*Send-JsonResponse\s+\$Context\s+\(Stop-WatcherTask\)')
+        # Watcher start must NOT route through Run-DeployCommand by default;
+        # only via the fallback path when the task is missing.
+        self.assertIn("Start-ScheduledTask -TaskName \"EasySkills Watcher\"", ps_src)
+        self.assertIn("Disable-ScheduledTask -TaskName \"EasySkills Watcher\"", ps_src)
+
+        # Legacy deploy/unwatch -KeepWebUI flag still wired up for the
+        # fallback path and for the uninstaller.
         self.assertIn("[switch]$KeepWebUI", deploy_ps)
         self.assertIn("[switch]$KeepWebUI", unwatch_ps)
         self.assertIn("if (-not $KeepWebUI)", unwatch_ps)

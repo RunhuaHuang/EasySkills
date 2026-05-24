@@ -268,6 +268,70 @@ function Get-VisibleAgentsData {
     return @(Get-AgentsData | Where-Object { -not (Is-PromaWorkspaceAgent $_) })
 }
 
+function Start-WatcherTask {
+    # Narrow path for the WebUI "start watcher" button. Just nudges the
+    # already-registered Scheduled Task — does NOT call register-tasks.ps1
+    # (which would re-register both tasks and kill webui.ps1 mid-request,
+    # causing a "Network offline" flash in the browser).
+    try {
+        if (-not (Get-Command Start-ScheduledTask -ErrorAction SilentlyContinue)) {
+            return (Run-DeployCommand @("-Watch"))
+        }
+        $task = Get-ScheduledTask -TaskName "EasySkills Watcher" -ErrorAction SilentlyContinue
+        if (-not $task) {
+            # Task missing (legacy / partially-uninstalled state) — fall back
+            # to full registration. This is the slow path that may briefly
+            # disrupt the WebUI, but it's a rare upgrade scenario.
+            return (Run-DeployCommand @("-Watch"))
+        }
+        # Re-enable in case a previous Stop disabled it.
+        if ($task.State -eq 'Disabled' -and (Get-Command Enable-ScheduledTask -ErrorAction SilentlyContinue)) {
+            try { Enable-ScheduledTask -TaskName "EasySkills Watcher" -ErrorAction SilentlyContinue | Out-Null } catch {}
+        }
+        Start-ScheduledTask -TaskName "EasySkills Watcher" -ErrorAction Stop
+        return @{ success = $true; output = "Watcher task started."; message = "Watcher started." }
+    } catch {
+        return @{ success = $false; output = $_.Exception.Message; message = "Failed to start watcher: $($_.Exception.Message)" }
+    }
+}
+
+function Stop-WatcherTask {
+    # Narrow path for the WebUI "stop watcher" button. Stops + disables the
+    # Scheduled Task (so it won't auto-restart at next logon) and kills the
+    # currently-running watcher-service.ps1 child — without touching the
+    # WebUI task or webui.ps1.
+    try {
+        $stoppedSomething = $false
+        if (Get-Command Stop-ScheduledTask -ErrorAction SilentlyContinue) {
+            $task = Get-ScheduledTask -TaskName "EasySkills Watcher" -ErrorAction SilentlyContinue
+            if ($task) {
+                try { Stop-ScheduledTask -TaskName "EasySkills Watcher" -ErrorAction SilentlyContinue } catch {}
+                if (Get-Command Disable-ScheduledTask -ErrorAction SilentlyContinue) {
+                    try { Disable-ScheduledTask -TaskName "EasySkills Watcher" -ErrorAction SilentlyContinue | Out-Null } catch {}
+                }
+                $stoppedSomething = $true
+            }
+        }
+        # Kill any lingering watcher-service.ps1 process (the task action
+        # may have already exited but the spawned PS child can survive).
+        try {
+            $procs = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' AND CommandLine LIKE '%watcher-service.ps1%'" -ErrorAction SilentlyContinue
+            foreach ($p in $procs) {
+                try { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue; $stoppedSomething = $true } catch {}
+            }
+        } catch {}
+
+        if ($stoppedSomething) {
+            return @{ success = $true; output = "Watcher task stopped and disabled."; message = "Watcher stopped." }
+        }
+        # Nothing to stop via the fast path — fall back to legacy unwatch
+        # (still preserves the WebUI via -KeepWebUI).
+        return (Run-DeployCommand @("-Unwatch", "-KeepWebUI"))
+    } catch {
+        return @{ success = $false; output = $_.Exception.Message; message = "Failed to stop watcher: $($_.Exception.Message)" }
+    }
+}
+
 function Run-DeployCommand([string[]]$ArgsArr) {
     try {
         $DeployScript = Join-Path $ScriptDir "deploy.ps1"
@@ -674,9 +738,9 @@ function Invoke-WebUIRequest($Context) {
         } elseif ($UrlPath -eq "/api/cleanup") {
             Send-JsonResponse $Context (Run-DeployCommand @("-Cleanup"))
         } elseif ($UrlPath -eq "/api/watcher/start") {
-            Send-JsonResponse $Context (Run-DeployCommand @("-Watch"))
+            Send-JsonResponse $Context (Start-WatcherTask)
         } elseif ($UrlPath -eq "/api/watcher/stop") {
-            Send-JsonResponse $Context (Run-DeployCommand @("-Unwatch", "-KeepWebUI"))
+            Send-JsonResponse $Context (Stop-WatcherTask)
         } elseif ($UrlPath -eq "/api/agents/map") {
             Send-JsonResponse $Context (Do-Map $BodyData["path"])
         } elseif ($UrlPath -eq "/api/agents/unmap") {
