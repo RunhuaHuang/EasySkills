@@ -2,12 +2,7 @@
 :: EasySkills WebUI Launcher
 title EasySkills WebUI
 echo Starting EasySkills WebUI...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\webui.ps1"
-if %errorlevel% neq 0 (
-    echo.
-    echo ==========================================================
-    echo [Error] EasySkills WebUI failed to start.
-    echo Please check the error message above.
-    echo ==========================================================
-    pause
-)
+start "" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0..\webui.ps1"
+timeout /t 2 /nobreak > nul
+start "" "http://localhost:6633"
+echo EasySkills WebUI is launching in the background.

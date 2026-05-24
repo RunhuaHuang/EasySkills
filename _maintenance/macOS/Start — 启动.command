@@ -7,4 +7,7 @@ if ! command -v python3 &>/dev/null; then
   read -n 1 -s
   exit 1
 fi
-python3 webui.py
+nohup python3 webui.py >/dev/null 2>&1 &
+sleep 2
+open "http://localhost:6633"
+echo "EasySkills WebUI is launching in the background."

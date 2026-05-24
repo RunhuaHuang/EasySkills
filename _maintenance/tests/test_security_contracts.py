@@ -72,11 +72,14 @@ class SecurityContractsTest(unittest.TestCase):
 
         self.assertNotIn("start \"\" /B powershell", read("install_windows.bat"))
         self.assertIn("start \"\" powershell", read("install_windows.bat"))
+        self.assertNotIn('powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\\webui.ps1"', read("_maintenance/Windows/Start — 启动.bat"))
+        self.assertIn("start \"\" powershell", read("_maintenance/Windows/Start — 启动.bat"))
         self.assertIn("Start-HiddenPowerShell", read("_maintenance/deploy.ps1"))
 
     def test_macos_webui_launches_detached(self):
         self.assertIn("nohup python3", read("install_mac.command"))
         self.assertIn("nohup python3 \"$SCRIPT_DIR/webui.py\"", read("_maintenance/deploy.sh"))
+        self.assertIn("nohup python3 webui.py", read("_maintenance/macOS/Start — 启动.command"))
 
 
 if __name__ == "__main__":
