@@ -86,22 +86,33 @@ try {
   # --- Activate: deploy once (visible) ---
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $MaintDir "deploy.ps1")
 
-  # --- Install watcher startup shortcut ---
+  # --- Install startup shortcuts ---
   $StartupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-  $ShortcutPath = "$StartupFolder\EasySkillsWatcher.lnk"
+  $WatcherShortcutPath = "$StartupFolder\EasySkillsWatcher.lnk"
+  $WebUIShortcutPath = "$StartupFolder\EasySkillsWebUI.lnk"
   $ServiceScript = Join-Path $MaintDir "watcher-service.ps1"
+  $WebUIScript = Join-Path $MaintDir "webui.ps1"
   try {
     $WshShell = New-Object -ComObject WScript.Shell
-    $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
-    $Shortcut.TargetPath = "powershell.exe"
-    $Shortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
-    $Shortcut.WorkingDirectory = $MaintDir
-    $Shortcut.WindowStyle = 7
-    $Shortcut.Description = "EasySkills Background Watcher Service"
-    $Shortcut.Save()
-    Write-Host "[OK] Watcher startup shortcut installed." -ForegroundColor Green
+    $WatcherShortcut = $WshShell.CreateShortcut($WatcherShortcutPath)
+    $WatcherShortcut.TargetPath = "powershell.exe"
+    $WatcherShortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
+    $WatcherShortcut.WorkingDirectory = $MaintDir
+    $WatcherShortcut.WindowStyle = 7
+    $WatcherShortcut.Description = "EasySkills Background Watcher Service"
+    $WatcherShortcut.Save()
+
+    $WebUIShortcut = $WshShell.CreateShortcut($WebUIShortcutPath)
+    $WebUIShortcut.TargetPath = "powershell.exe"
+    $WebUIShortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WebUIScript`""
+    $WebUIShortcut.WorkingDirectory = $MaintDir
+    $WebUIShortcut.WindowStyle = 7
+    $WebUIShortcut.Description = "EasySkills WebUI Background Service"
+    $WebUIShortcut.Save()
+
+    Write-Host "[OK] Startup shortcuts installed." -ForegroundColor Green
   } catch {
-    Write-Warning "Failed to create startup shortcut: $_"
+    Write-Warning "Failed to create startup shortcuts: $_"
   }
 
   # --- Start watcher now via a detached hidden PowerShell process. ---
@@ -113,7 +124,6 @@ try {
   }
 
   # --- Launch WebUI via a detached hidden PowerShell process. ---
-  $WebUIScript = Join-Path $MaintDir "webui.ps1"
   try {
     Start-HiddenPowerShell $WebUIScript $MaintDir
     Write-Host "[OK] WebUI launching on http://localhost:6633" -ForegroundColor Green

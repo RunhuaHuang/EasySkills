@@ -80,6 +80,24 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("WScript.Shell", read("_maintenance/Windows/Start — 启动.bat"))
         self.assertIn("Start-HiddenPowerShell", read("_maintenance/deploy.ps1"))
 
+    def test_windows_installer_registers_watcher_and_webui_startup_shortcuts(self):
+        install = read("install.ps1")
+        self.assertIn("EasySkillsWatcher.lnk", install)
+        self.assertIn("EasySkillsWebUI.lnk", install)
+        self.assertIn("watcher-service.ps1", install)
+        self.assertIn("webui.ps1", install)
+
+        watch = read("_maintenance/watch.ps1")
+        self.assertIn("EasySkillsWatcher.lnk", watch)
+        self.assertIn("EasySkillsWebUI.lnk", watch)
+        self.assertIn("watcher-service.ps1", watch)
+        self.assertIn("webui.ps1", watch)
+
+        unwatch = read("_maintenance/unwatch.ps1")
+        self.assertIn("EasySkillsWatcher.lnk", unwatch)
+        self.assertIn("EasySkillsWebUI.lnk", unwatch)
+        self.assertIn("webui.ps1", unwatch)
+
     def test_macos_webui_launches_detached(self):
         self.assertIn("nohup python3", read("install_mac.command"))
         self.assertIn("nohup python3 \"$SCRIPT_DIR/webui.py\"", read("_maintenance/deploy.sh"))

@@ -27,29 +27,39 @@ Write-Host "=============================================" -ForegroundColor Cyan
 
 # 2. Create a Windows Startup shortcut
 $StartupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-$ShortcutPath = "$StartupFolder\EasySkillsWatcher.lnk"
+$WatcherShortcutPath = "$StartupFolder\EasySkillsWatcher.lnk"
+$WebUIShortcutPath = "$StartupFolder\EasySkillsWebUI.lnk"
 
 # Remove legacy shortcut if it points to old VBS launcher
-if (Test-Path $ShortcutPath) {
+if (Test-Path $WatcherShortcutPath) {
     try {
-        $OldShortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($ShortcutPath)
+        $OldShortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($WatcherShortcutPath)
         if ($OldShortcut.TargetPath -like "*watcher-launcher.vbs*") {
-            Remove-Item $ShortcutPath -Force -ErrorAction SilentlyContinue
+            Remove-Item $WatcherShortcutPath -Force -ErrorAction SilentlyContinue
         }
     } catch {}
 }
 
 $ServiceScript = "$ScriptDir\watcher-service.ps1"
+$WebUIScript = "$ScriptDir\webui.ps1"
 
 try {
     $WshShell = New-Object -ComObject WScript.Shell
-    $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
-    $Shortcut.TargetPath = "powershell.exe"
-    $Shortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
-    $Shortcut.WorkingDirectory = $ScriptDir
-    $Shortcut.WindowStyle = 7
-    $Shortcut.Description = "EasySkills Background Watcher Service"
-    $Shortcut.Save()
+    $WatcherShortcut = $WshShell.CreateShortcut($WatcherShortcutPath)
+    $WatcherShortcut.TargetPath = "powershell.exe"
+    $WatcherShortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
+    $WatcherShortcut.WorkingDirectory = $ScriptDir
+    $WatcherShortcut.WindowStyle = 7
+    $WatcherShortcut.Description = "EasySkills Background Watcher Service"
+    $WatcherShortcut.Save()
+
+    $WebUIShortcut = $WshShell.CreateShortcut($WebUIShortcutPath)
+    $WebUIShortcut.TargetPath = "powershell.exe"
+    $WebUIShortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WebUIScript`""
+    $WebUIShortcut.WorkingDirectory = $ScriptDir
+    $WebUIShortcut.WindowStyle = 7
+    $WebUIShortcut.Description = "EasySkills WebUI Background Service"
+    $WebUIShortcut.Save()
 
     # 3. Start watcher detached from the installer console.
     Start-HiddenPowerShell $ServiceScript $ScriptDir

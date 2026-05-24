@@ -7,27 +7,32 @@ Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "[*] Uninstalling Windows EasySkills Watcher..." -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
-# 1. Remove the startup shortcut
+# 1. Remove startup shortcuts
 $StartupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-$ShortcutPath = "$StartupFolder\EasySkillsWatcher.lnk"
+$ShortcutPaths = @(
+    "$StartupFolder\EasySkillsWatcher.lnk",
+    "$StartupFolder\EasySkillsWebUI.lnk"
+)
 
-if (Test-Path $ShortcutPath) {
-    Remove-Item $ShortcutPath -Force
-    Write-Host "[OK] Removed startup shortcut." -ForegroundColor Green
-} else {
-    Write-Host "[--] No startup shortcut found." -ForegroundColor Gray
+foreach ($ShortcutPath in $ShortcutPaths) {
+    if (Test-Path $ShortcutPath) {
+        Remove-Item $ShortcutPath -Force
+        Write-Host "[OK] Removed startup shortcut: $([System.IO.Path]::GetFileName($ShortcutPath))" -ForegroundColor Green
+    } else {
+        Write-Host "[--] Startup shortcut not found: $([System.IO.Path]::GetFileName($ShortcutPath))" -ForegroundColor Gray
+    }
 }
 
-# 2. Terminate running background watcher processes via WMI
+# 2. Terminate running background processes via WMI
 try {
-    $WatcherProcesses = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' AND CommandLine LIKE '%watcher-service.ps1%'"
-    if ($WatcherProcesses) {
-        foreach ($Proc in $WatcherProcesses) {
+    $Processes = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' AND (CommandLine LIKE '%watcher-service.ps1%' OR CommandLine LIKE '%webui.ps1%')"
+    if ($Processes) {
+        foreach ($Proc in $Processes) {
             $Proc | Invoke-CimMethod -MethodName Terminate | Out-Null
-            Write-Host "[OK] Terminated background watcher (PID: $($Proc.ProcessId))." -ForegroundColor Green
+            Write-Host "[OK] Terminated background process (PID: $($Proc.ProcessId))." -ForegroundColor Green
         }
     } else {
-        Write-Host "[--] No active background watcher process found." -ForegroundColor Gray
+        Write-Host "[--] No active background process found." -ForegroundColor Gray
     }
 }
 catch {
