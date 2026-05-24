@@ -56,6 +56,8 @@ $WebUIShortcutPath   = "$StartupFolder\EasySkillsWebUI.lnk"
 
 $ServiceScript     = "$ScriptDir\watcher-service.ps1"
 $WebUIServiceScript = "$ScriptDir\webui-service.ps1"
+$LauncherVbs       = Join-Path $ScriptDir "run-hidden.vbs"
+$WscriptExe        = "$env:WINDIR\System32\wscript.exe"
 
 try {
     $WshShell = New-Object -ComObject WScript.Shell
@@ -64,8 +66,10 @@ try {
         @{ Path = $WebUIShortcutPath;   Target = $WebUIServiceScript; Desc = "EasySkills WebUI Background Service" }
     )) {
         $Sc = $WshShell.CreateShortcut($Pair.Path)
-        $Sc.TargetPath = "powershell.exe"
-        $Sc.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$($Pair.Target)`""
+        # Target wscript.exe + run-hidden.vbs so the fallback path also has
+        # zero visible windows (matching the Scheduled Task action format).
+        $Sc.TargetPath = $WscriptExe
+        $Sc.Arguments  = "`"$LauncherVbs`" `"$($Pair.Target)`""
         $Sc.WorkingDirectory = $ScriptDir
         $Sc.WindowStyle = 7
         $Sc.Description = $Pair.Desc

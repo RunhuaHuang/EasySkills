@@ -92,11 +92,11 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("addEventListener('click'", src)
 
     def test_readme_version_and_agent_count_match_release(self):
-        self.assertIn("Version-1.1.4", read("README.md"))
-        self.assertIn("版本-1.1.4", read("README_CN.md"))
+        self.assertIn("Version-1.2.0", read("README.md"))
+        self.assertIn("版本-1.2.0", read("README_CN.md"))
         self.assertIn("25 agents are pre-configured", read("README.md"))
         self.assertIn("开箱即用支持 25 个 Agent", read("README_CN.md"))
-        self.assertEqual("1.1.4", read("_maintenance/.version").strip())
+        self.assertEqual("1.2.0", read("_maintenance/.version").strip())
 
     # -------------------------------------------------------------------------
     # Windows background launching — Scheduled Tasks (S4U) + AV-safe launchers

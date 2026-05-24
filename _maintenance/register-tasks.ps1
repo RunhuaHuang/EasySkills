@@ -38,8 +38,8 @@ function Stop-EasySkillsBackgroundProcesses {
     # Terminate any currently-running supervisor/server processes from a
     # previous install (legacy or upgrade). This is required because
     # Unregister-ScheduledTask does NOT kill running task instances; if we
-    # don't reap them, an old Interactive-logon-style supervisor will keep
-    # showing its console window even after the new S4U task takes over.
+    # don't reap them, an old supervisor process from the prior install
+    # will keep running alongside the freshly-registered task.
     try {
         $Procs = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
             Where-Object {

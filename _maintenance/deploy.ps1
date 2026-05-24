@@ -55,7 +55,7 @@ if (Test-Path $LegacyRootTargets) {
   Remove-Item $LegacyRootTargets -Force
 }
 
-# --- One-time cleanup: remove stale files from root (pre-v1.2 leftovers) ---
+# --- One-time cleanup: remove stale files from root (older-install leftovers) ---
 # Only run in installed location, skip if inside a git repo
 $GitDir = Join-Path $CentralDir ".git"
 if (-not (Test-Path $GitDir)) {

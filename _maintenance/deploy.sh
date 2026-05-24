@@ -24,7 +24,7 @@ if [ -f "$LEGACY_ROOT_TARGETS" ]; then
   rm -f "$LEGACY_ROOT_TARGETS"
 fi
 
-# --- One-time cleanup: remove stale files from root (pre-v1.2 leftovers) ---
+# --- One-time cleanup: remove stale files from root (older-install leftovers) ---
 # Only run in installed location (~/EasySkills), skip if inside a git repo
 if [ ! -d "$CENTRAL_DIR/.git" ]; then
   for _stale in README.md README_CN.md LICENSE install.sh install.ps1 \

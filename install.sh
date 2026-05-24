@@ -45,7 +45,7 @@ CUSTOM_FILE="$PERM_DIR/_maintenance/custom-targets.txt"
 if [ -f "$CUSTOM_FILE" ]; then
   CUSTOM_BACKUP=$(cat "$CUSTOM_FILE")
 fi
-# Also migrate from legacy root location (pre-v1.2)
+# Also migrate from legacy root location (older installs)
 LEGACY_ROOT_CT="$PERM_DIR/custom-targets.txt"
 if [ -f "$LEGACY_ROOT_CT" ]; then
   LEGACY_LINES=$(grep -v -E '^\s*(#|$)' "$LEGACY_ROOT_CT" 2>/dev/null || true)

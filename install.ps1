@@ -15,7 +15,8 @@ function Cleanup { if (Test-Path $TmpDir) { Remove-Item $TmpDir -Recurse -Force 
 function Stop-StaleEasySkillsProcesses {
   # Terminate any supervisor / webui.ps1 from a prior install so that the
   # _maintenance folder isn't held open by a running powershell.exe when we
-  # try to overwrite it. Matches by command-line via WMI.
+  # try to overwrite it. Matches by command-line via WMI, then waits up to
+  # 5 seconds for the OS to release the file handles.
   try {
     $Procs = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
       Where-Object {
@@ -25,8 +26,22 @@ function Stop-StaleEasySkillsProcesses {
           $_.CommandLine -like '*webui.ps1*'
         )
       }
+    $KilledPids = @()
     foreach ($P in $Procs) {
-      try { $P | Invoke-CimMethod -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null } catch {}
+      try {
+        $P | Invoke-CimMethod -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null
+        $KilledPids += $P.ProcessId
+      } catch {}
+    }
+    if ($KilledPids.Count -gt 0) {
+      $Deadline = (Get-Date).AddSeconds(5)
+      while ((Get-Date) -lt $Deadline) {
+        $StillAlive = $KilledPids | Where-Object {
+          try { Get-Process -Id $_ -ErrorAction Stop | Out-Null; $true } catch { $false }
+        }
+        if (-not $StillAlive) { break }
+        Start-Sleep -Milliseconds 200
+      }
     }
   } catch {}
 }
@@ -134,8 +149,11 @@ try {
   }
 
   if (-not $UsedScheduledTasks) {
-    # --- Fallback: legacy startup shortcuts + detached launch ---
+    # --- Fallback: startup shortcuts pointing at wscript.exe + run-hidden.vbs
+    #     so the fallback path also has zero visible windows. -----------
     $StartupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
+    $LauncherVbs = Join-Path $MaintDir "run-hidden.vbs"
+    $WscriptExe  = "$env:WINDIR\System32\wscript.exe"
     try {
       $WshShell = New-Object -ComObject WScript.Shell
       foreach ($Pair in @(
@@ -143,8 +161,8 @@ try {
         @{ Path = "$StartupFolder\EasySkillsWebUI.lnk";   Target = $WebUIServiceScript; Desc = "EasySkills WebUI Background Service" }
       )) {
         $Sc = $WshShell.CreateShortcut($Pair.Path)
-        $Sc.TargetPath = "powershell.exe"
-        $Sc.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$($Pair.Target)`""
+        $Sc.TargetPath = $WscriptExe
+        $Sc.Arguments  = "`"$LauncherVbs`" `"$($Pair.Target)`""
         $Sc.WorkingDirectory = $MaintDir
         $Sc.WindowStyle = 7
         $Sc.Description = $Pair.Desc
