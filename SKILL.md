@@ -145,6 +145,9 @@ Here are the default paths mapped by the installation scripts for popular local 
 
 ## 🛠️ Execution Plan for Agents / Agent 执行指南
 
+> `watch.sh` internally calls `deploy.sh` for the initial sync, then registers the background watcher.
+> You only need to run `watch.sh` — it handles everything.
+
 ### 🍎 For macOS:
 ```bash
 # Run from the directory containing this SKILL.md:
@@ -153,6 +156,10 @@ bash ./_maintenance/watch.sh
 To append custom paths:
 ```bash
 bash ./_maintenance/watch.sh "/Users/username/custom-agent/skills"
+```
+To check health:
+```bash
+bash ./_maintenance/deploy.sh --status
 ```
 
 ### 🪟 For Windows:
@@ -163,4 +170,8 @@ powershell -ExecutionPolicy Bypass -File .\_maintenance\watch.ps1
 To append custom paths:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\_maintenance\watch.ps1 -CustomPath "C:\custom-agent\skills"
+```
+To check health:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\_maintenance\deploy.ps1 -Status
 ```

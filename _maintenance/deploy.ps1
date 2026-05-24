@@ -11,6 +11,7 @@ Param(
   [Parameter(Mandatory=$false)][switch]$Watch,
   [Parameter(Mandatory=$false)][switch]$Unwatch,
   [Parameter(Mandatory=$false)][switch]$Cleanup,
+  [Parameter(Mandatory=$false)][switch]$Status,
   [Parameter(Mandatory=$false)][string[]]$CustomPath = @()
 )
 
@@ -173,7 +174,7 @@ function Run-Sync {
       }
     }
 
-    New-Item -ItemType Junction -Path $DestPath -Value $ScriptDir | Out-Null
+    New-Item -ItemType Junction -Path $DestPath -Value $CentralDir | Out-Null
     Write-Host "   * Self-Mapped EasySkills -> $DestPath" -ForegroundColor Green
     if ($script:SuccessfulInjections -notcontains $Target) {
       $script:SuccessfulInjections += $Target
@@ -313,13 +314,51 @@ function Run-Cleanup {
   Write-Host "==========================================================" -ForegroundColor Cyan
 }
 
+function Run-Status {
+  Load-CustomTargets
+  Write-Host "==========================================================" -ForegroundColor Cyan
+  Write-Host "EasySkills Status" -ForegroundColor Cyan
+  Write-Host "==========================================================" -ForegroundColor Cyan
+
+  # Watcher status
+  $WatcherProc = Get-Process -Name "powershell","pwsh" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -like "*watcher-service*" }
+  if ($WatcherProc) {
+    Write-Host "   Watcher: ✅ Running (PID $($WatcherProc.Id))" -ForegroundColor Green
+  } else {
+    Write-Host "   Watcher: ❌ Not running" -ForegroundColor Red
+  }
+
+  # Mapped agents
+  $AgentCount = 0
+  $TotalSkills = 0
+  foreach ($Target in $script:Targets) {
+    if (Test-Path $Target) {
+      $Junctions = Get-ChildItem -Path $Target -Force | Where-Object { $_.Attributes -match "ReparsePoint" }
+      if ($Junctions) {
+        $Count = @($Junctions).Count
+        $AgentCount++
+        $TotalSkills += $Count
+        $AgentName = Get-AgentName $Target
+        Write-Host "   Agent: $AgentName ($Count skills)" -ForegroundColor Gray
+      }
+    }
+  }
+
+  Write-Host "   ------------------------------------------" -ForegroundColor Cyan
+  Write-Host "   Total: $AgentCount agents, $TotalSkills skill mappings" -ForegroundColor White
+  Write-Host "==========================================================" -ForegroundColor Cyan
+}
+
 # ---- Main dispatch with mutex protection ----
-$NeedsLock = -not ($List -or $Watch -or $Unwatch)
+$NeedsLock = -not ($List -or $Watch -or $Unwatch -or $Status)
 
 if ($NeedsLock) { Acquire-Lock }
 
 try {
-  if ($Cleanup) {
+  if ($Status) {
+    Run-Status
+  } elseif ($Cleanup) {
     Run-Cleanup
   } elseif ($List) {
     List-Links

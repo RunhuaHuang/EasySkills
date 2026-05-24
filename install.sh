@@ -60,7 +60,7 @@ cp "$SRC_DIR/SKILL.md" "$PERM_DIR/_maintenance/SKILL.md"
 
 # Initialize custom-targets.txt at root if not present
 if [ ! -f "$PERM_DIR/custom-targets.txt" ]; then
-  cp "$PERM_DIR/_maintenance/custom-targets.txt" "$PERM_DIR/custom-targets.txt" 2>/dev/null || true
+  cp "$PERM_DIR/_maintenance/custom-targets.template.txt" "$PERM_DIR/custom-targets.txt" 2>/dev/null || true
 fi
 
 # Version reporting
@@ -74,6 +74,14 @@ fi
 # --- Activate ---
 chmod +x "$PERM_DIR/_maintenance/"*.sh
 bash "$PERM_DIR/_maintenance/watch.sh"
+
+# --- Verify watcher status ---
+echo ""
+if launchctl list 2>/dev/null | grep -q "easyskills"; then
+  echo "✅ Watcher is running"
+else
+  echo "⚠️  Watcher not detected. Try: launchctl load ~/Library/LaunchAgents/com.easyskills.watcher.plist"
+fi
 
 echo "============================================="
 echo "EasySkills installed successfully!"

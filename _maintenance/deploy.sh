@@ -160,7 +160,7 @@ run_sync() {
       fi
     fi
 
-    ln -s "$SCRIPT_DIR" "$dest_path"
+    ln -s "$CENTRAL_DIR" "$dest_path"
     echo "   * Self-Mapped EasySkills -> $dest_path"
     injection_tracked "$target" || SUCCESSFUL_INJECTIONS+=("$target")
   done
@@ -280,6 +280,45 @@ run_cleanup() {
   echo "=========================================================="
 }
 
+run_status() {
+  load_custom_targets
+  echo "=========================================================="
+  echo "EasySkills Status"
+  echo "=========================================================="
+
+  # Watcher status
+  local watcher_running=false
+  if launchctl list 2>/dev/null | grep -q "easyskills"; then
+    local pid
+    pid=$(launchctl list 2>/dev/null | grep "easyskills" | awk '{print $1}')
+    echo "   Watcher: ✅ Running (PID $pid)"
+    watcher_running=true
+  else
+    echo "   Watcher: ❌ Not running"
+  fi
+
+  # Mapped agents
+  local agent_count=0
+  local skill_count=0
+  for target in "${TARGETS[@]}"; do
+    if [ -d "$target" ]; then
+      local links
+      links=$(find "$target" -maxdepth 1 -type l 2>/dev/null | wc -l | tr -d ' ')
+      if [ "$links" -gt 0 ]; then
+        agent_count=$((agent_count + 1))
+        skill_count=$((skill_count + links))
+        local agent_name
+        agent_name=$(get_agent_name "$target")
+        echo "   Agent: $agent_name ($links skills)"
+      fi
+    fi
+  done
+
+  echo "   ------------------------------------------"
+  echo "   Total: $agent_count agents, $skill_count skill mappings"
+  echo "=========================================================="
+}
+
 show_help() {
   echo "EasySkills CLI Management Tool"
   echo "Usage: ./deploy.sh [options]"
@@ -291,6 +330,7 @@ show_help() {
   echo "  -w, --watch         Install/Start the background watcher daemon"
   echo "  -u, --unwatch       Uninstall/Stop the background watcher daemon"
   echo "  -c, --cleanup       Remove all EasySkills symlinks from agent directories"
+  echo "  --status            Show watcher and mapping health status"
   echo "  -h, --help          Show this help documentation"
 }
 
@@ -307,6 +347,7 @@ while [[ $# -gt 0 ]]; do
     -w|--watch) ACTION="watch"; shift ;;
     -u|--unwatch) ACTION="unwatch"; shift ;;
     -c|--cleanup) ACTION="cleanup"; shift ;;
+    --status) ACTION="status"; shift ;;
     -h|--help) ACTION="help"; shift ;;
     *)
        ACTION="sync"
@@ -329,5 +370,6 @@ case "$ACTION" in
   watch) bash "$SCRIPT_DIR/watch.sh" ;;
   unwatch) bash "$SCRIPT_DIR/unwatch.sh" ;;
   cleanup) run_cleanup ;;
+  status) run_status ;;
   help) show_help ;;
 esac
