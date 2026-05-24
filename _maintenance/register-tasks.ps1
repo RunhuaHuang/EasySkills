@@ -98,28 +98,16 @@ function Register-EasySkillsTask {
         Unregister-ScheduledTask -TaskName $Name -Confirm:$false -ErrorAction SilentlyContinue
     }
 
-    # S4U principal = run in Session 0 (services session), NO visible console
-    # window ever. This is the *only* reliable way to hide a PowerShell-hosted
-    # scheduled task on Windows PowerShell 5.x — `-WindowStyle Hidden` alone is
-    # not respected inside an interactive logon session.
-    # Falls back to Interactive (+window-hide) if S4U is denied by policy.
-    $RegisteredOK = $false
-    try {
-        $PrincipalS4U = New-ScheduledTaskPrincipal -UserId $UserId -LogonType S4U -RunLevel Limited
-        Register-ScheduledTask -TaskName $Name `
-            -Action $Action -Trigger $Trigger -Settings $Settings -Principal $PrincipalS4U `
-            -Description $Description -Force -ErrorAction Stop | Out-Null
-        $RegisteredOK = $true
-    } catch {
-        Write-Warning "S4U registration for '$Name' failed ($($_.Exception.Message)); falling back to Interactive."
-    }
-
-    if (-not $RegisteredOK) {
-        $PrincipalInteractive = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Limited
-        Register-ScheduledTask -TaskName $Name `
-            -Action $Action -Trigger $Trigger -Settings $Settings -Principal $PrincipalInteractive `
-            -Description $Description -Force | Out-Null
-    }
+    # Interactive logon. We previously tried S4U for "Session 0 hiding" but
+    # that turned out not to be how S4U works (it only changes auth, not
+    # session) AND most non-admin accounts lack SeBatchLogonRight so the
+    # S4U attempt always failed with "Access Denied". Window hiding is now
+    # handled at the action level via wscript.exe + run-hidden.vbs, so the
+    # LogonType only needs to be the simplest one that works without admin.
+    $Principal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask -TaskName $Name `
+        -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal `
+        -Description $Description -Force | Out-Null
 }
 
 if (-not (Test-ScheduledTaskModule)) {

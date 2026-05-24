@@ -92,11 +92,11 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("addEventListener('click'", src)
 
     def test_readme_version_and_agent_count_match_release(self):
-        self.assertIn("Version-1.1.3", read("README.md"))
-        self.assertIn("版本-1.1.3", read("README_CN.md"))
+        self.assertIn("Version-1.1.4", read("README.md"))
+        self.assertIn("版本-1.1.4", read("README_CN.md"))
         self.assertIn("25 agents are pre-configured", read("README.md"))
         self.assertIn("开箱即用支持 25 个 Agent", read("README_CN.md"))
-        self.assertEqual("1.1.3", read("_maintenance/.version").strip())
+        self.assertEqual("1.1.4", read("_maintenance/.version").strip())
 
     # -------------------------------------------------------------------------
     # Windows background launching — Scheduled Tasks (S4U) + AV-safe launchers
@@ -121,13 +121,15 @@ class SecurityContractsTest(unittest.TestCase):
                 rel,
             )
 
-    def test_windows_persistence_uses_scheduled_tasks_with_s4u(self):
-        """Persistence is provided by user-level Scheduled Tasks running with
-        S4U logon. Interactive logon is only the fallback path when S4U is
-        denied by policy."""
+    def test_windows_persistence_uses_scheduled_tasks(self):
+        """Persistence is provided by user-level Scheduled Tasks. LogonType
+        is Interactive (Limited run level) — the simplest option that works
+        without admin rights. Window hiding is handled at the action level
+        via wscript.exe + run-hidden.vbs, not via LogonType."""
         reg = read("_maintenance/register-tasks.ps1")
         self.assertIn("Register-ScheduledTask", reg)
-        self.assertIn("-LogonType S4U", reg)
+        self.assertIn("-LogonType Interactive", reg)
+        self.assertIn("-RunLevel Limited", reg)
         self.assertIn("New-ScheduledTaskTrigger -AtLogOn", reg)
         self.assertIn("EasySkills WebUI", reg)
         self.assertIn("EasySkills Watcher", reg)
@@ -136,6 +138,10 @@ class SecurityContractsTest(unittest.TestCase):
         # Must reap stale supervisor processes before re-registering so an old
         # supervisor's window doesn't linger after upgrade.
         self.assertIn("Stop-EasySkillsBackgroundProcesses", reg)
+        # S4U is gone — most non-admin accounts lack SeBatchLogonRight, and
+        # the attempted-then-fallback approach produced noisy warnings on
+        # every install.
+        self.assertNotIn("-LogonType S4U", reg)
 
         install = read("install.ps1")
         self.assertIn("register-tasks.ps1", install)
