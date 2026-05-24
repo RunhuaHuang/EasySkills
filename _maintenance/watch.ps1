@@ -6,6 +6,11 @@
 $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $CentralDir = Split-Path -Path $ScriptDir -Parent
 
+function Start-HiddenPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
+    $ArgList = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
+    Start-Process -FilePath "powershell.exe" -ArgumentList $ArgList -WindowStyle Hidden -WorkingDirectory $WorkingDirectory | Out-Null
+}
+
 # 1. Run the first-time manual deploy
 & "$ScriptDir\deploy.ps1"
 
@@ -39,9 +44,8 @@ try {
     $Shortcut.Description = "EasySkills Background Watcher Service"
     $Shortcut.Save()
 
-    # 3. Start watcher without WMI to avoid Defender/ASR false positives.
-    $WatcherCmd = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
-    Start-Process powershell.exe -ArgumentList $WatcherCmd
+    # 3. Start watcher detached from the installer console.
+    Start-HiddenPowerShell $ServiceScript $ScriptDir
 
     Write-Host "=============================================" -ForegroundColor Cyan
     Write-Host "Windows EasySkills Watcher installed!" -ForegroundColor Green

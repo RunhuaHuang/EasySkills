@@ -20,6 +20,11 @@ $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $CentralDir = Split-Path -Path $ScriptDir -Parent
 $CustomTargetsFile = Join-Path -Path $ScriptDir -ChildPath "custom-targets.txt"
 
+function Start-HiddenPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
+  $ArgList = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
+  Start-Process -FilePath "powershell.exe" -ArgumentList $ArgList -WindowStyle Hidden -WorkingDirectory $WorkingDirectory | Out-Null
+}
+
 # --- One-time migration: move custom-targets.txt from legacy root location ---
 $LegacyRootTargets = Join-Path -Path $CentralDir -ChildPath "custom-targets.txt"
 if (Test-Path $LegacyRootTargets) {
@@ -415,7 +420,8 @@ try {
   if ($Status) {
     Run-Status
   } elseif ($WebUI) {
-    & "powershell" -ExecutionPolicy Bypass -File "$ScriptDir\webui.ps1"
+    Start-HiddenPowerShell (Join-Path $ScriptDir "webui.ps1") $ScriptDir
+    Write-Host "WebUI launching on http://localhost:6633"
   } elseif ($Cleanup) {
     Run-Cleanup
   } elseif ($List) {

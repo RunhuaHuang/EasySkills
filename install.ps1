@@ -12,6 +12,11 @@ $TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "EasySkills-install-$(Get-
 
 function Cleanup { if (Test-Path $TmpDir) { Remove-Item $TmpDir -Recurse -Force -ErrorAction SilentlyContinue } }
 
+function Start-HiddenPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
+  $ArgList = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
+  Start-Process -FilePath "powershell.exe" -ArgumentList $ArgList -WindowStyle Hidden -WorkingDirectory $WorkingDirectory | Out-Null
+}
+
 try {
   Write-Host "=============================================" -ForegroundColor Cyan
   Write-Host "EasySkills Remote Installer (Windows)" -ForegroundColor Cyan
@@ -92,20 +97,18 @@ try {
     Write-Warning "Failed to create startup shortcut: $_"
   }
 
-  # --- Start watcher now via Start-Process (lower false-positive risk than WMI process creation) ---
-  $WatcherCmd = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ServiceScript`""
+  # --- Start watcher now via a detached hidden PowerShell process. ---
   try {
-    Start-Process powershell.exe -ArgumentList $WatcherCmd
+    Start-HiddenPowerShell $ServiceScript $MaintDir
     Write-Host "[OK] Background watcher started." -ForegroundColor Green
   } catch {
     Write-Warning "Failed to start watcher: $_"
   }
 
-  # --- Launch WebUI via Start-Process (lower false-positive risk than WMI process creation) ---
+  # --- Launch WebUI via a detached hidden PowerShell process. ---
   $WebUIScript = Join-Path $MaintDir "webui.ps1"
-  $WebUICmd = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WebUIScript`""
   try {
-    Start-Process powershell.exe -ArgumentList $WebUICmd
+    Start-HiddenPowerShell $WebUIScript $MaintDir
     Write-Host "[OK] WebUI launching on http://localhost:6633" -ForegroundColor Green
     Start-Sleep -Seconds 2
     try {

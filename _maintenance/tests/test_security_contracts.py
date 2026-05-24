@@ -62,7 +62,21 @@ class SecurityContractsTest(unittest.TestCase):
         for rel in ("install.ps1", "_maintenance/watch.ps1"):
             src = read(rel)
             self.assertNotIn("Invoke-CimMethod -ClassName Win32_Process", src, rel)
-            self.assertIn("Start-Process powershell.exe", src, rel)
+            self.assertIn('Start-Process -FilePath "powershell.exe"', src, rel)
+
+    def test_windows_launchers_detach_from_calling_console(self):
+        for rel in ("install.ps1", "_maintenance/watch.ps1"):
+            src = read(rel)
+            self.assertIn("Start-HiddenPowerShell", src, rel)
+            self.assertIn("-WindowStyle Hidden", src, rel)
+
+        self.assertNotIn("start \"\" /B powershell", read("install_windows.bat"))
+        self.assertIn("start \"\" powershell", read("install_windows.bat"))
+        self.assertIn("Start-HiddenPowerShell", read("_maintenance/deploy.ps1"))
+
+    def test_macos_webui_launches_detached(self):
+        self.assertIn("nohup python3", read("install_mac.command"))
+        self.assertIn("nohup python3 \"$SCRIPT_DIR/webui.py\"", read("_maintenance/deploy.sh"))
 
 
 if __name__ == "__main__":

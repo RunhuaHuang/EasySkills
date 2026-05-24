@@ -418,6 +418,9 @@ case "$ACTION" in
   unwatch) bash "$SCRIPT_DIR/unwatch.sh" ;;
   cleanup) run_cleanup ;;
   status) run_status ;;
-  webui) python3 "$SCRIPT_DIR/webui.py" ;;
+  webui)
+    nohup python3 "$SCRIPT_DIR/webui.py" >/dev/null 2>&1 &
+    echo "WebUI launching on http://localhost:6633"
+    ;;
   help) show_help ;;
 esac
