@@ -563,6 +563,122 @@ function Send-IndexResponse($Context, $FilePath) {
     $Response.Close()
 }
 
+function Close-ResponseQuietly($Context) {
+    try {
+        if ($Context -and $Context.Response) {
+            $Context.Response.Close()
+        }
+    } catch {}
+}
+
+function Invoke-WebUIRequest($Context) {
+    $Request = $Context.Request
+    $Method = $Request.HttpMethod
+    $UrlPath = $Request.Url.AbsolutePath
+
+    if ($Method -eq "OPTIONS") {
+        $CorsOrigin = Get-CorsOrigin $Context.Request
+        if (-not $CorsOrigin) {
+            $Context.Response.StatusCode = 403
+            $Context.Response.Close()
+            return
+        }
+        $Context.Response.StatusCode = 200
+        $Context.Response.Headers.Add("Access-Control-Allow-Origin", $CorsOrigin)
+        $Context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        $Context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, X-EasySkills-Token")
+        $Context.Response.Close()
+        return
+    }
+
+    if ($Method -eq "GET") {
+        if ($UrlPath -eq "/" -or $UrlPath -eq "/index.html") {
+            Send-IndexResponse $Context (Join-Path $WebUIDir "index.html")
+        } elseif ($UrlPath -eq "/favicon.ico") {
+            $Context.Response.StatusCode = 204
+            $Context.Response.Close()
+        } elseif ($UrlPath -eq "/api/status") {
+            $Skills = @(Get-SkillsData)
+            $Agents = @(Get-AgentsData)
+            $MappedCount = @($Agents | Where-Object { $_.mapped }).Count
+            $Data = @{
+                watcher = Get-WatcherStatus
+                central_dir = $CentralDir
+                skills_count = $Skills.Count
+                agents_total = $Agents.Count
+                agents_mapped = $MappedCount
+                version = Get-EasySkillsVersion
+            }
+            Send-JsonResponse $Context $Data
+        } elseif ($UrlPath -eq "/api/skills") {
+            Send-JsonResponse $Context (Get-SkillsData)
+        } elseif ($UrlPath -eq "/api/agents") {
+            Send-JsonResponse $Context (Get-AgentsData)
+        } else {
+            $Context.Response.StatusCode = 404
+            $Context.Response.Close()
+        }
+    } elseif ($Method -eq "POST") {
+        if (-not (Test-PostAllowed $Request)) {
+            Send-ForbiddenResponse $Context
+            return
+        }
+        $BodyData = @{}
+        if ($Request.HasEntityBody) {
+            $Reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
+            try {
+                $Json = $Reader.ReadToEnd()
+            } finally {
+                $Reader.Close()
+                $Reader.Dispose()
+            }
+            if ($Json) {
+                try {
+                    # PowerShell 7+ supports -AsHashtable; fallback for 5.1
+                    $BodyData = $Json | ConvertFrom-Json -AsHashtable
+                } catch {
+                    # PowerShell 5.1 fallback: convert PSObject to hashtable
+                    $PsObj = $Json | ConvertFrom-Json
+                    $BodyData = @{}
+                    if ($PsObj) {
+                        $PsObj.PSObject.Properties | ForEach-Object {
+                            $BodyData[$_.Name] = $_.Value
+                        }
+                    }
+                }
+            }
+        }
+
+        if ($UrlPath -eq "/api/sync") {
+            Send-JsonResponse $Context (Run-DeployCommand @("-Sync"))
+        } elseif ($UrlPath -eq "/api/cleanup") {
+            Send-JsonResponse $Context (Run-DeployCommand @("-Cleanup"))
+        } elseif ($UrlPath -eq "/api/watcher/start") {
+            Send-JsonResponse $Context (Run-DeployCommand @("-Watch"))
+        } elseif ($UrlPath -eq "/api/watcher/stop") {
+            Send-JsonResponse $Context (Run-DeployCommand @("-Unwatch"))
+        } elseif ($UrlPath -eq "/api/agents/map") {
+            Send-JsonResponse $Context (Do-Map $BodyData["path"])
+        } elseif ($UrlPath -eq "/api/agents/unmap") {
+            Send-JsonResponse $Context (Do-Unmap $BodyData["path"])
+        } elseif ($UrlPath -eq "/api/agents/update") {
+            Send-JsonResponse $Context (Update-AgentPath $BodyData["name"] $BodyData["old_path"] $BodyData["new_path"])
+        } elseif ($UrlPath -eq "/api/agents/custom/add") {
+            Send-JsonResponse $Context (Run-DeployCommand @("-Add", "`"$($BodyData["path"])`""))
+        } elseif ($UrlPath -eq "/api/agents/custom/remove") {
+            Send-JsonResponse $Context (Run-DeployCommand @("-Remove", "`"$($BodyData["path"])`""))
+        } elseif ($UrlPath -eq "/api/update") {
+            Send-JsonResponse $Context (Run-SelfUpdate)
+        } else {
+            $Context.Response.StatusCode = 404
+            $Context.Response.Close()
+        }
+    } else {
+        $Context.Response.StatusCode = 404
+        $Context.Response.Close()
+    }
+}
+
 $Listener = New-Object System.Net.HttpListener
 $Listener.Prefixes.Add("http://localhost:$Port/")
 try {
@@ -583,111 +699,22 @@ try {
     }
 
     while ($Listener.IsListening) {
-        $Context = $Listener.GetContext()
-        $Request = $Context.Request
-        $Method = $Request.HttpMethod
-        $UrlPath = $Request.Url.AbsolutePath
-
-        if ($Method -eq "OPTIONS") {
-            $CorsOrigin = Get-CorsOrigin $Context.Request
-            if (-not $CorsOrigin) {
-                $Context.Response.StatusCode = 403
-                $Context.Response.Close()
-                continue
+        $Context = $null
+        try {
+            $Context = $Listener.GetContext()
+        } catch {
+            if ($Listener.IsListening) {
+                Write-Warning "WebUI listener accept error: $_"
             }
-            $Context.Response.StatusCode = 200
-            $Context.Response.Headers.Add("Access-Control-Allow-Origin", $CorsOrigin)
-            $Context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            $Context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, X-EasySkills-Token")
-            $Context.Response.Close()
             continue
         }
 
-        if ($Method -eq "GET") {
-            if ($UrlPath -eq "/" -or $UrlPath -eq "/index.html") {
-                Send-IndexResponse $Context (Join-Path $WebUIDir "index.html")
-            } elseif ($UrlPath -eq "/favicon.ico") {
-                $Context.Response.StatusCode = 204
-                $Context.Response.Close()
-            } elseif ($UrlPath -eq "/api/status") {
-                $Skills = @(Get-SkillsData)
-                $Agents = @(Get-AgentsData)
-                $MappedCount = @($Agents | Where-Object { $_.mapped }).Count
-                $Data = @{
-                    watcher = Get-WatcherStatus
-                    central_dir = $CentralDir
-                    skills_count = $Skills.Count
-                    agents_total = $Agents.Count
-                    agents_mapped = $MappedCount
-                    version = Get-EasySkillsVersion
-                }
-                Send-JsonResponse $Context $Data
-            } elseif ($UrlPath -eq "/api/skills") {
-                Send-JsonResponse $Context (Get-SkillsData)
-            } elseif ($UrlPath -eq "/api/agents") {
-                Send-JsonResponse $Context (Get-AgentsData)
-            } else {
-                $Context.Response.StatusCode = 404
-                $Context.Response.Close()
-            }
-        } elseif ($Method -eq "POST") {
-            if (-not (Test-PostAllowed $Request)) {
-                Send-ForbiddenResponse $Context
-                continue
-            }
-            $BodyData = @{}
-            if ($Request.HasEntityBody) {
-                $Reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
-                try {
-                    $Json = $Reader.ReadToEnd()
-                } finally {
-                    $Reader.Close()
-                    $Reader.Dispose()
-                }
-                if ($Json) {
-                    try {
-                        # PowerShell 7+ supports -AsHashtable; fallback for 5.1
-                        $BodyData = $Json | ConvertFrom-Json -AsHashtable
-                    } catch {
-                        # PowerShell 5.1 fallback: convert PSObject to hashtable
-                        $PsObj = $Json | ConvertFrom-Json
-                        $BodyData = @{}
-                        if ($PsObj) {
-                            $PsObj.PSObject.Properties | ForEach-Object {
-                                $BodyData[$_.Name] = $_.Value
-                            }
-                        }
-                    }
-                }
-            }
-
-            if ($UrlPath -eq "/api/sync") {
-                Send-JsonResponse $Context (Run-DeployCommand @("-Sync"))
-            } elseif ($UrlPath -eq "/api/cleanup") {
-                Send-JsonResponse $Context (Run-DeployCommand @("-Cleanup"))
-            } elseif ($UrlPath -eq "/api/watcher/start") {
-                Send-JsonResponse $Context (Run-DeployCommand @("-Watch"))
-            } elseif ($UrlPath -eq "/api/watcher/stop") {
-                Send-JsonResponse $Context (Run-DeployCommand @("-Unwatch"))
-            } elseif ($UrlPath -eq "/api/agents/map") {
-                Send-JsonResponse $Context (Do-Map $BodyData["path"])
-            } elseif ($UrlPath -eq "/api/agents/unmap") {
-                Send-JsonResponse $Context (Do-Unmap $BodyData["path"])
-            } elseif ($UrlPath -eq "/api/agents/update") {
-                Send-JsonResponse $Context (Update-AgentPath $BodyData["name"] $BodyData["old_path"] $BodyData["new_path"])
-            } elseif ($UrlPath -eq "/api/agents/custom/add") {
-                Send-JsonResponse $Context (Run-DeployCommand @("-Add", "`"$($BodyData["path"])`""))
-            } elseif ($UrlPath -eq "/api/agents/custom/remove") {
-                Send-JsonResponse $Context (Run-DeployCommand @("-Remove", "`"$($BodyData["path"])`""))
-            } elseif ($UrlPath -eq "/api/update") {
-                Send-JsonResponse $Context (Run-SelfUpdate)
-            } else {
-                $Context.Response.StatusCode = 404
-                $Context.Response.Close()
-            }
-        } else {
-            $Context.Response.StatusCode = 404
-            $Context.Response.Close()
+        try {
+            Invoke-WebUIRequest $Context
+        } catch {
+            Write-Warning "WebUI request error: $_"
+            Close-ResponseQuietly $Context
+            continue
         }
     }
 } catch {

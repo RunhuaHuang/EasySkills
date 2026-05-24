@@ -28,6 +28,24 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("Send-ForbiddenResponse", src)
         self.assertIn("Could not automatically open browser", src)
 
+    def test_windows_webui_isolates_request_errors_from_listener_lifetime(self):
+        src = read("_maintenance/webui.ps1")
+        self.assertIn("function Invoke-WebUIRequest", src)
+        self.assertIn("function Close-ResponseQuietly", src)
+        self.assertIn("WebUI request error", src)
+        self.assertIn("WebUI listener accept error", src)
+
+        loop = re.search(
+            r"while \(\$Listener\.IsListening\) \{(?P<body>.*?)\n    \}",
+            src,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(loop)
+        body = loop.group("body")
+        self.assertIn("$Listener.GetContext()", body)
+        self.assertIn("Invoke-WebUIRequest $Context", body)
+        self.assertIn("continue", body)
+
     def test_double_click_installers_copy_skill_md_to_root(self):
         self.assertIn('cp "$CURRENT_DIR/SKILL.md" "$PERM_DIR/SKILL.md"', read("install_mac.command"))
         self.assertIn('copy /Y "%CURRENT_DIR%SKILL.md" "%PERM_DIR%\\SKILL.md" > nul', read("install_windows.bat"))
