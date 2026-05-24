@@ -4,8 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#-installation)
-[![Agents](https://img.shields.io/badge/Supported%20Agents-24+-orange.svg)](#-supported-agents)
-[![Version](https://img.shields.io/badge/Version-1.0.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Agents](https://img.shields.io/badge/Supported%20Agents-25+-orange.svg)](#-supported-agents)
+[![Version](https://img.shields.io/badge/Version-1.1.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **One skills directory to rule them all.**
 
@@ -49,7 +49,7 @@ This is the reality of the multi-agent era: **every AI coding agent reinvents it
 │ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
 │ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
 │ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
-│ ... 24 agents, all in sync, all the time    │
+│ ... 25 agents, all in sync, all the time    │
 └─────────────────────────────────────────────┘
 ```
 
@@ -177,7 +177,7 @@ Once EasySkills is loaded as a skill, you can manage everything through natural 
 
 ## Supported Agents
 
-24 agents are pre-configured. Custom paths can be added at any time via CLI or chat.
+25 agents are pre-configured. Custom paths can be added at any time via CLI or chat.
 
 | # | Agent | macOS Path | Windows Path |
 |:-:|:---|:---|:---|
@@ -206,6 +206,7 @@ Once EasySkills is loaded as a skill, you can manage everything through natural 
 | 22 | **Continue** | `~/.continue/skills` | `%USERPROFILE%\.continue\skills` |
 | 23 | **Goose (Block/AAIF)** | `~/.goose/skills` | `%USERPROFILE%\.goose\skills` |
 | 24 | **Agents (Standard)** | `~/.agents/skills` | `%USERPROFILE%\.agents\skills` |
+| 25 | **Run** | `~/.run/global-skills/skills` | `%USERPROFILE%\.run\global-skills\skills` |
 
 > Trae and Trae CN also map to `~/Library/Application Support/Trae[-CN]/skills` (macOS) and `%APPDATA%\Trae[-CN]\skills` (Windows).
 
@@ -240,7 +241,7 @@ EasySkills/
 
 **Windows Defender** — The installer can automatically add a Defender exclusion via UAC prompt. You can also manually whitelist `%USERPROFILE%\EasySkills` in Windows Security settings.
 
-**Watcher Scope** — The watcher monitors only the **top-level** of `~/EasySkills` (folder additions/removals). It does not watch inside subdirectories — since skills are symlinked, internal file changes are instantly reflected everywhere without re-syncing.
+**Watcher Scope** — The watcher monitors only the **top-level** of `~/EasySkills` (folder additions/removals). It does not watch inside subdirectories — since skills are symlinked, internal file changes are instantly reflected everywhere without re-syncing. If `~/.proma` exists, EasySkills also polls Proma workspace `skills` folders every 5 minutes so new workspaces are picked up automatically.
 
 ---
 

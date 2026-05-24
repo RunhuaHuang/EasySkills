@@ -4,8 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#-安装方式)
-[![Agents](https://img.shields.io/badge/支持Agent-24+-orange.svg)](#-支持的-agent-列表)
-[![Version](https://img.shields.io/badge/版本-1.0.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Agents](https://img.shields.io/badge/支持Agent-25+-orange.svg)](#-支持的-agent-列表)
+[![Version](https://img.shields.io/badge/版本-1.1.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **一个技能目录，统治所有 Agent。**
 
@@ -49,7 +49,7 @@
 │ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
 │ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
 │ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
-│ ... 24 个 Agent，全部同步，始终一致         │
+│ ... 25 个 Agent，全部同步，始终一致         │
 └─────────────────────────────────────────────┘
 ```
 
@@ -177,7 +177,7 @@ EasySkills 加载为技能后，直接对你的 AI 助手说：
 
 ## 支持的 Agent 列表
 
-开箱即用支持 24 个 Agent，可随时通过命令行或对话添加自定义路径。
+开箱即用支持 25 个 Agent，可随时通过命令行或对话添加自定义路径。
 
 | # | Agent | macOS 路径 | Windows 路径 |
 |:-:|:---|:---|:---|
@@ -206,6 +206,7 @@ EasySkills 加载为技能后，直接对你的 AI 助手说：
 | 22 | **Continue** | `~/.continue/skills` | `%USERPROFILE%\.continue\skills` |
 | 23 | **Goose (Block/AAIF)** | `~/.goose/skills` | `%USERPROFILE%\.goose\skills` |
 | 24 | **Agents (Standard)** | `~/.agents/skills` | `%USERPROFILE%\.agents\skills` |
+| 25 | **Run** | `~/.run/global-skills/skills` | `%USERPROFILE%\.run\global-skills\skills` |
 
 > Trae 和 Trae CN 同时映射到 `~/Library/Application Support/Trae[-CN]/skills`（macOS）和 `%APPDATA%\Trae[-CN]\skills`（Windows）。
 
@@ -240,7 +241,7 @@ EasySkills/
 
 **Windows Defender** — 安装器可通过 UAC 弹窗自动添加白名单。也可以手动在 Windows 安全中心将 `%USERPROFILE%\EasySkills` 加入排除项。
 
-**监听范围** — 后台监听只监控 `~/EasySkills` **顶层目录**的文件夹增删。不监听子目录内部——因为技能是通过软链映射的，内部文件修改会即时反映到所有 Agent，无需重新同步。
+**监听范围** — 后台监听只监控 `~/EasySkills` **顶层目录**的文件夹增删。不监听子目录内部——因为技能是通过软链映射的，内部文件修改会即时反映到所有 Agent，无需重新同步。如果存在 `~/.proma`，EasySkills 会每 5 分钟轮询 Proma workspace 的 `skills` 目录，自动发现新工作区。
 
 ---
 

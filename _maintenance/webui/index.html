@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="easy-skills-token" content="__EASYSKILLS_TOKEN__">
     <title>EasySkills — Orchestrator</title>
     
     <!-- Premium Fonts Pairing: Space Grotesk (Display) & JetBrains Mono (Technical/Body) -->
@@ -1556,7 +1557,7 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 <h3><i class="fa-solid fa-triangle-exclamation" style="color: var(--warning) !important;"></i> <span class="t-guide-notes-title">Notes</span></h3>
                 <ul>
                     <li><strong>Windows Defender</strong> &#8212; <span class="t-guide-note-defender-text">If Windows Defender flags EasySkills, you can whitelist the ~/EasySkills folder in Windows Security settings.</span></li>
-                    <li><strong>Watcher Scope</strong> &#8212; <span class="t-guide-note-watcher-text">The watcher monitors only the top-level of ~/EasySkills (folder additions/removals). It does not watch inside subdirectories since skills are symlinked.</span></li>
+                    <li><strong>Watcher Scope</strong> &#8212; <span class="t-guide-note-watcher-text">The watcher monitors only the top-level of ~/EasySkills (folder additions/removals). It does not watch inside subdirectories since skills are symlinked. If ~/.proma exists, Proma workspace skills folders are polled every 5 minutes.</span></li>
                     <li><strong>WebUI Port</strong> &#8212; <span class="t-guide-note-port-text">The WebUI listens on localhost:6633 only. It does not accept connections from other machines.</span></li>
                 </ul>
             </div>
@@ -1830,7 +1831,7 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 't-guide-structure-desc': 'The root directory is kept clean. README, LICENSE, and install scripts exist only in the Git repository for GitHub display.',
                 't-guide-notes-title': 'Notes',
                 't-guide-note-defender-text': 'If Windows Defender flags EasySkills, you can whitelist the ~/EasySkills folder in Windows Security settings.',
-                't-guide-note-watcher-text': 'The watcher monitors only the top-level of ~/EasySkills (folder additions/removals). It does not watch inside subdirectories since skills are symlinked.',
+                't-guide-note-watcher-text': 'The watcher monitors only the top-level of ~/EasySkills (folder additions/removals). It does not watch inside subdirectories since skills are symlinked. If ~/.proma exists, Proma workspace skills folders are polled every 5 minutes.',
                 't-guide-note-port-text': 'The WebUI listens on localhost:6633 only. It does not accept connections from other machines.'
             },
             zh: {
@@ -1940,7 +1941,7 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 't-guide-structure-desc': '根目录保持整洁。README、LICENSE、安装脚本仅存在于 Git 仓库中供 GitHub 展示。',
                 't-guide-notes-title': '注意事项',
                 't-guide-note-defender-text': '如果 Windows Defender 误报，可在 Windows 安全中心将 ~/EasySkills 文件夹加入排除项。',
-                't-guide-note-watcher-text': '后台监听只监控 ~/EasySkills 顶层目录的文件夹增删。不监听子目录——因为技能通过软链映射，内部文件修改会即时反映到所有 Agent。',
+                't-guide-note-watcher-text': '后台监听只监控 ~/EasySkills 顶层目录的文件夹增删。不监听子目录——因为技能通过软链映射，内部文件修改会即时反映到所有 Agent。如果存在 ~/.proma，会每 5 分钟轮询 Proma workspace 的 skills 目录。',
                 't-guide-note-port-text': 'WebUI 仅监听 localhost:6633，不接受外部连接。'
             }
         };
@@ -2207,6 +2208,8 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
         }
 
         // --- REST API Service Layer ---
+        const easySkillsToken = document.querySelector('meta[name="easy-skills-token"]')?.content || '';
+
         async function apiCall(endpoint, payload = null, btnElement = null) {
             let originalHtml = '';
             
@@ -2251,7 +2254,10 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
             try {
                 const options = { method: payload !== null ? 'POST' : 'GET' };
                 if (payload !== null) {
-                    options.headers = { 'Content-Type': 'application/json' };
+                    options.headers = {
+                        'Content-Type': 'application/json',
+                        'X-EasySkills-Token': easySkillsToken
+                    };
                     options.body = JSON.stringify(payload);
                 }
                 
@@ -2434,11 +2440,6 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
             grid.innerHTML = parts.join('');
         }
 
-        // --- Safe path escaping for inline JS ---
-        function escapeJsString(str) {
-            return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
-        }
-
         // --- Render UI Component: Agents List ---
         let lastAgentsJson = '';
         function renderAgents(agents) {
@@ -2480,21 +2481,18 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 
                 let customBadge = a.custom ? `<span class="tag tag-warning">Custom</span>` : '';
                 
-                const safeName = escapeJsString(a.name);
-                const safePath = escapeJsString(a.path);
-                
                 let actions = '';
                 // "配置编辑" (Edit Config) button
-                actions += `<button class="btn btn-outline" style="border-color: var(--border-color-active);" onclick="startEditAgentPrompt('${safeName}', '${safePath}')"><i class="fa-solid fa-sliders" style="color: var(--primary);"></i> <span>${dict[currentLang]['t-edit-config']}</span></button>`;
+                actions += `<button class="btn btn-outline" style="border-color: var(--border-color-active);" data-agent-action="edit" data-agent-name="${escapeHtml(a.name)}" data-agent-path="${escapeHtml(a.path)}"><i class="fa-solid fa-sliders" style="color: var(--primary);"></i> <span>${dict[currentLang]['t-edit-config']}</span></button>`;
                 
                 if (a.mapped) {
-                    actions += `<button class="btn btn-outline" style="color: var(--accent); border-color: var(--accent);" onclick="apiCall('/api/agents/unmap', {path: '${safePath}'}, this)"><i class="fa-solid fa-link-slash"></i> ${dict[currentLang]['t-unmap']}</button>`;
+                    actions += `<button class="btn btn-outline" style="color: var(--accent); border-color: var(--accent);" data-agent-action="unmap" data-agent-path="${escapeHtml(a.path)}"><i class="fa-solid fa-link-slash"></i> ${dict[currentLang]['t-unmap']}</button>`;
                 } else {
-                    actions += `<button class="btn btn-primary" onclick="apiCall('/api/agents/map', {path: '${safePath}'}, this)"><i class="fa-solid fa-link"></i> ${dict[currentLang]['t-map']}</button>`;
+                    actions += `<button class="btn btn-primary" data-agent-action="map" data-agent-path="${escapeHtml(a.path)}"><i class="fa-solid fa-link"></i> ${dict[currentLang]['t-map']}</button>`;
                 }
                 
                 if (a.custom) {
-                    actions += `<button class="btn btn-outline" onclick="apiCall('/api/agents/custom/remove', {path: '${safePath}'}, this)"><i class="fa-solid fa-trash-can"></i> ${dict[currentLang]['t-remove']}</button>`;
+                    actions += `<button class="btn btn-outline" data-agent-action="remove-custom" data-agent-path="${escapeHtml(a.path)}"><i class="fa-solid fa-trash-can"></i> ${dict[currentLang]['t-remove']}</button>`;
                 }
 
                 // Staggered slide in animation effect
@@ -2516,6 +2514,21 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 `);
             });
             grid.innerHTML = agentParts.join('');
+            grid.querySelectorAll('[data-agent-action]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const action = btn.dataset.agentAction;
+                    const path = btn.dataset.agentPath;
+                    if (action === 'edit') {
+                        startEditAgentPrompt(btn.dataset.agentName, path);
+                    } else if (action === 'map') {
+                        apiCall('/api/agents/map', { path }, btn);
+                    } else if (action === 'unmap') {
+                        apiCall('/api/agents/unmap', { path }, btn);
+                    } else if (action === 'remove-custom') {
+                        apiCall('/api/agents/custom/remove', { path }, btn);
+                    }
+                });
+            });
 
             // Preserves active filter after live refresh
             filterAgents();
@@ -2644,7 +2657,10 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
             try {
                 const res = await fetch('/api/agents/update', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-EasySkills-Token': easySkillsToken
+                    },
                     body: JSON.stringify({ name: activeEditName, old_path: activeEditOldPath, new_path: newPath })
                 });
                 const data = await res.json();
@@ -2725,7 +2741,14 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #fff; font-size: 1.15rem; margin-right: 6px;"></i> <span>${loadText}</span>`;
             }
             try {
-                const res = await fetch('/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+                const res = await fetch('/api/update', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-EasySkills-Token': easySkillsToken
+                    },
+                    body: '{}'
+                });
                 const data = await res.json();
                 if (data.success) {
                     showToast(currentLang === 'en' ? 'Update complete! Reloading...' : '更新完成！正在刷新...', 'success');

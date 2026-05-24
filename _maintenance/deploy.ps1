@@ -114,6 +114,12 @@ function Get-AgentRoot ([string]$Target) {
   }
 }
 
+function Add-TargetOnce([string]$Path) {
+  if ($Path -and ($script:Targets -notcontains $Path)) {
+    $script:Targets += $Path
+  }
+}
+
 function Load-CustomTargets {
   if (Test-Path $CustomTargetsFile) {
     $Lines = Get-Content $CustomTargetsFile
@@ -125,9 +131,18 @@ function Load-CustomTargets {
           $Target = $Parts[1].Trim()
         }
         if (Test-Path $Target) {
-          $script:Targets += $Target
+          Add-TargetOnce $Target
         }
       }
+    }
+  }
+
+  $PromaDir = Join-Path -Path $Home -ChildPath ".proma"
+  $PromaWorkspacesDir = Join-Path -Path $PromaDir -ChildPath "agent-workspaces"
+  if (Test-Path $PromaWorkspacesDir) {
+    $WorkspaceSkillDirs = Get-ChildItem -Path $PromaWorkspacesDir -Directory -Recurse -Filter "skills" -ErrorAction SilentlyContinue
+    foreach ($WsSkills in $WorkspaceSkillDirs) {
+      Add-TargetOnce $WsSkills.FullName
     }
   }
 }
@@ -145,6 +160,15 @@ function Get-AgentName ([string]$Path) {
   if ($Path -like "*\.trae\*" -or $Path -like "*\Trae\*") { return "Trae (Global)" }
   if ($Path -like "*\.openclaw\*") { return "OpenClaw" }
   if ($Path -like "*\.hermes\*") { return "Hermes Agent" }
+  if ($Path -like "*\.proma\agent-workspaces\*") {
+    $Parts = $Path.Split('\')
+    for ($i = 0; $i -lt $Parts.Length; $i++) {
+      if ($Parts[$i] -eq "agent-workspaces" -and $i -lt $Parts.Length - 1) {
+        return "Proma Workspace ($($Parts[$i+1]))"
+      }
+    }
+    return "Proma Workspace"
+  }
   if ($Path -like "*\.proma\*") { return "Proma" }
   if ($Path -like "*\.cursor\*") { return "Cursor" }
   if ($Path -like "*\.kiro\*") { return "Kiro Agent" }
@@ -313,6 +337,7 @@ function Remove-Target ([string]$Path) {
 
 function Run-Cleanup {
   Load-CustomTargets
+  $CentralResolved = (Resolve-Path -LiteralPath $CentralDir).ProviderPath
   Write-Host "==========================================================" -ForegroundColor Cyan
   Write-Host "Cleaning up all EasySkills junctions from agent directories..." -ForegroundColor Cyan
   Write-Host "==========================================================" -ForegroundColor Cyan
@@ -322,7 +347,15 @@ function Run-Cleanup {
       foreach ($Item in $Items) {
         if ($Item.Attributes -match "ReparsePoint") {
           $LinkTarget = $Item.Target
-          if ($LinkTarget -and ($LinkTarget -like "*EasySkills*")) {
+          $ResolvedTarget = $null
+          if ($LinkTarget) {
+            try {
+              $ResolvedTarget = (Resolve-Path -LiteralPath $LinkTarget).ProviderPath
+            } catch {
+              try { $ResolvedTarget = [System.IO.Path]::GetFullPath($LinkTarget) } catch {}
+            }
+          }
+          if ($ResolvedTarget -and ($ResolvedTarget.Equals($CentralResolved, [System.StringComparison]::OrdinalIgnoreCase) -or $ResolvedTarget.StartsWith("$CentralResolved\", [System.StringComparison]::OrdinalIgnoreCase))) {
             Remove-Item $Item.FullName -Recurse -Force
             Write-Host "   Removed junction: $($Item.FullName)" -ForegroundColor Green
           }

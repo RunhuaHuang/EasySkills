@@ -42,7 +42,7 @@ if [ "$CURRENT_DIR" != "$PERM_DIR" ]; then
   # --- Clean install of _maintenance/ ---
   rm -rf "$PERM_DIR/_maintenance"
   cp -R "$CURRENT_DIR/_maintenance" "$PERM_DIR/_maintenance"
-  cp "$CURRENT_DIR/SKILL.md" "$PERM_DIR/_maintenance/SKILL.md"
+  cp "$CURRENT_DIR/SKILL.md" "$PERM_DIR/SKILL.md"
 
   # Initialize custom-targets.txt at root if not present
   if [ ! -f "$PERM_DIR/custom-targets.txt" ]; then

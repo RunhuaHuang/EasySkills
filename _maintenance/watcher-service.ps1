@@ -5,6 +5,7 @@
 
 $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $CentralDir = Split-Path -Path $ScriptDir -Parent
+$PromaDir = Join-Path -Path $Home -ChildPath ".proma"
 
 # Initial synchronization
 try {
@@ -24,9 +25,11 @@ Write-Host "[*] Starting background watcher on $CentralDir..."
 # Block and wait for changes forever
 while ($true) {
     try {
-        $Change = $Watcher.WaitForChanged([System.IO.WatcherChangeTypes]::All, 600000)
+        $PromaPollingEnabled = Test-Path $PromaDir
+        $WaitTimeout = if ($PromaPollingEnabled) { 300000 } else { 600000 }
+        $Change = $Watcher.WaitForChanged([System.IO.WatcherChangeTypes]::All, $WaitTimeout)
 
-        if ($Change.TimedOut -eq $false) {
+        if (($Change.TimedOut -eq $false) -or ($PromaPollingEnabled -and $Change.TimedOut)) {
             Start-Sleep -Milliseconds 500
             try {
                 & "$ScriptDir\deploy.ps1"

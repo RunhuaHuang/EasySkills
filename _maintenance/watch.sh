@@ -26,33 +26,44 @@ bash "./deploy.sh" "$@"
 # 2. Write the launchd plist file dynamically
 mkdir -p "$(dirname "$PLIST_PATH")"
 
-cat <<EOF > "$PLIST_PATH"
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>$LABEL</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$SCRIPT_DIR/deploy.sh</string>
-EOF
+PROMA_INTERVAL=0
+[ -d "$HOME/.proma" ] && PROMA_INTERVAL=300
 
-for arg in "$@"; do
-  echo "        <string>$arg</string>" >> "$PLIST_PATH"
-done
+if command -v python3 >/dev/null 2>&1; then
+  python3 - "$PLIST_PATH" "$LABEL" "$SCRIPT_DIR/deploy.sh" "$CENTRAL_DIR" "$PROMA_INTERVAL" "$@" <<'PY'
+import plistlib
+import sys
 
-cat <<EOF >> "$PLIST_PATH"
-    </array>
-    <key>WatchPaths</key>
-    <array>
-        <string>$CENTRAL_DIR</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-</dict>
-</plist>
-EOF
+plist_path, label, deploy_script, central_dir, proma_interval, *args = sys.argv[1:]
+plist = {
+    "Label": label,
+    "ProgramArguments": [deploy_script, *args],
+    "WatchPaths": [central_dir],
+    "RunAtLoad": True,
+}
+if int(proma_interval):
+    plist["StartInterval"] = int(proma_interval)
+
+with open(plist_path, "wb") as f:
+    plistlib.dump(plist, f)
+PY
+else
+  /usr/libexec/PlistBuddy -c "Clear dict" "$PLIST_PATH" >/dev/null 2>&1 || true
+  /usr/libexec/PlistBuddy -c "Add :Label string $LABEL" "$PLIST_PATH"
+  /usr/libexec/PlistBuddy -c "Add :ProgramArguments array" "$PLIST_PATH"
+  /usr/libexec/PlistBuddy -c "Add :ProgramArguments:0 string $SCRIPT_DIR/deploy.sh" "$PLIST_PATH"
+  arg_index=1
+  for arg in "$@"; do
+    /usr/libexec/PlistBuddy -c "Add :ProgramArguments:$arg_index string $arg" "$PLIST_PATH"
+    arg_index=$((arg_index + 1))
+  done
+  /usr/libexec/PlistBuddy -c "Add :WatchPaths array" "$PLIST_PATH"
+  /usr/libexec/PlistBuddy -c "Add :WatchPaths:0 string $CENTRAL_DIR" "$PLIST_PATH"
+  /usr/libexec/PlistBuddy -c "Add :RunAtLoad bool true" "$PLIST_PATH"
+  if [ "$PROMA_INTERVAL" -gt 0 ]; then
+    /usr/libexec/PlistBuddy -c "Add :StartInterval integer $PROMA_INTERVAL" "$PLIST_PATH"
+  fi
+fi
 
 # 3. Unload any existing service, then load the new one
 #    Modern API (macOS 13+): bootstrap/bootout

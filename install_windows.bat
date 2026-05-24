@@ -38,7 +38,7 @@ if /i "%CURRENT_DIR_STRIP%" neq "%PERM_DIR%" (
   :: --- Clean install of _maintenance\ ---
   if exist "%PERM_DIR%\_maintenance" rd /S /Q "%PERM_DIR%\_maintenance"
   xcopy /E /I /Y "%CURRENT_DIR%_maintenance" "%PERM_DIR%\_maintenance" > nul
-  copy /Y "%CURRENT_DIR%SKILL.md" "%PERM_DIR%\_maintenance\SKILL.md" > nul
+  copy /Y "%CURRENT_DIR%SKILL.md" "%PERM_DIR%\SKILL.md" > nul
 
   :: Initialize custom-targets.txt at root if not present
   if not exist "%PERM_DIR%\custom-targets.txt" (

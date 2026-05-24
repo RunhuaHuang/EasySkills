@@ -6,12 +6,14 @@
 # ==============================================================================
 
 $Port = 6633
+$WebUIToken = [Guid]::NewGuid().ToString("N")
 $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $CentralDir = Split-Path -Path $ScriptDir -Parent
 
 # Dynamically resolve to official home directory installation if it exists
 $HomeCentralDir = Join-Path $Home "EasySkills"
-if (Test-Path $HomeCentralDir) {
+$RepoGitDir = Join-Path $CentralDir ".git"
+if ((Test-Path $HomeCentralDir) -and -not (Test-Path $RepoGitDir)) {
     $CentralDir = $HomeCentralDir
     $ScriptDir = Join-Path $HomeCentralDir "_maintenance"
 }
@@ -107,6 +109,15 @@ function Get-AgentNameFromPath([string]$PathStr) {
     if ($PathStr -like "*\.trae\*" -or $PathStr -like "*\Trae\*") { return "Trae (Global)" }
     if ($PathStr -like "*\.openclaw\*") { return "OpenClaw" }
     if ($PathStr -like "*\.hermes\*") { return "Hermes Agent" }
+    if ($PathStr -like "*\.proma\agent-workspaces\*") {
+        $Parts = $PathStr.Split('\')
+        for ($i = 0; $i -lt $Parts.Length; $i++) {
+            if ($Parts[$i] -eq "agent-workspaces" -and $i -lt $Parts.Length - 1) {
+                return "Proma Workspace ($($Parts[$i+1]))"
+            }
+        }
+        return "Proma Workspace"
+    }
     if ($PathStr -like "*\.proma\*") { return "Proma" }
     if ($PathStr -like "*\.cursor\*") { return "Cursor" }
     if ($PathStr -like "*\.kiro\*") { return "Kiro Agent" }
@@ -183,6 +194,15 @@ function Get-AgentsData {
             $CtPath = $Ct.Trim()
             $CtName = Get-AgentNameFromPath $CtPath
             $CustomList += @{ Name = $CtName; Path = $CtPath }
+        }
+    }
+
+    $PromaDir = Join-Path -Path $Home -ChildPath ".proma"
+    $PromaWorkspacesDir = Join-Path -Path $PromaDir -ChildPath "agent-workspaces"
+    if (Test-Path $PromaWorkspacesDir) {
+        $WorkspaceSkillDirs = Get-ChildItem -Path $PromaWorkspacesDir -Directory -Recurse -Filter "skills" -ErrorAction SilentlyContinue
+        foreach ($WsSkills in $WorkspaceSkillDirs) {
+            $CustomList += @{ Name = (Get-AgentNameFromPath $WsSkills.FullName); Path = $WsSkills.FullName }
         }
     }
 
@@ -437,11 +457,20 @@ function Do-Unmap([string]$TargetPath) {
             return @{ success = $false; message = "Path does not exist" }
         }
         $Removed = @()
+        $CentralResolved = (Resolve-Path -LiteralPath $CentralDir).ProviderPath
         $Items = Get-ChildItem -Path $TargetPath -Force
         foreach ($Item in $Items) {
             if ($Item.Attributes -match "ReparsePoint") {
                 $LinkTarget = $Item.Target
-                if ($LinkTarget -and $LinkTarget -like "*EasySkills*") {
+                $ResolvedTarget = $null
+                if ($LinkTarget) {
+                    try {
+                        $ResolvedTarget = (Resolve-Path -LiteralPath $LinkTarget).ProviderPath
+                    } catch {
+                        try { $ResolvedTarget = [System.IO.Path]::GetFullPath($LinkTarget) } catch {}
+                    }
+                }
+                if ($ResolvedTarget -and ($ResolvedTarget.Equals($CentralResolved, [System.StringComparison]::OrdinalIgnoreCase) -or $ResolvedTarget.StartsWith("$CentralResolved\", [System.StringComparison]::OrdinalIgnoreCase))) {
                     Remove-Item $Item.FullName -Recurse -Force
                     $Removed += $Item.Name
                 }
@@ -462,14 +491,29 @@ function Get-CorsOrigin($Request) {
     if ($Origin -eq "http://localhost:$Port" -or $Origin -eq "http://127.0.0.1:$Port") {
         return $Origin
     }
-    return "http://localhost:$Port"
+    return $null
+}
+
+function Test-PostAllowed($Request) {
+    $Origin = $Request.Headers["Origin"]
+    if ($Origin -and $Origin -ne "http://localhost:$Port" -and $Origin -ne "http://127.0.0.1:$Port") {
+        return $false
+    }
+    $Token = $Request.Headers["X-EasySkills-Token"]
+    return ($Token -and $Token -eq $WebUIToken)
+}
+
+function Send-ForbiddenResponse($Context) {
+    Send-JsonResponse $Context @{ success = $false; message = "Forbidden" } 403
 }
 
 function Send-JsonResponse($Context, $Data, $StatusCode = 200) {
     $Response = $Context.Response
     $Response.StatusCode = $StatusCode
     $CorsOrigin = Get-CorsOrigin $Context.Request
-    $Response.Headers.Add("Access-Control-Allow-Origin", $CorsOrigin)
+    if ($CorsOrigin) {
+        $Response.Headers.Add("Access-Control-Allow-Origin", $CorsOrigin)
+    }
     $Response.ContentType = "application/json; charset=utf-8"
 
     $JsonStr = $Data | ConvertTo-Json -Depth 10 -Compress
@@ -482,7 +526,9 @@ function Send-JsonResponse($Context, $Data, $StatusCode = 200) {
 function Send-FileResponse($Context, $FilePath, $ContentType) {
     $Response = $Context.Response
     $CorsOrigin = Get-CorsOrigin $Context.Request
-    $Response.Headers.Add("Access-Control-Allow-Origin", $CorsOrigin)
+    if ($CorsOrigin) {
+        $Response.Headers.Add("Access-Control-Allow-Origin", $CorsOrigin)
+    }
     if (Test-Path $FilePath) {
         $Response.StatusCode = 200
         $Response.ContentType = $ContentType
@@ -490,6 +536,25 @@ function Send-FileResponse($Context, $FilePath, $ContentType) {
         $Response.Headers.Add("Pragma", "no-cache")
         $Response.Headers.Add("Expires", "0")
         $Bytes = [System.IO.File]::ReadAllBytes($FilePath)
+        $Response.ContentLength64 = $Bytes.Length
+        $Response.OutputStream.Write($Bytes, 0, $Bytes.Length)
+    } else {
+        $Response.StatusCode = 404
+    }
+    $Response.Close()
+}
+
+function Send-IndexResponse($Context, $FilePath) {
+    $Response = $Context.Response
+    if (Test-Path $FilePath) {
+        $Html = [System.IO.File]::ReadAllText($FilePath, [System.Text.Encoding]::UTF8)
+        $Html = $Html.Replace("__EASYSKILLS_TOKEN__", $WebUIToken)
+        $Bytes = [System.Text.Encoding]::UTF8.GetBytes($Html)
+        $Response.StatusCode = 200
+        $Response.ContentType = "text/html; charset=utf-8"
+        $Response.Headers.Add("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        $Response.Headers.Add("Pragma", "no-cache")
+        $Response.Headers.Add("Expires", "0")
         $Response.ContentLength64 = $Bytes.Length
         $Response.OutputStream.Write($Bytes, 0, $Bytes.Length)
     } else {
@@ -520,18 +585,26 @@ try {
         $UrlPath = $Request.Url.AbsolutePath
 
         if ($Method -eq "OPTIONS") {
-            $Context.Response.StatusCode = 200
             $CorsOrigin = Get-CorsOrigin $Context.Request
+            if (-not $CorsOrigin) {
+                $Context.Response.StatusCode = 403
+                $Context.Response.Close()
+                continue
+            }
+            $Context.Response.StatusCode = 200
             $Context.Response.Headers.Add("Access-Control-Allow-Origin", $CorsOrigin)
             $Context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            $Context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type")
+            $Context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, X-EasySkills-Token")
             $Context.Response.Close()
             continue
         }
 
         if ($Method -eq "GET") {
             if ($UrlPath -eq "/" -or $UrlPath -eq "/index.html") {
-                Send-FileResponse $Context (Join-Path $WebUIDir "index.html") "text/html; charset=utf-8"
+                Send-IndexResponse $Context (Join-Path $WebUIDir "index.html")
+            } elseif ($UrlPath -eq "/favicon.ico") {
+                $Context.Response.StatusCode = 204
+                $Context.Response.Close()
             } elseif ($UrlPath -eq "/api/status") {
                 $Skills = @(Get-SkillsData)
                 $Agents = @(Get-AgentsData)
@@ -554,6 +627,10 @@ try {
                 $Context.Response.Close()
             }
         } elseif ($Method -eq "POST") {
+            if (-not (Test-PostAllowed $Request)) {
+                Send-ForbiddenResponse $Context
+                continue
+            }
             $BodyData = @{}
             if ($Request.HasEntityBody) {
                 $Reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)

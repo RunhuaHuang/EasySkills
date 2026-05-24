@@ -97,6 +97,14 @@ get_agent_root() {
   fi
 }
 
+append_target_once() {
+  local candidate="$1"
+  for target in "${TARGETS[@]}"; do
+    [[ "$target" == "$candidate" ]] && return
+  done
+  TARGETS+=("$candidate")
+}
+
 # Load persisted custom targets if file exists
 load_custom_targets() {
   if [ -f "$CUSTOM_TARGETS_FILE" ]; then
@@ -108,10 +116,17 @@ load_custom_targets() {
         target_path="${target_path## }"
       fi
       if [ -d "$target_path" ]; then
-        TARGETS+=("$target_path")
+        append_target_once "$target_path"
       fi
     done < "$CUSTOM_TARGETS_FILE"
   fi
+
+  [ ! -d "$HOME/.proma" ] && return
+  local proma_ws_dir="$HOME/.proma/agent-workspaces"
+  [ ! -d "$proma_ws_dir" ] && return
+  while IFS= read -r ws_skills; do
+    append_target_once "$ws_skills"
+  done < <(find "$proma_ws_dir" -type d -name skills -prune 2>/dev/null)
 }
 
 get_agent_name() {
@@ -128,6 +143,12 @@ get_agent_name() {
   if [[ "$path" == *".trae"* || "$path" == *"/Trae/"* ]]; then echo "Trae (Global)"; return; fi
   if [[ "$path" == *".openclaw"* ]]; then echo "OpenClaw"; return; fi
   if [[ "$path" == *".hermes"* ]]; then echo "Hermes Agent"; return; fi
+  if [[ "$path" == *".proma/agent-workspaces/"* ]]; then
+    local rel="${path#*/.proma/agent-workspaces/}"
+    local ws_id="${rel%%/*}"
+    echo "Proma Workspace ($ws_id)"
+    return
+  fi
   if [[ "$path" == *".proma"* ]]; then echo "Proma"; return; fi
   if [[ "$path" == *".cursor"* ]]; then echo "Cursor"; return; fi
   if [[ "$path" == *".kiro"* ]]; then echo "Kiro Agent"; return; fi
@@ -279,6 +300,8 @@ remove_target() {
 
 run_cleanup() {
   load_custom_targets
+  local central_resolved
+  central_resolved=$(cd "$CENTRAL_DIR" && pwd -P)
   echo "=========================================================="
   echo "Cleaning up all EasySkills symlinks from agent directories..."
   echo "=========================================================="
@@ -286,7 +309,12 @@ run_cleanup() {
     if [ -d "$target" ]; then
       find "$target" -maxdepth 1 -type l | while read -r link; do
         link_target=$(readlink "$link")
-        if [[ "$link_target" == *"EasySkills"* ]]; then
+        case "$link_target" in
+          /*) link_target_abs="$link_target" ;;
+          *) link_target_abs="$(dirname "$link")/$link_target" ;;
+        esac
+        link_target_resolved=$(cd "$(dirname "$link_target_abs")" 2>/dev/null && pwd -P)/$(basename "$link_target_abs")
+        if [[ "$link_target_resolved" == "$central_resolved" || "$link_target_resolved" == "$central_resolved/"* ]]; then
           rm -f "$link"
           echo "   Removed symlink: $link"
         fi

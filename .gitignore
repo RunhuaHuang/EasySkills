@@ -4,6 +4,9 @@
 *~
 Thumbs.db
 Desktop.ini
+__pycache__/
+*.pyc
+.playwright-mcp/
 
 # User-specific custom target paths (generated at runtime)
 /custom-targets.txt

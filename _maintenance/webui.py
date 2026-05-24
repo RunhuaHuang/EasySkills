@@ -8,9 +8,11 @@
 
 import http.server
 import socketserver
+import hmac
 import json
 import os
 import platform
+import secrets
 import shutil
 import subprocess
 import tarfile
@@ -24,7 +26,7 @@ CENTRAL_DIR = SCRIPT_DIR.parent
 
 # Dynamically resolve to official home directory installation if it exists
 HOME_CENTRAL_DIR = Path.home() / "EasySkills"
-if HOME_CENTRAL_DIR.exists() and HOME_CENTRAL_DIR.is_dir():
+if HOME_CENTRAL_DIR.exists() and HOME_CENTRAL_DIR.is_dir() and not (CENTRAL_DIR / ".git").exists():
     CENTRAL_DIR = HOME_CENTRAL_DIR
     SCRIPT_DIR = HOME_CENTRAL_DIR / "_maintenance"
 
@@ -33,6 +35,8 @@ WEBUI_DIR = SCRIPT_DIR / "webui"
 if not WEBUI_DIR.exists():
     WEBUI_DIR = Path(__file__).parent.resolve() / "webui"
 PORT = 6633
+WEBUI_TOKEN = os.environ.get("EASYSKILLS_WEBUI_TOKEN") or secrets.token_urlsafe(32)
+ALLOWED_ORIGINS = {f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"}
 
 DEFAULT_AGENTS = [
     ("Antigravity CLI",                Path.home() / ".gemini/config/skills"),
@@ -128,6 +132,15 @@ def get_agent_name(path: str) -> str:
     if ".trae" in path_lower or "/trae/" in path_lower: return "Trae (Global)"
     if ".openclaw" in path_lower: return "OpenClaw"
     if ".hermes" in path_lower: return "Hermes Agent"
+    if ".proma/agent-workspaces/" in path_lower or ".proma\\agent-workspaces\\" in path_lower:
+        parts = path.replace("\\", "/").split("/")
+        try:
+            idx = parts.index("agent-workspaces")
+            if idx < len(parts) - 1:
+                return f"Proma Workspace ({parts[idx + 1]})"
+        except ValueError:
+            pass
+        return "Proma Workspace"
     if ".proma" in path_lower: return "Proma"
     if ".cursor" in path_lower: return "Cursor"
     if ".kiro" in path_lower: return "Kiro Agent"
@@ -160,6 +173,12 @@ def get_agents():
             path = line.strip()
             name = get_agent_name(path)
             custom_list.append((name, path))
+
+    proma_dir = Path.home() / ".proma"
+    proma_ws = proma_dir / "agent-workspaces"
+    if proma_dir.is_dir() and proma_ws.is_dir():
+        for ws_skills in sorted(p for p in proma_ws.rglob("skills") if p.is_dir()):
+            custom_list.append((get_agent_name(str(ws_skills)), str(ws_skills)))
 
     seen: set[str] = set()
     agents = []
@@ -302,12 +321,14 @@ def do_unmap(target_path: str) -> dict:
                 link_target_raw = os.readlink(str(item))
                 # Resolve relative symlinks to absolute for reliable comparison
                 try:
-                    link_target_resolved = str(Path(link_target_raw).resolve())
+                    link_target = Path(link_target_raw)
+                    if not link_target.is_absolute():
+                        link_target = item.parent / link_target
+                    link_target_resolved = str(link_target.resolve())
                 except Exception:
                     link_target_resolved = link_target_raw
-                if (central_resolved in link_target_resolved
-                        or "EasySkills" in link_target_raw
-                        or "EasySkills" in link_target_resolved):
+                if (link_target_resolved == central_resolved
+                        or link_target_resolved.startswith(central_resolved + os.sep)):
                     item.unlink()
                     removed.append(item.name)
         except Exception as e:
@@ -454,18 +475,37 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _cors_origin(self):
         origin = self.headers.get("Origin", "")
-        if origin in ("http://localhost:6633", "http://127.0.0.1:6633"):
+        if origin in ALLOWED_ORIGINS:
             return origin
-        return "http://localhost:6633"
+        return None
 
     def _json(self, data, status: int = 200):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", self._cors_origin())
+        cors_origin = self._cors_origin()
+        if cors_origin:
+            self.send_header("Access-Control-Allow-Origin", cors_origin)
         self.end_headers()
         self.wfile.write(body)
+
+    def _index(self):
+        try:
+            html = (WEBUI_DIR / "index.html").read_text(encoding="utf-8")
+            html = html.replace("__EASYSKILLS_TOKEN__", WEBUI_TOKEN)
+            data = html.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+            self.end_headers()
+            self.wfile.write(data)
+        except FileNotFoundError:
+            self.send_response(404)
+            self.end_headers()
 
     def _file(self, path: Path, content_type: str):
         try:
@@ -491,18 +531,37 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except (json.JSONDecodeError, ValueError):
             return {}
 
+    def _is_post_allowed(self) -> bool:
+        origin = self.headers.get("Origin")
+        if origin and origin not in ALLOWED_ORIGINS:
+            return False
+        token = self.headers.get("X-EasySkills-Token", "")
+        return hmac.compare_digest(token, WEBUI_TOKEN)
+
+    def _reject_forbidden(self):
+        self._json({"success": False, "message": "Forbidden"}, status=403)
+
     def do_OPTIONS(self):
+        cors_origin = self._cors_origin()
+        if not cors_origin:
+            self.send_response(403)
+            self.end_headers()
+            return
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", self._cors_origin())
+        self.send_header("Access-Control-Allow-Origin", cors_origin)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-EasySkills-Token")
         self.end_headers()
 
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
 
         if path in ("/", "/index.html"):
-            self._file(WEBUI_DIR / "index.html", "text/html; charset=utf-8")
+            self._index()
+
+        elif path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
 
         elif path == "/api/status":
             watcher = get_watcher_status()
@@ -528,6 +587,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        if not self._is_post_allowed():
+            self._reject_forbidden()
+            return
         path = urllib.parse.urlparse(self.path).path
         body = self._body()
 
@@ -585,7 +647,7 @@ def main():
         daemon_threads = True
 
     try:
-        with ThreadedServer(("", PORT), Handler) as httpd:
+        with ThreadedServer(("127.0.0.1", PORT), Handler) as httpd:
             httpd.serve_forever()
     except OSError as e:
         print(f"  ❌ Cannot bind to port {PORT}: {e}")
