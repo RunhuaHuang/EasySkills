@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # Script: webui.ps1 (Windows)
 # Description: EasySkills WebUI backend - PowerShell HttpListener, zero deps.
 # Usage: powershell -File _maintenance\webui.ps1
