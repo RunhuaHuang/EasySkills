@@ -46,6 +46,17 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("Invoke-WebUIRequest $Context", body)
         self.assertIn("continue", body)
 
+    def test_webui_hides_proma_workspace_targets_from_agent_list(self):
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+
+        self.assertIn("def is_proma_workspace_target", py_src)
+        self.assertIn("function Is-PromaWorkspaceTarget", ps_src)
+        self.assertNotIn('return f"Proma Workspace', py_src)
+        self.assertNotIn('return "Proma Workspace', ps_src)
+        self.assertNotRegex(py_src, r"custom_list\.append\(\(get_agent_name\(str\(ws_skills\)\)")
+        self.assertNotRegex(ps_src, r"CustomList \+= @\{ Name = \(Get-AgentNameFromPath \$WsSkills\.FullName\)")
+
     def test_double_click_installers_copy_skill_md_to_root(self):
         self.assertIn('cp "$CURRENT_DIR/SKILL.md" "$PERM_DIR/SKILL.md"', read("install_mac.command"))
         self.assertIn('copy /Y "%CURRENT_DIR%SKILL.md" "%PERM_DIR%\\SKILL.md" > nul', read("install_windows.bat"))
@@ -115,6 +126,24 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("EasySkillsWatcher.lnk", unwatch)
         self.assertIn("EasySkillsWebUI.lnk", unwatch)
         self.assertIn("webui.ps1", unwatch)
+
+    def test_webui_stop_watcher_keeps_backend_running(self):
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        deploy_ps = read("_maintenance/deploy.ps1")
+        unwatch_ps = read("_maintenance/unwatch.ps1")
+
+        self.assertIn('"/api/watcher/stop":         lambda: run_deploy("--unwatch")', py_src)
+        self.assertIn('Run-DeployCommand @("-Unwatch", "-KeepWebUI")', ps_src)
+        self.assertIn("[switch]$KeepWebUI", deploy_ps)
+        self.assertIn("[switch]$KeepWebUI", unwatch_ps)
+        self.assertIn("if (-not $KeepWebUI)", unwatch_ps)
+
+    def test_frontend_refreshes_token_after_forbidden(self):
+        src = read("_maintenance/webui/index.html")
+        self.assertIn("refreshEasySkillsToken", src)
+        self.assertIn("res.status === 403", src)
+        self.assertIn("retryOnForbidden", src)
 
     def test_macos_webui_launches_detached(self):
         self.assertIn("nohup python3", read("install_mac.command"))

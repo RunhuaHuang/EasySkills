@@ -2208,9 +2208,26 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
         }
 
         // --- REST API Service Layer ---
-        const easySkillsToken = document.querySelector('meta[name="easy-skills-token"]')?.content || '';
+        let easySkillsToken = document.querySelector('meta[name="easy-skills-token"]')?.content || '';
 
-        async function apiCall(endpoint, payload = null, btnElement = null) {
+        async function refreshEasySkillsToken() {
+            try {
+                const res = await fetch('/index.html?token-refresh=' + Date.now(), { cache: 'no-store' });
+                const html = await res.text();
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                const token = doc.querySelector('meta[name="easy-skills-token"]')?.content || '';
+                if (!token) return false;
+                easySkillsToken = token;
+                const meta = document.querySelector('meta[name="easy-skills-token"]');
+                if (meta) meta.content = token;
+                return true;
+            } catch (err) {
+                console.warn('Unable to refresh EasySkills token', err);
+                return false;
+            }
+        }
+
+        async function apiCall(endpoint, payload = null, btnElement = null, retryOnForbidden = true) {
             let originalHtml = '';
             
             // Dynamic text indicator mappings for obvious progress reporting
@@ -2267,7 +2284,11 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                     syncBtn.querySelector('i').classList.add('fa-spin');
                 }
 
-                const res = await fetch(endpoint, options);
+                let res = await fetch(endpoint, options);
+                if (res.status === 403 && retryOnForbidden && payload !== null && await refreshEasySkillsToken()) {
+                    options.headers['X-EasySkills-Token'] = easySkillsToken;
+                    res = await fetch(endpoint, options);
+                }
                 const data = await res.json();
                 
                 if (endpoint === '/api/sync' && syncBtn && !btnElement) {

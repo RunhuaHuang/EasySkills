@@ -118,6 +118,11 @@ def is_mapped(target_path: str) -> bool:
     return (Path(target_path) / "EasySkills").is_symlink()
 
 
+def is_proma_workspace_target(path: str) -> bool:
+    normalized = path.replace("\\", "/").lower()
+    return "/.proma/agent-workspaces/" in normalized
+
+
 def get_agent_name(path: str) -> str:
     path_lower = path.lower()
     if "antigravity" in path_lower and ".gemini" in path_lower: return "Antigravity IDE"
@@ -132,15 +137,6 @@ def get_agent_name(path: str) -> str:
     if ".trae" in path_lower or "/trae/" in path_lower: return "Trae (Global)"
     if ".openclaw" in path_lower: return "OpenClaw"
     if ".hermes" in path_lower: return "Hermes Agent"
-    if ".proma/agent-workspaces/" in path_lower or ".proma\\agent-workspaces\\" in path_lower:
-        parts = path.replace("\\", "/").split("/")
-        try:
-            idx = parts.index("agent-workspaces")
-            if idx < len(parts) - 1:
-                return f"Proma Workspace ({parts[idx + 1]})"
-        except ValueError:
-            pass
-        return "Proma Workspace"
     if ".proma" in path_lower: return "Proma"
     if ".cursor" in path_lower: return "Cursor"
     if ".kiro" in path_lower: return "Kiro Agent"
@@ -168,17 +164,15 @@ def get_agents():
             name, path = line.split("=", 1)
             name = name.strip()
             path = path.strip()
+            if is_proma_workspace_target(path):
+                continue
             custom_overrides[name] = path
         else:
             path = line.strip()
+            if is_proma_workspace_target(path):
+                continue
             name = get_agent_name(path)
             custom_list.append((name, path))
-
-    proma_dir = Path.home() / ".proma"
-    proma_ws = proma_dir / "agent-workspaces"
-    if proma_dir.is_dir() and proma_ws.is_dir():
-        for ws_skills in sorted(p for p in proma_ws.rglob("skills") if p.is_dir()):
-            custom_list.append((get_agent_name(str(ws_skills)), str(ws_skills)))
 
     seen: set[str] = set()
     agents = []

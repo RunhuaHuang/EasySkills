@@ -3,16 +3,20 @@
 # Description: Removes the EasySkillsWatcher startup shortcut and stops background tasks.
 # ==============================================================================
 
+Param(
+    [Parameter(Mandatory=$false)][switch]$KeepWebUI
+)
+
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "[*] Uninstalling Windows EasySkills Watcher..." -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
 # 1. Remove startup shortcuts
 $StartupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-$ShortcutPaths = @(
-    "$StartupFolder\EasySkillsWatcher.lnk",
-    "$StartupFolder\EasySkillsWebUI.lnk"
-)
+$ShortcutPaths = @("$StartupFolder\EasySkillsWatcher.lnk")
+if (-not $KeepWebUI) {
+    $ShortcutPaths += "$StartupFolder\EasySkillsWebUI.lnk"
+}
 
 foreach ($ShortcutPath in $ShortcutPaths) {
     if (Test-Path $ShortcutPath) {
@@ -25,7 +29,12 @@ foreach ($ShortcutPath in $ShortcutPaths) {
 
 # 2. Terminate running background processes via WMI
 try {
-    $Processes = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' AND (CommandLine LIKE '%watcher-service.ps1%' OR CommandLine LIKE '%webui.ps1%')"
+    $Filter = if ($KeepWebUI) {
+        "Name = 'powershell.exe' AND CommandLine LIKE '%watcher-service.ps1%'"
+    } else {
+        "Name = 'powershell.exe' AND (CommandLine LIKE '%watcher-service.ps1%' OR CommandLine LIKE '%webui.ps1%')"
+    }
+    $Processes = Get-CimInstance Win32_Process -Filter $Filter
     if ($Processes) {
         foreach ($Proc in $Processes) {
             $Proc | Invoke-CimMethod -MethodName Terminate | Out-Null

@@ -13,6 +13,7 @@ Param(
   [Parameter(Mandatory=$false)][switch]$Cleanup,
   [Parameter(Mandatory=$false)][switch]$Status,
   [Parameter(Mandatory=$false)][switch]$WebUI,
+  [Parameter(Mandatory=$false)][switch]$KeepWebUI,
   [Parameter(Mandatory=$false)][string[]]$CustomPath = @()
 )
 
@@ -440,7 +441,11 @@ try {
   } elseif ($Watch) {
     & "$ScriptDir\watch.ps1"
   } elseif ($Unwatch) {
-    & "$ScriptDir\unwatch.ps1"
+    if ($KeepWebUI) {
+      & "$ScriptDir\unwatch.ps1" -KeepWebUI
+    } else {
+      & "$ScriptDir\unwatch.ps1"
+    }
   } else {
     Run-Sync
   }

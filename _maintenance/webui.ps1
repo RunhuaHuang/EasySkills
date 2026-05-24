@@ -96,6 +96,10 @@ function Get-CustomTargets {
     return $Targets
 }
 
+function Is-PromaWorkspaceTarget([string]$PathStr) {
+    return ($PathStr -like "*\.proma\agent-workspaces\*")
+}
+
 function Get-AgentNameFromPath([string]$PathStr) {
     if ($PathStr -like "*\.gemini\antigravity\*") { return "Antigravity IDE" }
     if ($PathStr -like "*\.gemini\*") { return "Antigravity CLI" }
@@ -109,15 +113,6 @@ function Get-AgentNameFromPath([string]$PathStr) {
     if ($PathStr -like "*\.trae\*" -or $PathStr -like "*\Trae\*") { return "Trae (Global)" }
     if ($PathStr -like "*\.openclaw\*") { return "OpenClaw" }
     if ($PathStr -like "*\.hermes\*") { return "Hermes Agent" }
-    if ($PathStr -like "*\.proma\agent-workspaces\*") {
-        $Parts = $PathStr.Split('\')
-        for ($i = 0; $i -lt $Parts.Length; $i++) {
-            if ($Parts[$i] -eq "agent-workspaces" -and $i -lt $Parts.Length - 1) {
-                return "Proma Workspace ($($Parts[$i+1]))"
-            }
-        }
-        return "Proma Workspace"
-    }
     if ($PathStr -like "*\.proma\*") { return "Proma" }
     if ($PathStr -like "*\.cursor\*") { return "Cursor" }
     if ($PathStr -like "*\.kiro\*") { return "Kiro Agent" }
@@ -189,20 +184,13 @@ function Get-AgentsData {
             $Parts = $Ct.Split("=", 2)
             $CtName = $Parts[0].Trim()
             $CtPath = $Parts[1].Trim()
+            if (Is-PromaWorkspaceTarget $CtPath) { continue }
             $CustomOverrides[$CtName] = $CtPath
         } else {
             $CtPath = $Ct.Trim()
+            if (Is-PromaWorkspaceTarget $CtPath) { continue }
             $CtName = Get-AgentNameFromPath $CtPath
             $CustomList += @{ Name = $CtName; Path = $CtPath }
-        }
-    }
-
-    $PromaDir = Join-Path -Path $Home -ChildPath ".proma"
-    $PromaWorkspacesDir = Join-Path -Path $PromaDir -ChildPath "agent-workspaces"
-    if (Test-Path $PromaWorkspacesDir) {
-        $WorkspaceSkillDirs = Get-ChildItem -Path $PromaWorkspacesDir -Directory -Recurse -Filter "skills" -ErrorAction SilentlyContinue
-        foreach ($WsSkills in $WorkspaceSkillDirs) {
-            $CustomList += @{ Name = (Get-AgentNameFromPath $WsSkills.FullName); Path = $WsSkills.FullName }
         }
     }
 
@@ -656,7 +644,7 @@ function Invoke-WebUIRequest($Context) {
         } elseif ($UrlPath -eq "/api/watcher/start") {
             Send-JsonResponse $Context (Run-DeployCommand @("-Watch"))
         } elseif ($UrlPath -eq "/api/watcher/stop") {
-            Send-JsonResponse $Context (Run-DeployCommand @("-Unwatch"))
+            Send-JsonResponse $Context (Run-DeployCommand @("-Unwatch", "-KeepWebUI"))
         } elseif ($UrlPath -eq "/api/agents/map") {
             Send-JsonResponse $Context (Do-Map $BodyData["path"])
         } elseif ($UrlPath -eq "/api/agents/unmap") {
