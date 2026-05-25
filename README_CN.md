@@ -3,11 +3,15 @@
 # EasySkills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#-安装方式)
-[![Agents](https://img.shields.io/badge/支持Agent-25+-orange.svg)](#-支持的-agent-列表)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#安装方式)
+[![Agents](https://img.shields.io/badge/支持Agent-25+-orange.svg)](#支持的-agent-列表)
 [![Version](https://img.shields.io/badge/版本-1.2.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
-**一个技能目录，统治所有 Agent。**
+**面向 AI 编程 Agent 的本地技能控制台。**
+
+只维护一份技能。EasySkills 会自动检测本地主流 Agent，并通过原生链接，把 Claude Code、Codex、Cursor、Gemini、Copilot、Windsurf、Trae 等 25+ Agent 的技能目录统一起来。
+
+本地优先。空闲零 CPU。自带 WebUI。
 
 [**English**](README.md)
 
@@ -15,25 +19,86 @@
 
 ---
 
-## 痛点
+## 为什么需要 EasySkills
 
-你电脑上装了 Claude Code。还有 Cursor。可能还有 Gemini CLI、Copilot、Windsurf、Trae、Codex……
+AI 编程工具正在变成一套工作栈，但它们的技能目录仍然彼此隔离。
 
-你找到了一个好用的自定义技能——或者你自己写了一个。然后呢？
+同一个技能，可能要放进 Claude Code、Cursor、Codex、Gemini、Copilot，以及下一个你刚装的新 Agent。复制一开始没问题，直到你改了技能、忘了同步某个目录，旧版本就开始悄悄留下来。
 
-你把它复制到 `~/.claude/skills/`。再复制到 `~/.cursor/skills/`。再到 `~/.gemini/config/skills/`。然后你想起来还有 Copilot。还有 Codex。还有上周刚装的那个新 Agent。
+EasySkills 保留每个 Agent 原生 skills 目录的使用方式，但不再让你维护多份副本。它会检测本机已安装的受支持 Agent，把共享技能映射进去，同时不影响各个 Agent 自己专属的 skills 继续使用。
 
-**一周后**，你改进了这个技能。现在你得回忆每个复制过的文件夹，逐一更新。漏了一个。那个 Agent 跑的还是旧版本。你明明修过的 bug，又咬了你一口。
-
-**一个月后**，6 个 Agent，同一个技能散落了 4 个不同版本。有些 Agent 有某些技能，有些没有。你已经记不清谁有什么了。
-
-这就是多 Agent 时代的现实：**每个 AI 编程助手各自为政，技能目录互相隔离**，而你就是那个被迫手动同步一切的人。
+| 你需要 | EasySkills 提供 |
+|:---|:---|
+| 一个技能库 | 所有技能统一放在 `~/EasySkills` |
+| 不再版本漂移 | Agent 读取同一份真实文件，而不是复制副本 |
+| 快速接入新 Agent | 自动检测本地受支持 Agent，只映射真实存在的路径 |
+| 实时映射更新 | 监听 `~/EasySkills` 顶层技能文件夹的新增和删除，自动刷新映射 |
+| 不侵入 Agent | 共享技能通过链接并列映射，Agent 自己的专属 skills 继续正常使用 |
+| 可视化管理 | 本地 WebUI 管理状态、连接、清理和更新 |
+| 安全默认值 | 跳过真实本地目录，使用锁保护同步，并仅监听 localhost |
 
 ---
 
-## 解决方案
+## 安装方式
 
-**EasySkills** 彻底消灭了这个问题。
+### 一行命令安装
+
+**macOS / Linux：**
+```bash
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+```
+
+**Windows（PowerShell）：**
+```powershell
+irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+```
+
+安装器会创建 `~/EasySkills`，映射所有已检测到的 Agent，启动后台监听，并在所需运行时可用时拉起本地 WebUI。
+
+### 双击安装
+
+克隆或下载本仓库，然后：
+
+| | 安装 | 卸载 |
+|---|---|---|
+| **macOS** | 双击 `install_mac.command` | 双击 `uninstall_mac.command` |
+| **Windows** | 双击 `install_windows.bat` | 双击 `uninstall_windows.bat` |
+
+安装完成后可以删除下载的仓库；运行时文件会保留在 `~/EasySkills`。
+
+### 让 AI Agent 自动安装
+
+如果你的 Agent 支持技能加载，直接说：
+
+> *"帮我初始化 EasySkills。"*
+
+Agent 会读取 [SKILL.md](SKILL.md)，识别系统，运行安装脚本，并在需要时询问自定义 Agent 路径。
+
+---
+
+## WebUI 控制台
+
+EasySkills 提供本地可视化控制台。你可以查看监听状态、手动同步、连接 Agent、编辑路径、清理无效链接、检查更新。
+
+```bash
+# macOS / Linux
+bash ~/EasySkills/_maintenance/deploy.sh --webui
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
+```
+
+<p align="center">
+  <img src="docs/assets/webui-dashboard-macos.jpg" alt="EasySkills macOS WebUI 控制台" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/webui-agents-macos.jpg" alt="EasySkills macOS Agent 连接管理界面" width="100%">
+</p>
+
+---
+
+## 工作原理
 
 ```
 ~/EasySkills/
@@ -49,97 +114,38 @@
 │ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
 │ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
 │ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
-│ ... 25 个 Agent，全部同步，始终一致         │
+│ ... 25+ 个目标，全部同步，始终一致         │
 └─────────────────────────────────────────────┘
 ```
 
-**一个目录，一份文件，所有 Agent。** 修改一个技能文件，所有 Agent 立刻看到——因为从头到尾只有一份真实文件，通过软链接（macOS）或 NTFS 目录联结（Windows）挂载到各个 Agent 目录。
-
-后台监听服务检测到你添加或删除了技能文件夹，自动重新同步。空闲时 CPU 占用为零。
-
----
-
-## 为什么选 EasySkills？
-
-| 场景 | 没有 EasySkills | 有了 EasySkills |
-|:---|:---|:---|
-| 添加新技能 | 手动复制到 N 个 Agent 文件夹 | 放进一个文件夹，结束 |
-| 更新技能 | 逐一找到每份副本，手动更新 | 改一份，所有 Agent 同步看到 |
-| 装了新 Agent | 手动把所有技能搬过去 | 下次同步自动完成 |
-| 删除技能 | 从 N 个文件夹逐一删除 | 从一个文件夹删除 |
-| 版本漂移 | 不可避免 | 不可能——始终只有一份 |
+EasySkills 在 macOS/Linux 上使用软链接，在 Windows 上使用 NTFS 目录联结。Agent 看到的是自己的标准技能目录，实际读取的是 `~/EasySkills` 中的同一份共享源文件。EasySkills 不会替换 Agent 的 skills 目录，也不会删除 Agent 自己已有的专属技能。顶层技能文件夹的新增和删除由轻量监听服务自动同步；技能内部文件修改会即时生效，不需要重新同步。
 
 ---
 
 ## 核心特性
 
-### Windows 免提权映射
-Windows 创建软链接需要管理员权限或开发者模式。EasySkills 使用 **NTFS 目录联结（Junction）**——原生 NTFS 特性，普通用户权限即可创建，兼容性 100%。不会弹 UAC，不会导致 Agent 终端崩溃。
+| 能力 | 说明 |
+|:---|:---|
+| 本地 WebUI | `http://localhost:6633` 控制台，管理监听状态、技能库、Agent 连接、清理和更新 |
+| Agent 自动检测 | 自动识别本地主流 Agent，只为真实存在的路径建立连接 |
+| 实时技能映射 | `~/EasySkills` 中共享技能新增或删除后，自动更新映射 |
+| 非侵入式链接 | 共享技能与 Agent 专属技能并列存在，不影响原有专属 skills |
+| Windows 免提权映射 | 使用 NTFS 目录联结，无需管理员权限或开发者模式 |
+| 静默监听 | macOS 使用 `launchd` + `WatchPaths`，Windows 使用计划任务 + 隐藏 `FileSystemWatcher` 服务 |
+| 本地优先保护 | 遇到已有真实目录会跳过，不覆盖 Agent 自有技能 |
+| 并发安全 | macOS 使用 PID 锁，Windows 使用命名互斥锁，避免同步重入 |
 
-### 静默后台守护
+### 监听运行时
 | | macOS | Windows |
 |---|---|---|
-| **机制** | `launchd` + `WatchPaths`（内核 FSEvents） | 启动快捷方式 `.lnk` → `FileSystemWatcher` |
+| **机制** | `launchd` + `WatchPaths`（内核 FSEvents） | 计划任务 → `FileSystemWatcher` |
 | **空闲 CPU** | 0% | 0% |
-| **开机自启** | LaunchAgent plist | 启动文件夹快捷方式 |
+| **开机自启** | LaunchAgent plist | 计划任务（启动快捷方式兜底） |
 | **控制台窗口** | 无（守护进程） | 隐藏（`WindowStyle=0`） |
-
-### 智能 Agent 检测
-引擎在创建目录前会检查 Agent 是否实际安装。它会检查 Agent 的根配置目录（例如 `~/.claude/`）——如果不存在，直接跳过。不会在你的主目录下生成无用的空文件夹。
-
-### 本地优先保护
-如果 Agent 的技能目录中已有同名的**真实文件夹**（非软链接），引擎会跳过并发出警告。你的本地技能永远不会被覆盖或删除。
-
-### 并发安全
-macOS 使用 PID 文件锁，Windows 使用系统命名互斥锁（`Global\EasySkillsDeploy`），防止后台监听与手动同步同时触发时产生竞态。
-
-### 双击安装与卸载
-原生 `.command`（macOS）和 `.bat`（Windows）脚本，不需要打开终端、不需要包管理器、不需要环境配置。卸载器会停止守护进程、清除所有软链接、删除目录——100% 绿色无残留。
-
----
-
-## 安装方式
-
-### 方案 A：一行命令安装（推荐）
-
-**macOS / Linux：**
-```bash
-curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
-```
-
-**Windows（PowerShell）：**
-```powershell
-irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
-```
-
-一行命令搞定。自动下载 EasySkills、安装引擎到 `~/EasySkills`、映射所有已安装 Agent、启动后台监听。
-
-### 方案 B：双击安装
-
-克隆或下载本仓库，然后：
-
-| | 安装 | 卸载 |
-|---|---|---|
-| **macOS** | 双击 `install_mac.command` | 双击 `uninstall_mac.command` |
-| **Windows** | 双击 `install_windows.bat` | 双击 `uninstall_windows.bat` |
-
-安装器将引擎复制到 `~/EasySkills`，扫描已安装的 Agent，映射所有技能，启动后台监听。之后可以删除下载的仓库。
-
-### 方案 C：让 AI Agent 自动安装
-
-如果你的 Agent 支持技能加载，直接说：
-
-> *"帮我运行 EasySkills 初始化"*
-
-Agent 会读取 [SKILL.md](SKILL.md)，检测操作系统，执行安装脚本，并主动询问你是否有自定义 Agent 路径需要添加。全程自主。
-
----
 
 ## 使用方法
 
-### 添加技能
-
-将任意技能文件夹放入 `~/EasySkills`。后台监听服务会在几秒内检测到并映射到所有已安装的 Agent。
+将任意共享技能文件夹放入 `~/EasySkills`。后台监听会在几秒内映射到所有已检测到的 Agent。Agent 自己已有的专属技能会保留在原位；映射技能内部文件修改不需要重新同步，因为 Agent 读取的是同一份链接源。
 
 ### 命令行工具
 
@@ -159,6 +165,7 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [选项]
 | `--remove <路径>` | 移除已持久化的自定义路径 |
 | `--watch` | 安装后台监听 |
 | `--unwatch` | 卸载后台监听 |
+| `--webui` | 启动本地 WebUI 管理面板（端口 6633） |
 | `--cleanup` | 清除所有 EasySkills 创建的软链接 |
 | `--help` | 显示帮助 |
 
@@ -177,7 +184,7 @@ EasySkills 加载为技能后，直接对你的 AI 助手说：
 
 ## 支持的 Agent 列表
 
-开箱即用支持 25 个 Agent，可随时通过命令行或对话添加自定义路径。
+开箱即用支持 25+ 个 Agent 目标路径，可随时通过命令行或对话添加自定义路径。
 
 | # | Agent | macOS 路径 | Windows 路径 |
 |:-:|:---|:---|:---|
@@ -226,11 +233,15 @@ EasySkills/
 ├── install_windows.bat        # Windows 双击安装器
 ├── uninstall_mac.command      # macOS 卸载器
 ├── uninstall_windows.bat      # Windows 卸载器
+├── docs/assets/               # README 截图
 ├── _maintenance/              # 核心引擎（不会被映射为技能）
 │   ├── deploy.sh / deploy.ps1 # 映射与命令行工具
+│   ├── webui.py / webui.ps1   # 本地 WebUI 后端
 │   ├── watch.sh / watch.ps1   # 监听安装器
 │   ├── unwatch.sh / unwatch.ps1 # 监听卸载器
-│   ├── watcher-service.ps1    # Windows FileSystemWatcher 服务
+│   ├── register-tasks.ps1     # Windows 计划任务注册
+│   ├── watcher-service.ps1    # Windows FileSystemWatcher 守护
+│   ├── webui-service.ps1      # Windows WebUI 守护
 │   └── .version               # 版本号
 └── [你的技能]/                 # 把自定义技能放这里
 ```
@@ -262,10 +273,11 @@ EasySkills/
 
 ---
 
+<details>
+<summary>Star History</summary>
+
 <div align="center">
-
-## Star History
-
 [![Star History Chart](https://api.star-history.com/svg?repos=RunhuaHuang/EasySkills&type=Date)](https://star-history.com/#RunhuaHuang/EasySkills&Date)
-
 </div>
+
+</details>

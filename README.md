@@ -3,11 +3,15 @@
 # EasySkills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#-installation)
-[![Agents](https://img.shields.io/badge/Supported%20Agents-25+-orange.svg)](#-supported-agents)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#installation)
+[![Agents](https://img.shields.io/badge/Supported%20Agents-25+-orange.svg)](#supported-agents)
 [![Version](https://img.shields.io/badge/Version-1.2.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
-**One skills directory to rule them all.**
+**A local control plane for AI coding agent skills.**
+
+Drop a skill once. EasySkills detects mainstream local agents and keeps Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 25+ agent targets in sync through native links.
+
+Local-first. Zero idle CPU. WebUI included.
 
 [**中文文档**](README_CN.md)
 
@@ -15,25 +19,86 @@
 
 ---
 
-## The Problem
+## Why EasySkills
 
-You have Claude Code on your machine. And Cursor. And maybe Gemini CLI, Copilot, Windsurf, Trae, Codex...
+AI coding agents are becoming a daily stack, but their skill systems still live in separate folders.
 
-You find an amazing custom skill — or you build one yourself. Now what?
+One skill might need to exist in Claude Code, Cursor, Codex, Gemini, Copilot, and whatever you install next. Copying works at first, then updates drift, old versions linger, and every agent becomes its own small maintenance project.
 
-You copy it into `~/.claude/skills/`. Then into `~/.cursor/skills/`. Then `~/.gemini/config/skills/`. Then you remember Copilot. And Codex. And that new agent you installed last week.
+EasySkills keeps the convenience of each agent's native skills folder without forcing you to maintain copies. It detects supported agents already installed on your machine, maps shared skills into them, and leaves each agent's own private skills untouched.
 
-**A week later**, you improve the skill. Now you have to remember every folder you copied it to and update them all. You miss one. That agent runs the stale version. A bug you already fixed bites you again.
-
-**A month later**, you've got 6 agents with 4 different versions of the same skill scattered across your home directory. Some folders have skills the others don't. You can't remember which agent has what.
-
-This is the reality of the multi-agent era: **every AI coding agent reinvents its own skills silo**, and you're the one stuck manually keeping them in sync.
+| What you need | What EasySkills does |
+|:---|:---|
+| One skill library | Stores every skill in `~/EasySkills` |
+| No version drift | Maps agents to the same real files instead of copying |
+| Fast onboarding | Detects supported local agents and maps only paths that exist |
+| Live updates | Watches top-level skill additions/removals and refreshes mappings automatically |
+| Native-agent compatibility | Uses links, so each agent can keep its own dedicated skills alongside shared ones |
+| Visual control | Ships a local WebUI for status, bridges, cleanup, and updates |
+| Safe defaults | Skips real local folders, uses file locks, and stays localhost-only |
 
 ---
 
-## The Solution
+## Installation
 
-**EasySkills** eliminates this problem entirely.
+### One-Line Install
+
+**macOS / Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+```
+
+The installer creates `~/EasySkills`, maps every detected agent, starts the watcher, and launches the local WebUI when the required runtime is available.
+
+### Double-Click Install
+
+Clone or download this repo, then:
+
+| | Install | Uninstall |
+|---|---|---|
+| **macOS** | Double-click `install_mac.command` | Double-click `uninstall_mac.command` |
+| **Windows** | Double-click `install_windows.bat` | Double-click `uninstall_windows.bat` |
+
+You can delete the downloaded repo after installation; the runtime lives in `~/EasySkills`.
+
+### Agent-Assisted Install
+
+If your agent supports skill loading, just say:
+
+> *"Help me initialize EasySkills."*
+
+The agent reads [SKILL.md](SKILL.md), detects your OS, runs the installer, and asks about custom agent paths when needed.
+
+---
+
+## WebUI Dashboard
+
+Manage EasySkills visually from a local-only dashboard. Monitor watcher status, sync on demand, connect agent bridges, edit paths, clean broken links, and check for updates.
+
+```bash
+# macOS / Linux
+bash ~/EasySkills/_maintenance/deploy.sh --webui
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
+```
+
+<p align="center">
+  <img src="docs/assets/webui-dashboard-macos.jpg" alt="EasySkills WebUI dashboard on macOS" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/webui-agents-macos.jpg" alt="EasySkills WebUI agent bridges on macOS" width="100%">
+</p>
+
+---
+
+## How It Works
 
 ```
 ~/EasySkills/
@@ -49,97 +114,38 @@ This is the reality of the multi-agent era: **every AI coding agent reinvents it
 │ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
 │ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
 │ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
-│ ... 25 agents, all in sync, all the time    │
+│ ... 25+ targets, all in sync, all the time  │
 └─────────────────────────────────────────────┘
 ```
 
-**One directory. One copy. Every agent.** Changes to a skill file are instantly reflected everywhere — because there's only one real copy, linked into all agent directories via symlinks (macOS) or NTFS junctions (Windows).
-
-A background watcher detects when you add or remove skill folders and re-syncs automatically. It uses zero CPU when idle.
+EasySkills maps each shared skill into agent-specific folders with symlinks on macOS/Linux and NTFS junctions on Windows. It does not replace the agent's skills directory and does not remove agent-owned skills. File edits are reflected immediately because every mapped agent points back to the same source. A lightweight watcher handles top-level skill additions and removals with zero CPU while idle.
 
 ---
 
-## Why EasySkills?
+## Core Capabilities
 
-| Pain Point | Without EasySkills | With EasySkills |
-|:---|:---|:---|
-| Adding a new skill | Copy to N agent folders manually | Drop into one folder. Done. |
-| Updating a skill | Hunt down every copy, update each | Edit the one copy. All agents see it. |
-| New agent installed | Manually copy all skills over | Runs automatically on next sync |
-| Removing a skill | Delete from N folders | Remove from one folder |
-| Version drift | Inevitable | Impossible — there's only one copy |
+| Capability | Details |
+|:---|:---|
+| Local WebUI | Dashboard at `http://localhost:6633` for watcher status, skill registry, agent bridges, cleanup, and updates |
+| Agent discovery | Detects mainstream local agents and only enables bridges for paths that actually exist |
+| Live skill mapping | Updates mappings when shared skill folders are added or removed from `~/EasySkills` |
+| Non-invasive links | Shared skills are mapped beside agent-specific skills, so private agent skills keep working |
+| Zero-privilege Windows mapping | Uses NTFS directory junctions, so users do not need admin mode or Developer Mode |
+| Silent watcher | `launchd` + `WatchPaths` on macOS, scheduled task + hidden `FileSystemWatcher` service on Windows |
+| Local-first safety | Skips existing real folders and never overwrites local agent-owned skills |
+| Concurrency protection | PID lock on macOS and named mutex on Windows prevent overlapping sync runs |
 
----
-
-## Features
-
-### Zero-Privilege on Windows
-Windows symbolic links require admin privileges or Developer Mode. EasySkills uses **NTFS Directory Junctions** — a native NTFS feature that works under standard user permissions with full compatibility. No UAC prompts, no elevated terminals crashing your agents.
-
-### Silent Background Daemon
+### Watcher Runtime
 | | macOS | Windows |
 |---|---|---|
-| **Mechanism** | `launchd` + `WatchPaths` (kernel FSEvents) | Startup `.lnk` → `FileSystemWatcher` |
+| **Mechanism** | `launchd` + `WatchPaths` (kernel FSEvents) | Scheduled Task → `FileSystemWatcher` |
 | **Idle CPU** | 0% | 0% |
-| **Auto-start** | LaunchAgent plist | Startup folder shortcut |
+| **Auto-start** | LaunchAgent plist | Scheduled Task (startup shortcut fallback) |
 | **Console window** | None (daemon) | Hidden (`WindowStyle=0`) |
-
-### Smart Agent Detection
-The engine checks whether an agent is actually installed before creating any directories. It looks for the agent's root config folder (e.g., `~/.claude/` for Claude Code) — if it doesn't exist, that agent is skipped. No phantom empty folders cluttering your home directory.
-
-### Local-First Safety
-If a skill with the same name already exists as a **real directory** (not a symlink) in an agent's skills folder, the engine skips it with a warning. Your local skills are never overwritten or deleted.
-
-### Concurrency Protection
-PID-based file lock (macOS) and named system mutex (Windows) prevent race conditions when the watcher and a manual sync trigger simultaneously.
-
-### Double-Click Install & Uninstall
-Native `.command` (macOS) and `.bat` (Windows) scripts. No terminal commands, no package managers, no environment setup. The uninstaller stops daemons, removes all symlinks, and deletes the directory — 100% clean removal.
-
----
-
-## Installation
-
-### Method A: One-Line Install (Recommended)
-
-**macOS / Linux:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
-```
-
-**Windows (PowerShell):**
-```powershell
-irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
-```
-
-That's it. One command downloads EasySkills, installs the engine to `~/EasySkills`, maps all detected agents, and starts the background watcher.
-
-### Method B: Double-Click
-
-Clone or download this repo, then:
-
-| | Install | Uninstall |
-|---|---|---|
-| **macOS** | Double-click `install_mac.command` | Double-click `uninstall_mac.command` |
-| **Windows** | Double-click `install_windows.bat` | Double-click `uninstall_windows.bat` |
-
-The installer copies the engine to `~/EasySkills`, scans for installed agents, maps all skills, and starts the background watcher. You can safely delete the downloaded repo afterward.
-
-### Method C: Let Your AI Agent Do It
-
-If your agent supports skill loading, just say:
-
-> *"Help me initialize EasySkills"*
-
-The agent reads [SKILL.md](SKILL.md), detects your OS, runs the script, and asks if you have custom agent paths to add. Fully autonomous.
-
----
 
 ## Usage
 
-### Adding Skills
-
-Drop any skill folder into `~/EasySkills`. The background watcher picks it up and maps it to all detected agents within seconds.
+Drop any shared skill folder into `~/EasySkills`. The watcher maps it to detected agents within seconds. Existing agent-specific skills stay in place, and edits inside a mapped skill folder do not require re-syncing because agents read the linked source directly.
 
 ### CLI Reference
 
@@ -159,6 +165,7 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
 | `--remove <path>` | Remove a persisted custom path |
 | `--watch` | Install background watcher |
 | `--unwatch` | Uninstall background watcher |
+| `--webui` | Start the local WebUI manager on port 6633 |
 | `--cleanup` | Remove all EasySkills symlinks |
 | `--help` | Show help |
 
@@ -177,7 +184,7 @@ Once EasySkills is loaded as a skill, you can manage everything through natural 
 
 ## Supported Agents
 
-25 agents are pre-configured. Custom paths can be added at any time via CLI or chat.
+25+ agent targets are pre-configured. Custom paths can be added at any time via CLI or chat.
 
 | # | Agent | macOS Path | Windows Path |
 |:-:|:---|:---|:---|
@@ -226,11 +233,15 @@ EasySkills/
 ├── install_windows.bat        # Windows double-click installer
 ├── uninstall_mac.command      # macOS uninstaller
 ├── uninstall_windows.bat      # Windows uninstaller
+├── docs/assets/               # README screenshots
 ├── _maintenance/              # Core engine (excluded from skill mapping)
 │   ├── deploy.sh / deploy.ps1 # Mapping & CLI tool
+│   ├── webui.py / webui.ps1   # Local WebUI backend
 │   ├── watch.sh / watch.ps1   # Watcher installer
 │   ├── unwatch.sh / unwatch.ps1 # Watcher uninstaller
-│   ├── watcher-service.ps1    # Windows FileSystemWatcher service
+│   ├── register-tasks.ps1     # Windows Scheduled Task registration
+│   ├── watcher-service.ps1    # Windows FileSystemWatcher supervisor
+│   ├── webui-service.ps1      # Windows WebUI supervisor
 │   └── .version               # Version tracker
 └── [YourSkills]/              # Drop your custom skills here
 ```
@@ -262,10 +273,11 @@ To add support for a new agent:
 
 ---
 
+<details>
+<summary>Star History</summary>
+
 <div align="center">
-
-## Star History
-
 [![Star History Chart](https://api.star-history.com/svg?repos=RunhuaHuang/EasySkills&type=Date)](https://star-history.com/#RunhuaHuang/EasySkills&Date)
-
 </div>
+
+</details>
