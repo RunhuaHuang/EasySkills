@@ -36,6 +36,7 @@
             /* Elevation Shadows */
             --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.05);
             --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.08);
+            --shadow-lg: 0 24px 70px rgba(0, 0, 0, 0.16);
             --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.15);
 
             /* Theme Constants (Dark Theme Default) */
@@ -601,6 +602,132 @@
             transition: var(--transition-smooth);
         }
 
+        .central-directory-panel {
+            position: relative;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            gap: var(--space-lg);
+            align-items: stretch;
+            margin-bottom: var(--space-lg);
+            padding: var(--space-lg);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--primary);
+            border-radius: 8px;
+            background:
+                linear-gradient(135deg, rgba(59, 130, 246, 0.08), transparent 42%),
+                var(--bg-surface);
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+        }
+
+        .central-directory-panel::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: linear-gradient(to bottom, transparent, var(--primary), transparent);
+            opacity: 0.5;
+        }
+
+        .central-directory-content {
+            min-width: 0;
+        }
+
+        .central-directory-eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: var(--space-sm);
+            color: var(--primary);
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }
+
+        .central-directory-title {
+            max-width: none;
+            margin-bottom: var(--space-sm);
+            color: var(--text-main);
+            font-family: var(--font-display);
+            font-size: 1.36rem;
+            line-height: 1.18;
+            font-weight: 700;
+            letter-spacing: 0;
+            white-space: nowrap;
+            overflow-wrap: normal;
+        }
+
+        .central-directory-copy {
+            max-width: 820px;
+            color: var(--text-muted);
+            font-family: var(--font-display);
+            font-size: 0.98rem;
+            line-height: 1.55;
+        }
+
+        .central-directory-copy:empty {
+            display: none;
+        }
+
+        .central-path-row {
+            grid-column: 1 / -1;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: var(--space-md);
+            margin-top: var(--space-sm);
+            padding: var(--space-md);
+            border: 1px solid var(--border-color-active);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.18);
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        [data-theme="light"] .central-path-row {
+            background: rgba(15, 23, 42, 0.035);
+        }
+
+        .central-path-row:hover {
+            border-color: var(--primary);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .central-path-label {
+            display: block;
+            margin-bottom: 0.3rem;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }
+
+        .central-path-value {
+            display: block;
+            color: var(--text-main);
+            font-family: var(--font-mono);
+            font-size: 1.12rem;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+
+        .central-path-copy {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            white-space: nowrap;
+            color: var(--primary);
+            font-family: var(--font-display);
+            font-size: 0.92rem;
+            font-weight: 700;
+        }
+
         /* Action Toolbar */
         .action-bar {
             display: grid;
@@ -669,6 +796,7 @@
             justify-content: space-between;
             align-items: flex-start;
             gap: var(--space-md);
+            min-width: 0;
         }
 
         .card-title {
@@ -680,10 +808,19 @@
             display: flex;
             align-items: center;
             gap: var(--space-sm);
+            min-width: 0;
         }
 
         .card-title i {
             color: var(--primary);
+            flex-shrink: 0;
+        }
+
+        .card-title span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-width: 0;
         }
 
         .card-subtitle {
@@ -748,6 +885,127 @@
             justify-content: center;
         }
 
+        .skill-card-tools {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            flex-shrink: 0;
+        }
+
+        .skill-card-tools .tag {
+            max-width: 112px;
+        }
+
+        .skill-delete-btn {
+            width: 34px;
+            height: 34px;
+            color: var(--text-muted);
+            border-color: transparent;
+            background: rgba(255, 255, 255, 0.015);
+        }
+
+        .skill-delete-btn i {
+            font-size: 0.86rem;
+            color: currentColor !important;
+        }
+
+        .skill-delete-btn:hover {
+            color: var(--danger);
+            border-color: rgba(239, 68, 68, 0.35);
+            background-color: rgba(239, 68, 68, 0.08);
+            box-shadow: 0 0 16px rgba(239, 68, 68, 0.08);
+        }
+
+        .skill-delete-overlay {
+            position: fixed;
+            top: 80px;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: var(--space-lg);
+            background:
+                radial-gradient(circle at center, rgba(239, 68, 68, 0.08), transparent 46%),
+                rgba(10, 11, 13, 0.48);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 80;
+        }
+
+        .skill-delete-overlay.active {
+            display: flex;
+            animation: modalFadeIn 0.18s var(--transition-ease) forwards;
+        }
+
+        .skill-delete-dialog {
+            width: min(460px, 100%);
+            border-radius: 12px;
+            border: 1px solid rgba(239, 68, 68, 0.24);
+            background: linear-gradient(180deg, var(--bg-surface-elevated), var(--bg-surface));
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42), 0 0 40px rgba(239, 68, 68, 0.12);
+            padding: var(--space-lg);
+            transform: translateY(10px) scale(0.98);
+            animation: modalPanelIn 0.24s var(--transition-ease) forwards;
+        }
+
+        .skill-delete-kicker {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            color: var(--danger);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: var(--space-xs);
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+        }
+
+        .skill-delete-title {
+            font-family: var(--font-display);
+            font-size: 1.35rem;
+            line-height: 1.2;
+            color: var(--text-main);
+            letter-spacing: 0;
+            margin-bottom: var(--space-sm);
+        }
+
+        .skill-delete-copy {
+            font-family: var(--font-display);
+            font-size: 0.92rem;
+            line-height: 1.6;
+            color: var(--text-muted);
+            margin-bottom: var(--space-md);
+        }
+
+        .skill-delete-target {
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+            min-width: 0;
+            border: 1px solid rgba(239, 68, 68, 0.18);
+            border-left: 3px solid var(--danger);
+            border-radius: 8px;
+            background: rgba(239, 68, 68, 0.06);
+            padding: var(--space-sm) var(--space-md);
+            margin-bottom: var(--space-lg);
+            font-family: var(--font-mono);
+            color: var(--text-main);
+        }
+
+        .skill-delete-target span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .skill-delete-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: var(--space-sm);
+        }
+
         /* Command Input Bar Motif */
         .command-bar {
             display: flex;
@@ -766,14 +1024,82 @@
             box-shadow: var(--shadow-glow);
         }
 
-        .search-widget {
+        .skills-import-copy {
+            display: inline-flex;
+            align-items: center;
+            min-width: 0;
+            color: var(--text-main);
+            font-family: var(--font-display);
+            font-size: 1rem;
+            font-weight: 700;
+            line-height: 1.35;
+            letter-spacing: 0;
+            white-space: normal;
+        }
+
+        .agent-list-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--space-md);
+            flex-wrap: wrap;
+            gap: var(--space-sm);
+        }
+
+        .agent-list-title {
+            font-family: var(--font-display);
+            font-weight: 700;
+            color: var(--text-muted);
+            font-size: 1.15rem;
+            margin-bottom: 0;
+            letter-spacing: 0;
+        }
+
+        .agent-filter-control {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.65rem;
+            min-width: 300px;
+            height: 44px;
+            padding: 0 0.85rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background:
+                linear-gradient(135deg, rgba(59, 130, 246, 0.06), transparent 44%),
+                var(--bg-surface);
             transition: var(--transition-smooth);
         }
 
-        .search-widget:focus-within {
-            border-color: var(--primary) !important;
+        .agent-filter-control:focus-within {
+            border-color: var(--primary);
             box-shadow: var(--shadow-glow);
-            background-color: rgba(255, 255, 255, 0.02) !important;
+            background-color: var(--bg-surface-elevated);
+        }
+
+        .agent-filter-control i {
+            color: var(--primary);
+            font-size: 0.95rem;
+            flex: 0 0 auto;
+        }
+
+        .agent-filter-input {
+            width: 100%;
+            min-width: 0;
+            height: 100%;
+            padding: 0;
+            border: none;
+            outline: none;
+            background: transparent;
+            color: var(--text-main);
+            font-family: var(--font-display);
+            font-size: 0.98rem;
+            font-weight: 600;
+            letter-spacing: 0;
+        }
+
+        .agent-filter-input::placeholder {
+            color: var(--text-muted);
+            opacity: 0.72;
         }
 
         .command-prompt {
@@ -798,6 +1124,49 @@
         .command-input::placeholder {
             color: var(--text-muted);
             opacity: 0.6;
+        }
+
+        .agent-register-note {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: var(--space-md);
+            align-items: flex-start;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(16, 185, 129, 0.035));
+            border: 1px solid rgba(59, 130, 246, 0.18);
+            border-left: 3px solid var(--primary);
+            border-radius: 8px;
+            padding: var(--space-md);
+            margin-bottom: var(--space-md);
+        }
+
+        .agent-register-note i {
+            color: var(--primary);
+            font-size: 1rem;
+            margin-top: 2px;
+        }
+
+        .agent-register-note strong {
+            display: block;
+            font-family: var(--font-display);
+            font-size: 0.98rem;
+            color: var(--text-main);
+            margin-bottom: 0.25rem;
+        }
+
+        .agent-register-note p {
+            font-family: var(--font-display);
+            font-size: 0.86rem;
+            line-height: 1.6;
+            color: var(--text-muted);
+        }
+
+        .agent-register-note code {
+            font-family: var(--font-mono);
+            color: var(--primary);
+            background: rgba(59, 130, 246, 0.08);
+            border: 1px solid rgba(59, 130, 246, 0.16);
+            border-radius: 4px;
+            padding: 0.08rem 0.35rem;
         }
 
         /* Custom Premium CSS Tooltip (aligned bottom-right) */
@@ -959,6 +1328,17 @@
             }
         }
 
+        @keyframes modalFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes modalPanelIn {
+            to {
+                transform: translateY(0) scale(1);
+            }
+        }
+
         @keyframes pulse-glow {
             0%, 100% {
                 filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.3));
@@ -1049,6 +1429,55 @@
                 margin-top: 0;
                 height: calc(100vh - 120px);
                 padding: var(--space-md);
+            }
+
+            .central-directory-panel {
+                grid-template-columns: 1fr;
+                gap: var(--space-md);
+                padding: var(--space-md);
+            }
+
+            .central-directory-title {
+                font-size: 1.18rem;
+            }
+
+            .central-directory-copy {
+                font-size: 0.92rem;
+            }
+
+            .central-path-row {
+                grid-template-columns: 1fr;
+                gap: var(--space-sm);
+            }
+
+            .agent-list-header {
+                align-items: stretch;
+            }
+
+            .agent-filter-control {
+                width: 100%;
+                min-width: 0;
+            }
+
+            .skill-delete-overlay {
+                top: 0;
+                right: 0;
+                bottom: 60px;
+                left: 0;
+                padding: var(--space-md);
+            }
+
+            .skill-delete-dialog {
+                padding: var(--space-md);
+            }
+
+            .skill-delete-actions {
+                flex-direction: column-reverse;
+            }
+
+            .skill-delete-actions .btn {
+                width: 100%;
+                justify-content: center;
             }
         }
 
@@ -1183,6 +1612,32 @@
         .guide-step-content p {
             margin-top: 4px;
         }
+
+        .guide-action-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: var(--space-md);
+            margin-top: var(--space-md);
+        }
+
+        .guide-action-card {
+            padding: var(--space-md);
+            gap: 0.45rem;
+            background: rgba(0, 0, 0, 0.08);
+            border-color: rgba(255, 255, 255, 0.03);
+        }
+
+        .guide-action-card strong {
+            color: var(--text-main);
+            font-size: 0.94rem;
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+        }
+
+        .guide-action-card p {
+            font-size: 0.82rem;
+        }
     </style>
 </head>
 <body>
@@ -1243,20 +1698,25 @@
         <!-- Dashboard Section -->
         <section id="dashboard" class="view-section active">
             
-            <!-- Terminal panel containing Central Directory Path -->
-            <div class="terminal-panel">
-                <div class="terminal-header">
-                    <div class="terminal-dots">
-                        <span></span>
-                        <span></span>
-                        <span></span>
+            <!-- Central skill library deployment target -->
+            <div class="central-directory-panel">
+                <div class="central-directory-content">
+                    <div class="central-directory-eyebrow">
+                        <i class="fa-solid fa-folder-tree"></i>
+                        <span class="t-central-dir-eyebrow">Deployed central skill library</span>
                     </div>
-                    <div class="terminal-label t-central-dir">Central Skills Registry</div>
+                    <h2 class="central-directory-title t-central-dir-title">Drop skills into the central skills folder. EasySkills will sync them to every linked agent.</h2>
+                    <p class="central-directory-copy t-central-dir-copy">This is the active EasySkills library on your machine. Add or remove skill folders in this directory and the watcher will refresh the linked agents automatically.</p>
                 </div>
-                <div class="terminal-body" onclick="copyCentralPath()" style="cursor: pointer;" title="Click to copy path">
-                    <span class="terminal-prompt">$</span>
-                    <span class="terminal-text" id="stat-central-dir">/loading/central/skills/directory...</span>
-                    <i class="fa-regular fa-copy" style="font-size: 0.9rem; color: var(--icon-terminal-copy); transition: var(--transition-smooth);"></i>
+                <div class="central-path-row" onclick="copyCentralPath()" title="Click to copy path">
+                    <div>
+                        <span class="central-path-label t-central-dir">Central Skill Library</span>
+                        <span class="central-path-value" id="stat-central-dir">/loading/central/skills/directory...</span>
+                    </div>
+                    <span class="central-path-copy">
+                        <i class="fa-regular fa-copy"></i>
+                        <span class="t-copy-path">Copy Path</span>
+                    </span>
                 </div>
             </div>
 
@@ -1283,7 +1743,7 @@
                 <div class="stat-card">
                     <div class="stat-title">
                         <i class="fa-solid fa-link"></i>
-                        <span class="t-mapped-agents">Active Bridges</span>
+                        <span class="t-mapped-agents">Linked Agents</span>
                     </div>
                     <div class="stat-value">
                         <span id="stat-mapped">0</span>
@@ -1316,7 +1776,7 @@
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--space-md); font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; font-family: var(--font-display);">
                     <div class="card" style="padding: var(--space-md); gap: 4px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
                         <strong style="color: var(--text-main); font-size: 0.88rem;" class="t-start-watcher">Start Daemon</strong>
-                        <span class="t-start-watcher-desc">Installs a launchd daemon to automatically synchronize the registry folder. Any additions/removals of skills will propagate instantly to all active agent clients.</span>
+                        <span class="t-start-watcher-desc">Installs a launchd daemon to automatically synchronize the central skill library. Any additions/removals of skills will propagate instantly to all linked agents.</span>
                     </div>
                     <div class="card" style="padding: var(--space-md); gap: 4px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
                         <strong style="color: var(--text-main); font-size: 0.88rem;" class="t-cleanup-desc-title">Prune Invalid Symlinks</strong>
@@ -1329,6 +1789,16 @@
 
         <!-- Skills Section -->
         <section id="skills" class="view-section">
+            <div class="command-bar" style="justify-content: space-between; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: var(--space-sm); min-width: 0;">
+                    <span class="command-prompt">></span>
+                    <span class="skills-import-copy t-skill-import-hint">Import a local skill folder into the central skill library</span>
+                </div>
+                <input type="file" id="skill-folder-input" webkitdirectory directory multiple hidden>
+                <button class="btn btn-primary" id="skill-import-btn">
+                    <i class="fa-solid fa-folder-plus"></i> <span class="t-import-skill">Import Skill</span>
+                </button>
+            </div>
             <div class="grid-layout" id="skills-grid">
                 <!-- Javascript Injection -->
             </div>
@@ -1336,6 +1806,13 @@
 
         <!-- Agents Section -->
         <section id="agents" class="view-section">
+            <div class="agent-register-note">
+                <i class="fa-solid fa-route"></i>
+                <div>
+                    <strong class="t-agent-register-title">Register unsupported agents by their skills folder</strong>
+                    <p class="t-agent-register-desc">If your agent is not detected by default, paste the absolute path to that agent's <code>skills</code> folder below. EasySkills will persist the channel and sync every central skill into it.</p>
+                </div>
+            </div>
             
             <!-- Command line registration bar -->
             <div class="command-bar">
@@ -1347,14 +1824,13 @@
             </div>
 
             <!-- List Header with Micro-Expandable Filter -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); flex-wrap: wrap; gap: var(--space-sm);">
-                <h3 style="font-family: var(--font-display); font-weight: 700; color: var(--text-muted); font-size: 1.15rem; margin-bottom: 0;" class="t-agent-list">
+            <div class="agent-list-header">
+                <h3 class="agent-list-title t-agent-list">
                     Linked Agent Terminals
                 </h3>
-                <div class="search-widget" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(0, 0, 0, 0.12); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 6px; transition: var(--transition-smooth); height: 32px;">
-                    <i class="fa-solid fa-filter" style="color: var(--primary); font-size: 0.8rem;"></i>
-                    <input type="text" id="agent-search-input" placeholder="筛选..." oninput="filterAgents()" style="font-size: 0.8rem; padding: 2px 0px; background: transparent; border: none; outline: none; color: var(--text-main); font-family: var(--font-mono); width: 80px; height: 100%;">
-                    <span style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-display); font-weight: 700; white-space: nowrap; user-select: none; margin-left: 2px;" class="t-search">Filter</span>
+                <div class="agent-filter-control">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="agent-search-input" class="agent-filter-input" placeholder="Search agents or paths..." oninput="filterAgents()" aria-label="Filter agents">
                 </div>
             </div>
             <div class="grid-layout" id="agents-grid">
@@ -1371,163 +1847,123 @@
                 <p style="font-size: 0.92rem; color: var(--text-muted); max-width: 640px; margin: 0 auto; font-family: var(--font-display); line-height: 1.6;" class="t-guide-subtitle">Everything you need to know to get the most out of EasySkills.</p>
             </div>
 
-            <!-- Quick Start -->
+            <!-- WebUI First Run -->
             <div class="guide-section-block">
-                <h3><i class="fa-solid fa-bolt"></i> <span class="t-guide-quickstart-title">Quick Start</span></h3>
+                <h3><i class="fa-solid fa-bolt"></i> <span class="t-guide-quickstart-title">WebUI Quick Start</span></h3>
                 <div class="guide-step">
                     <div class="guide-step-num">1</div>
                     <div class="guide-step-content">
-                        <strong class="t-guide-qs1-title">Install EasySkills</strong>
-                        <p class="t-guide-qs1-desc">Run the one-line install command, or double-click the installer for your platform. The engine is installed to ~/EasySkills.</p>
+                        <strong class="t-guide-qs1-title">Open the Dashboard</strong>
+                        <p class="t-guide-qs1-desc">After installation, open http://127.0.0.1:6633. The Dashboard shows the central skill library path, watcher status, and current linked agent count.</p>
                     </div>
                 </div>
                 <div class="guide-step">
                     <div class="guide-step-num">2</div>
                     <div class="guide-step-content">
-                        <strong class="t-guide-qs2-title">Drop Your Skills</strong>
-                        <p class="t-guide-qs2-desc">Place any skill folder into ~/EasySkills. The background watcher detects it and maps it to all installed agents within seconds.</p>
+                        <strong class="t-guide-qs2-title">Import or review skills</strong>
+                        <p class="t-guide-qs2-desc">Go to Skills, click Import Skill, choose a folder that contains SKILL.md, and EasySkills copies it into the central skill library.</p>
                     </div>
                 </div>
                 <div class="guide-step">
                     <div class="guide-step-num">3</div>
                     <div class="guide-step-content">
-                        <strong class="t-guide-qs3-title">Done &#8212; All Agents Synced</strong>
-                        <p class="t-guide-qs3-desc">Every supported agent (Claude, Gemini, Cursor, etc.) now sees your skill via symlink. Edit the skill once, all agents reflect it instantly.</p>
+                        <strong class="t-guide-qs3-title">Connect missing agents</strong>
+                        <p class="t-guide-qs3-desc">Go to Agents. If an agent is not listed, paste its skills-folder absolute path and register it as a custom channel.</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Installation Methods -->
+            <!-- WebUI Task Map -->
             <div class="guide-section-block">
-                <h3><i class="fa-solid fa-download"></i> <span class="t-guide-install-title">Installation Methods</span></h3>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-md);">
-                    <div class="card" style="padding: var(--space-md); gap: 6px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
-                        <strong style="color: var(--text-main); font-size: 0.92rem; display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-terminal" style="color: var(--success);"></i> <span class="t-guide-install-a-title">Method A: One-Line Install (Recommended)</span></strong>
-                        <pre><code><i class="fa-brands fa-apple" style="color: var(--text-terminal-label);"></i> curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
-
-<i class="fa-brands fa-windows" style="color: var(--text-terminal-label);"></i> irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex</code></pre>
+                <h3><i class="fa-solid fa-gauge-high"></i> <span class="t-guide-webui-title">WebUI Control Map</span></h3>
+                <p class="t-guide-webui-desc">Use the tabs in this dashboard as your main workflow. Each tab handles one part of skill management:</p>
+                <div class="guide-action-grid">
+                    <div class="card guide-action-card">
+                        <strong><i class="fa-solid fa-terminal" style="color: var(--primary);"></i> <span class="t-guide-dashboard-card-title">Dashboard</span></strong>
+                        <p class="t-guide-dashboard-card-desc">Check watcher status, run manual synchronization, and prune invalid links when folders were moved or deleted outside the WebUI.</p>
                     </div>
-                    <div class="card" style="padding: var(--space-md); gap: 6px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
-                        <strong style="color: var(--text-main); font-size: 0.92rem; display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-mouse-pointer" style="color: var(--warning);"></i> <span class="t-guide-install-b-title">Method B: Double-Click</span></strong>
-                        <p class="t-guide-install-b-desc">Clone or download the repo, then double-click <code>install_mac.command</code> (macOS) or <code>install_windows.bat</code> (Windows).</p>
+                    <div class="card guide-action-card">
+                        <strong><i class="fa-solid fa-code-fork" style="color: var(--success);"></i> <span class="t-guide-skills-card-title">Skills</span></strong>
+                        <p class="t-guide-skills-card-desc">Import a local skill folder, confirm which folders contain SKILL.md, and delete central skills when they are no longer needed.</p>
                     </div>
-                    <div class="card" style="padding: var(--space-md); gap: 6px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
-                        <strong style="color: var(--text-main); font-size: 0.92rem; display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-robot" style="color: var(--primary);"></i> <span class="t-guide-install-c-title">Method C: Let Your AI Agent Do It</span></strong>
-                        <p class="t-guide-install-c-desc">Just tell your agent: "Help me initialize EasySkills". It reads the SKILL.md, runs the script, and asks about custom paths.</p>
+                    <div class="card guide-action-card">
+                        <strong><i class="fa-solid fa-cube" style="color: var(--warning);"></i> <span class="t-guide-agents-card-title">Agents</span></strong>
+                        <p class="t-guide-agents-card-desc">Review detected agents, disconnect agents you do not want, or register an unsupported agent by entering its skills folder.</p>
+                    </div>
+                    <div class="card guide-action-card">
+                        <strong><i class="fa-solid fa-circle-info" style="color: var(--accent);"></i> <span class="t-guide-about-card-title">About</span></strong>
+                        <p class="t-guide-about-card-desc">Check the installed version, compare the latest release, and trigger an update through the local backend.</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Start / Stop Services -->
+            <!-- Skills Workflow -->
             <div class="guide-section-block">
-                <h3><i class="fa-solid fa-power-off"></i> <span class="t-guide-startstop-title">Starting & Stopping Services</span></h3>
-                <p class="t-guide-startstop-desc">EasySkills consists of two components: the background watcher daemon and the local WebUI panel. Here is how to control them:</p>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-md); margin-top: var(--space-sm);">
-                    <div class="card" style="padding: var(--space-md); gap: 6px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
-                        <strong style="color: var(--text-main); font-size: 0.92rem; display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-microchip" style="color: var(--primary);"></i> <span class="t-guide-ss-daemon-title">1. Background Watcher Daemon</span></strong>
-                        <p class="t-guide-ss-daemon-desc" style="font-size: 0.82rem; margin-bottom: 4px;">Automatically detects changes and syncs your skills in real-time.</p>
-                        <ul style="padding-left: 1.2rem; font-size: 0.82rem; display: flex; flex-direction: column; gap: 4px; color: var(--text-muted);">
-                            <li><strong style="color: var(--success);" class="t-guide-ss-start">Start:</strong> <span class="t-guide-ss-daemon-start-desc">Click "Start Watcher" on the Dashboard, or run CLI:</span>
-                                <pre style="margin: 4px 0;"><code style="font-size:0.78rem;"># macOS:
-bash ~/EasySkills/_maintenance/deploy.sh --watch
-# Windows:
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Watch</code></pre>
-                            </li>
-                            <li><strong style="color: var(--danger);" class="t-guide-ss-stop">Stop:</strong> <span class="t-guide-ss-daemon-stop-desc">Click "Stop Watcher" on the Dashboard, or run CLI:</span>
-                                <pre style="margin: 4px 0;"><code style="font-size:0.78rem;"># macOS:
-bash ~/EasySkills/_maintenance/deploy.sh --unwatch
-# Windows:
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Unwatch</code></pre>
-                            </li>
-                        </ul>
+                <h3><i class="fa-solid fa-code-fork"></i> <span class="t-guide-skills-workflow-title">Managing skills in the WebUI</span></h3>
+                <div class="guide-step">
+                    <div class="guide-step-num">1</div>
+                    <div class="guide-step-content">
+                        <strong class="t-guide-skill-step1-title">Import a skill folder</strong>
+                        <p class="t-guide-skill-step1-desc">Open Skills, click Import Skill, and select the folder itself. The folder must contain SKILL.md at its root.</p>
                     </div>
-                    <div class="card" style="padding: var(--space-md); gap: 6px; background: rgba(0,0,0,0.08); border-color: rgba(255,255,255,0.015);">
-                        <strong style="color: var(--text-main); font-size: 0.92rem; display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-window-restore" style="color: var(--warning);"></i> <span class="t-guide-ss-webui-title">2. WebUI Dashboard Control</span></strong>
-                        <p class="t-guide-ss-webui-desc" style="font-size: 0.82rem; margin-bottom: 4px;">The visual panel running locally at http://localhost:6633.</p>
-                        <ul style="padding-left: 1.2rem; font-size: 0.82rem; display: flex; flex-direction: column; gap: 4px; color: var(--text-muted);">
-                            <li><strong style="color: var(--success);" class="t-guide-ss-start">Start:</strong> <span class="t-guide-ss-webui-start-desc">Double-click the launcher script, or run CLI:</span>
-                                <pre style="margin: 4px 0;"><code style="font-size:0.78rem;"># macOS:
-~/EasySkills/_maintenance/macOS/Start — 启动.command
-# Windows:
-~/EasySkills/_maintenance/Windows/Start — 启动.vbs
-# CLI:
-deploy.sh --webui / deploy.ps1 -WebUI</code></pre>
-                            </li>
-                            <li><strong style="color: var(--danger);" class="t-guide-ss-stop">Stop:</strong> <span class="t-guide-ss-webui-stop-desc">Simply close the launcher terminal window, or press Ctrl+C in the CLI terminal.</span></li>
-                        </ul>
+                </div>
+                <div class="guide-step">
+                    <div class="guide-step-num">2</div>
+                    <div class="guide-step-content">
+                        <strong class="t-guide-skill-step2-title">Let EasySkills sync it</strong>
+                        <p class="t-guide-skill-step2-desc">After import, EasySkills places the folder under the central skill library and refreshes linked agents automatically.</p>
+                    </div>
+                </div>
+                <div class="guide-step">
+                    <div class="guide-step-num">3</div>
+                    <div class="guide-step-content">
+                        <strong class="t-guide-skill-step3-title">Delete with confirmation</strong>
+                        <p class="t-guide-skill-step3-desc">Use the trash button on a skill card only when you want to remove that central folder from EasySkills.</p>
                     </div>
                 </div>
             </div>
 
-            <!-- WebUI Dashboard -->
+            <!-- Agents Workflow -->
             <div class="guide-section-block">
-                <h3><i class="fa-solid fa-gauge-high"></i> <span class="t-guide-webui-title">WebUI Dashboard</span></h3>
-                <p class="t-guide-webui-desc">After installation, open <code>http://localhost:6633</code> in your browser, or launch manually:</p>
-                <pre><code># macOS / Linux
-bash ~/EasySkills/_maintenance/deploy.sh --webui
-
-# Windows (PowerShell)
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI</code></pre>
-                <p class="t-guide-webui-features">The dashboard lets you monitor watcher status, browse skills, connect/disconnect agents, edit paths, and check for updates. Requires Python 3 (macOS/Linux) or PowerShell 5.1+ (Windows).</p>
+                <h3><i class="fa-solid fa-cube"></i> <span class="t-guide-agents-workflow-title">Connecting agents in the WebUI</span></h3>
+                <p class="t-guide-agents-workflow-desc">The Agents tab is where EasySkills connects the central skill library to each agent's own skills directory.</p>
+                <div class="guide-action-grid">
+                    <div class="card guide-action-card">
+                        <strong><i class="fa-solid fa-magnifying-glass" style="color: var(--primary);"></i> <span class="t-guide-agent-step1-title">Review detected agents</span></strong>
+                        <p class="t-guide-agent-step1-desc">Cards marked as discovered are paths EasySkills can map into right away.</p>
+                    </div>
+                    <div class="card guide-action-card">
+                        <strong><i class="fa-solid fa-route" style="color: var(--success);"></i> <span class="t-guide-agent-step2-title">Register an unsupported agent</span></strong>
+                        <p class="t-guide-agent-step2-desc">If your agent is missing, paste its absolute skills-folder path into the registration bar and click Register.</p>
+                    </div>
+                    <div class="card guide-action-card">
+                        <strong><i class="fa-solid fa-link-slash" style="color: var(--warning);"></i> <span class="t-guide-agent-step3-title">Disconnect when needed</span></strong>
+                        <p class="t-guide-agent-step3-desc">Use Disconnect or Deregister for channels you no longer want EasySkills to maintain.</p>
+                    </div>
+                </div>
             </div>
 
-            <!-- CLI Reference -->
+            <!-- Advanced fallback -->
             <div class="guide-section-block">
-                <h3><i class="fa-solid fa-terminal"></i> <span class="t-guide-cli-title">CLI Reference</span></h3>
-                <pre><code># macOS
-bash ~/EasySkills/_maintenance/deploy.sh [option]
-
-# Windows (PowerShell)
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]</code></pre>
+                <h3><i class="fa-solid fa-terminal"></i> <span class="t-guide-cli-title">Advanced CLI fallback</span></h3>
+                <p class="t-guide-cli-desc">Most users should use the WebUI. These commands are useful for automation, recovery, or headless machines:</p>
                 <table class="guide-table">
                     <thead>
                         <tr>
-                            <th class="t-guide-cli-option">Option</th>
-                            <th class="t-guide-cli-desc-h">Description</th>
+                            <th class="t-guide-cli-platform">Platform</th>
+                            <th class="t-guide-cli-option">Full terminal command</th>
+                            <th class="t-guide-cli-desc-h">When to use it</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <tr><td><code>--sync</code></td><td class="t-guide-cli-sync">Sync all skills to all agents (default)</td></tr>
-                        <tr><td><code>--list</code></td><td class="t-guide-cli-list">List all active mappings</td></tr>
-                        <tr><td><code>--add &lt;path&gt;</code></td><td class="t-guide-cli-add">Add &amp; persist a custom agent path</td></tr>
-                        <tr><td><code>--remove &lt;path&gt;</code></td><td class="t-guide-cli-remove">Remove a persisted custom path</td></tr>
-                        <tr><td><code>--watch</code></td><td class="t-guide-cli-watch">Install the background watcher daemon</td></tr>
-                        <tr><td><code>--unwatch</code></td><td class="t-guide-cli-unwatch">Uninstall the background watcher daemon</td></tr>
-                        <tr><td><code>--cleanup</code></td><td class="t-guide-cli-cleanup">Remove all EasySkills symlinks</td></tr>
-                        <tr><td><code>--status</code></td><td class="t-guide-cli-status">Show watcher and mapping health status</td></tr>
-                        <tr><td><code>--webui</code></td><td class="t-guide-cli-webui">Start the local WebUI on port 6633</td></tr>
-                        <tr><td><code>--help</code></td><td class="t-guide-cli-help">Show help</td></tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Custom Path Overrides -->
-            <div class="guide-section-block">
-                <h3><i class="fa-solid fa-sliders"></i> <span class="t-guide-custom-title">Custom Path Overrides</span></h3>
-                <p class="t-guide-custom-desc">Override any agent's default skills path via <code>_maintenance/custom-targets.txt</code> using the <code>AgentName=/new/path</code> syntax. Useful when an agent is installed in a non-standard location.</p>
-                <pre><code># Example: custom-targets.txt
-MyCustomAgent=/opt/my-agent/skills
-Cursor=/Users/me/custom-cursor/skills</code></pre>
-                <p class="t-guide-custom-alt">You can also add custom paths via the CLI (<code>deploy.sh --add /path</code>), the Agents tab in this WebUI, or by asking your AI agent.</p>
-            </div>
-
-            <!-- Agent Chat Commands -->
-            <div class="guide-section-block">
-                <h3><i class="fa-solid fa-comments"></i> <span class="t-guide-chat-title">Agent Chat Commands</span></h3>
-                <p class="t-guide-chat-desc">Once EasySkills is loaded as a skill, you can manage everything through natural language:</p>
-                <table class="guide-table">
-                    <thead>
-                        <tr>
-                            <th class="t-guide-chat-task-h">Task</th>
-                            <th class="t-guide-chat-prompt-h">Prompt</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td class="t-guide-chat-init">Initialize</td><td><em class="t-guide-chat-init-prompt">"Run EasySkills and set up my skills sync"</em></td></tr>
-                        <tr><td class="t-guide-chat-addpath">Add custom path</td><td><em class="t-guide-chat-addpath-prompt">"Map EasySkills to /path/to/agent/skills"</em></td></tr>
-                        <tr><td class="t-guide-chat-view">View mappings</td><td><em class="t-guide-chat-view-prompt">"Show all active EasySkills mappings"</em></td></tr>
-                        <tr><td class="t-guide-chat-remove">Remove a path</td><td><em class="t-guide-chat-remove-prompt">"Remove /path/to/agent/skills from EasySkills"</em></td></tr>
-                        <tr><td class="t-guide-chat-openui">Open WebUI</td><td><em class="t-guide-chat-openui-prompt">"Open the EasySkills WebUI dashboard"</em></td></tr>
+                        <tr><td>macOS / Linux</td><td><code>bash ~/EasySkills/_maintenance/deploy.sh --sync</code></td><td class="t-guide-cli-sync">Run the same full synchronization as the Dashboard button.</td></tr>
+                        <tr><td>Windows</td><td><code>powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Sync</code></td><td class="t-guide-cli-sync">Run the same full synchronization as the Dashboard button.</td></tr>
+                        <tr><td>macOS / Linux</td><td><code>bash ~/EasySkills/_maintenance/deploy.sh --add "/absolute/path/to/agent/skills"</code></td><td class="t-guide-cli-add">Register a custom agent skills folder without opening the WebUI.</td></tr>
+                        <tr><td>Windows</td><td><code>powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Add "C:\Path\To\Agent\skills"</code></td><td class="t-guide-cli-add">Register a custom agent skills folder without opening the WebUI.</td></tr>
+                        <tr><td>macOS / Linux</td><td><code>bash ~/EasySkills/_maintenance/deploy.sh --cleanup</code></td><td class="t-guide-cli-cleanup">Remove broken EasySkills links if an external tool moved folders.</td></tr>
+                        <tr><td>Windows</td><td><code>powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Cleanup</code></td><td class="t-guide-cli-cleanup">Remove broken EasySkills links if an external tool moved folders.</td></tr>
+                        <tr><td>macOS / Linux</td><td><code>bash ~/EasySkills/_maintenance/deploy.sh --webui</code></td><td class="t-guide-cli-webui">Start the local WebUI on port 6633.</td></tr>
+                        <tr><td>Windows</td><td><code>powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI</code></td><td class="t-guide-cli-webui">Start the local WebUI on port 6633.</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -1558,7 +1994,7 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 <ul>
                     <li><strong>Windows Defender</strong> &#8212; <span class="t-guide-note-defender-text">If Windows Defender flags EasySkills, you can whitelist the ~/EasySkills folder in Windows Security settings.</span></li>
                     <li><strong>Watcher Scope</strong> &#8212; <span class="t-guide-note-watcher-text">The watcher monitors only the top-level of ~/EasySkills (folder additions/removals). It does not watch inside subdirectories since skills are symlinked. If ~/.proma exists, Proma workspace skills folders are polled every 5 minutes.</span></li>
-                    <li><strong>WebUI Port</strong> &#8212; <span class="t-guide-note-port-text">The WebUI listens on localhost:6633 only. It does not accept connections from other machines.</span></li>
+                    <li><strong>WebUI Port</strong> &#8212; <span class="t-guide-note-port-text">The WebUI listens on 127.0.0.1:6633 only. It does not accept connections from other machines.</span></li>
                 </ul>
             </div>
 
@@ -1644,7 +2080,7 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                             Bookmark this address for fast management. The WebUI server runs locally on port 6633 and does not require internet connection.
                         </p>
                         <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.18); padding: var(--space-sm); border-radius: 6px; border: 1px solid var(--border-color); margin-top: var(--space-xs); cursor: pointer;" onclick="copyWebUiUrl()" title="Click to copy WebUI URL">
-                            <code style="color: var(--primary); font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600;">http://localhost:6633</code>
+                            <code style="color: var(--primary); font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600;">http://127.0.0.1:6633</code>
                             <i class="fa-regular fa-copy" style="font-size: 0.85rem; color: var(--icon-terminal-copy);"></i>
                         </div>
                     </div>
@@ -1687,6 +2123,31 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
 
     </main>
 
+    <div class="skill-delete-overlay" id="skill-delete-overlay" aria-hidden="true">
+        <div class="skill-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="skill-delete-title">
+            <div class="skill-delete-kicker">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span class="t-delete-skill-kicker">Skill library delete</span>
+            </div>
+            <h3 class="skill-delete-title t-delete-skill-title" id="skill-delete-title">Delete this skill?</h3>
+            <p class="skill-delete-copy t-delete-skill-copy">This removes the folder from the central EasySkills skill library and refreshes linked agents.</p>
+            <div class="skill-delete-target">
+                <i class="fa-solid fa-cube" style="color: var(--danger);"></i>
+                <span id="skill-delete-name"></span>
+            </div>
+            <div class="skill-delete-actions">
+                <button class="btn btn-outline" id="skill-delete-cancel">
+                    <i class="fa-solid fa-xmark"></i>
+                    <span class="t-cancel">Cancel</span>
+                </button>
+                <button class="btn btn-danger" id="skill-delete-confirm">
+                    <i class="fa-solid fa-trash"></i>
+                    <span class="t-delete-skill-confirm">Delete Skill</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notifications Layer -->
     <div id="toast-container"></div>
 
@@ -1726,23 +2187,36 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
         const dict = {
             en: {
                 't-dashboard': 'Dashboard',
-                't-skills': 'Registry',
-                't-agents': 'Bridges',
+                't-skills': 'Skills',
+                't-agents': 'Agents',
                 't-sync-all': 'Synchronize',
                 't-total-skills': 'Mapped Skills',
-                't-mapped-agents': 'Linked Bridges',
+                't-mapped-agents': 'Linked Agents',
                 't-watcher-status': 'Watcher Status',
                 't-start-watcher': 'Start Daemon',
                 't-stop-watcher': 'Stop Daemon',
                 't-cleanup': 'Prune Invalid Symlinks',
-                't-central-dir': 'Central Directory Path',
-                't-add-custom': 'Add Custom',
+                't-central-dir': 'Central Skill Library',
+                't-central-dir-eyebrow': 'Deployed central skill library',
+                't-central-dir-title': 'Drop skills into the central skills folder. EasySkills will sync them to every linked agent.',
+                't-central-dir-copy': '',
+                't-copy-path': 'Copy Path',
+                't-add-custom': 'Register',
                 't-agent-list': 'Available & Registered Agents',
                 't-running': 'Monitoring (Active)',
                 't-stopped': 'Offline (Idle)',
-                't-map': 'Connect Bridge',
-                't-unmap': 'Sever Link',
+                't-map': 'Link Agent',
+                't-unmap': 'Disconnect Agent',
                 't-remove': 'Deregister',
+                't-import-skill': 'Import Skill',
+                't-delete-skill': 'Delete Skill',
+                't-delete-skill-kicker': 'Skill library delete',
+                't-delete-skill-title': 'Delete this skill?',
+                't-delete-skill-copy': 'This removes the folder from the central EasySkills skill library and refreshes linked agents.',
+                't-delete-skill-confirm': 'Delete Skill',
+                't-skill-import-hint': 'Import a local skill folder into the central skill library',
+                't-agent-register-title': 'Register unsupported agents by their skills folder',
+                't-agent-register-desc': 'If your agent is not detected by default, paste the absolute path to that agent skills folder below. EasySkills will save the connection and sync every central skill into it.',
                 't-installed': 'Discovered',
                 't-missing': 'Unreachable',
                 't-search': 'Filter',
@@ -1750,7 +2224,7 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 't-save': 'Save',
                 't-cancel': 'Cancel',
                 't-maintenance-guide': 'Maintenance Controls Manual',
-                't-start-watcher-desc': 'Installs a launchd daemon to automatically synchronize the registry folder. Any additions/removals of skills will propagate instantly to all active agent clients.',
+                't-start-watcher-desc': 'Installs a launchd daemon to automatically synchronize the central skill library. Any additions/removals of skills will propagate instantly to all linked agents.',
                 't-cleanup-desc-title': 'Prune Invalid Symlinks',
                 't-cleanup-desc': 'Scans agent skill targets, detecting and unlinking broken junctions (symlinks pointing to deleted skills). Keeps your agent environments clean and prevents load trace errors.',
                 't-about': 'About',
@@ -1767,8 +2241,8 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 't-webui-access-desc': 'We strongly recommend bookmarking this URL in your browser. The EasySkills local WebUI runs on port 6633 offline.',
                 't-add-bookmark': 'Add to Bookmarks',
                 't-guide': 'Guide',
-                't-guide-title': 'Usage Guide',
-                't-guide-subtitle': 'Everything you need to know to get the most out of EasySkills.',
+                't-guide-title': 'WebUI Usage Guide',
+                't-guide-subtitle': 'Use this dashboard to import skills, connect agents, sync channels, and keep EasySkills updated.',
                 't-guide-startstop-title': 'Starting & Stopping Services',
                 't-guide-startstop-desc': 'EasySkills consists of two components: the background watcher daemon (handles real-time skill mapping) and the local WebUI panel (visual dashboard). Here is how to control them:',
                 't-guide-ss-daemon-title': '1. Background Watcher Daemon',
@@ -1778,38 +2252,63 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 't-guide-ss-daemon-start-desc': 'Click "Start Watcher" on the Dashboard, or run CLI:',
                 't-guide-ss-daemon-stop-desc': 'Click "Stop Watcher" on the Dashboard, or run CLI:',
                 't-guide-ss-webui-title': '2. WebUI Dashboard Control',
-                't-guide-ss-webui-desc': 'The visual panel running locally at http://localhost:6633.',
+                't-guide-ss-webui-desc': 'The visual panel running locally at http://127.0.0.1:6633.',
                 't-guide-ss-webui-start-desc': 'Double-click the launcher script, or run CLI:',
                 't-guide-ss-webui-stop-desc': 'Simply close the launcher terminal window, or press Ctrl+C in the CLI terminal.',
-                't-guide-quickstart-title': 'Quick Start',
-                't-guide-qs1-title': 'Install EasySkills',
-                't-guide-qs1-desc': 'Run the one-line install command, or double-click the installer for your platform. The engine is installed to ~/EasySkills.',
-                't-guide-qs2-title': 'Drop Your Skills',
-                't-guide-qs2-desc': 'Place any skill folder into ~/EasySkills. The background watcher detects it and maps it to all installed agents within seconds.',
-                't-guide-qs3-title': 'Done \u2014 All Agents Synced',
-                't-guide-qs3-desc': 'Every supported agent (Claude, Gemini, Cursor, etc.) now sees your skill via symlink. Edit the skill once, all agents reflect it instantly.',
+                't-guide-quickstart-title': 'WebUI Quick Start',
+                't-guide-qs1-title': 'Open the Dashboard',
+                't-guide-qs1-desc': 'After installation, open http://127.0.0.1:6633. The Dashboard shows the central skill library path, watcher status, and current linked agent count.',
+                't-guide-qs2-title': 'Import or review skills',
+                't-guide-qs2-desc': 'Go to Skills, click Import Skill, choose a folder that contains SKILL.md, and EasySkills copies it into the central skill library.',
+                't-guide-qs3-title': 'Connect missing agents',
+                't-guide-qs3-desc': 'Go to Agents. If an agent is not listed, paste its skills-folder absolute path and register it as a custom channel.',
                 't-guide-install-title': 'Installation Methods',
                 't-guide-install-a-title': 'Method A: One-Line Install (Recommended)',
                 't-guide-install-b-title': 'Method B: Double-Click',
                 't-guide-install-b-desc': 'Clone or download the repo, then double-click install_mac.command (macOS) or install_windows.bat (Windows).',
                 't-guide-install-c-title': 'Method C: Let Your AI Agent Do It',
                 't-guide-install-c-desc': 'Just tell your agent: "Help me initialize EasySkills". It reads the SKILL.md, runs the script, and asks about custom paths.',
-                't-guide-cli-title': 'CLI Reference',
-                't-guide-cli-option': 'Option',
-                't-guide-cli-desc-h': 'Description',
-                't-guide-cli-sync': 'Sync all skills to all agents (default)',
+                't-guide-cli-title': 'Advanced CLI fallback',
+                't-guide-cli-desc': 'Most users should use the WebUI. When you do need the terminal, copy the full command for your platform:',
+                't-guide-cli-platform': 'Platform',
+                't-guide-cli-option': 'Full terminal command',
+                't-guide-cli-desc-h': 'When to use it',
+                't-guide-cli-sync': 'Run the same full synchronization as the Dashboard button.',
                 't-guide-cli-list': 'List all active mappings',
-                't-guide-cli-add': 'Add & persist a custom agent path',
+                't-guide-cli-add': 'Register a custom agent skills folder without opening the WebUI.',
                 't-guide-cli-remove': 'Remove a persisted custom path',
                 't-guide-cli-watch': 'Install the background watcher daemon',
                 't-guide-cli-unwatch': 'Uninstall the background watcher daemon',
-                't-guide-cli-cleanup': 'Remove all EasySkills symlinks',
+                't-guide-cli-cleanup': 'Remove broken EasySkills links if an external tool moved folders.',
                 't-guide-cli-status': 'Show watcher and mapping health status',
                 't-guide-cli-webui': 'Start the local WebUI on port 6633',
                 't-guide-cli-help': 'Show help',
-                't-guide-webui-title': 'WebUI Dashboard',
-                't-guide-webui-desc': 'After installation, open http://localhost:6633 in your browser, or launch manually:',
+                't-guide-webui-title': 'WebUI Control Map',
+                't-guide-webui-desc': 'Use the tabs in this dashboard as your main workflow. Each tab handles one part of skill management:',
                 't-guide-webui-features': 'The dashboard lets you monitor watcher status, browse skills, connect/disconnect agents, edit paths, and check for updates. Requires Python 3 (macOS/Linux) or PowerShell 5.1+ (Windows).',
+                't-guide-dashboard-card-title': 'Dashboard',
+                't-guide-dashboard-card-desc': 'Check watcher status, run manual synchronization, and prune invalid links when folders were moved or deleted outside the WebUI.',
+                't-guide-skills-card-title': 'Skills',
+                't-guide-skills-card-desc': 'Import a local skill folder, confirm which folders contain SKILL.md, and delete central skills when they are no longer needed.',
+                't-guide-agents-card-title': 'Agents',
+                't-guide-agents-card-desc': 'Review detected agents, disconnect agents you do not want, or register an unsupported agent by entering its skills folder.',
+                't-guide-about-card-title': 'About',
+                't-guide-about-card-desc': 'Check the installed version, compare the latest release, and trigger an update through the local backend.',
+                't-guide-skills-workflow-title': 'Managing skills in the WebUI',
+                't-guide-skill-step1-title': 'Import a skill folder',
+                't-guide-skill-step1-desc': 'Open Skills, click Import Skill, and select the folder itself. The folder must contain SKILL.md at its root.',
+                't-guide-skill-step2-title': 'Let EasySkills sync it',
+                't-guide-skill-step2-desc': 'After import, EasySkills places the folder under the central skill library and refreshes linked agents automatically.',
+                't-guide-skill-step3-title': 'Delete with confirmation',
+                't-guide-skill-step3-desc': 'Use the trash button on a skill card only when you want to remove that central folder from EasySkills.',
+                't-guide-agents-workflow-title': 'Connecting agents in the WebUI',
+                't-guide-agents-workflow-desc': 'The Agents tab is where EasySkills connects the central skill library to each agent skills directory.',
+                't-guide-agent-step1-title': 'Review detected agents',
+                't-guide-agent-step1-desc': 'Cards marked as discovered are paths EasySkills can map into right away.',
+                't-guide-agent-step2-title': 'Register an unsupported agent',
+                't-guide-agent-step2-desc': 'If your agent is missing, paste its absolute skills-folder path into the registration bar and click Register.',
+                't-guide-agent-step3-title': 'Disconnect when needed',
+                't-guide-agent-step3-desc': 'Use Disconnect or Deregister for channels you no longer want EasySkills to maintain.',
                 't-guide-custom-title': 'Custom Path Overrides',
                 't-guide-custom-desc': 'Override any agent\'s default skills path via _maintenance/custom-targets.txt using the AgentName=/new/path syntax. Useful when an agent is installed in a non-standard location.',
                 't-guide-custom-alt': 'You can also add custom paths via the CLI (deploy.sh --add /path), the Agents tab in this WebUI, or by asking your AI agent.',
@@ -1832,7 +2331,7 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 't-guide-notes-title': 'Notes',
                 't-guide-note-defender-text': 'If Windows Defender flags EasySkills, you can whitelist the ~/EasySkills folder in Windows Security settings.',
                 't-guide-note-watcher-text': 'The watcher monitors only the top-level of ~/EasySkills (folder additions/removals). It does not watch inside subdirectories since skills are symlinked. If ~/.proma exists, Proma workspace skills folders are polled every 5 minutes.',
-                't-guide-note-port-text': 'The WebUI listens on localhost:6633 only. It does not accept connections from other machines.'
+                't-guide-note-port-text': 'The WebUI listens on 127.0.0.1:6633 only. It does not accept connections from other machines.'
             },
             zh: {
                 't-dashboard': '控制台',
@@ -1845,14 +2344,27 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 't-start-watcher': '开启守护',
                 't-stop-watcher': '停止守护',
                 't-cleanup': '清理失效软链接',
-                't-central-dir': '中央技能库目录',
-                't-add-custom': '注册通道',
+                't-central-dir': '本机中央技能库目录',
+                't-central-dir-eyebrow': '已部署的中央技能库',
+                't-central-dir-title': '将Skills拖入中央技能文件夹，EasySkills 将自动同步至所有已连接 Agent。',
+                't-central-dir-copy': '',
+                't-copy-path': '复制路径',
+                't-add-custom': '注册 Agent',
                 't-agent-list': '智能体环境列表',
                 't-running': '监听中 (运行)',
                 't-stopped': '未监听 (闲置)',
-                't-map': '连接通道',
-                't-unmap': '断开通道',
+                't-map': '连接 Agent',
+                't-unmap': '断开 Agent',
                 't-remove': '注销',
+                't-import-skill': '导入技能',
+                't-delete-skill': '删除技能',
+                't-delete-skill-kicker': '技能库删除',
+                't-delete-skill-title': '删除这个技能？',
+                't-delete-skill-copy': '这会从 EasySkills 中央技能库删除对应文件夹，并刷新所有已映射 Agent 链接。',
+                't-delete-skill-confirm': '删除技能',
+                't-skill-import-hint': '将本地技能文件夹导入中央技能库',
+                't-agent-register-title': '默认未支持的 Agent，也可以通过 skills 目录注册',
+                't-agent-register-desc': '如果你使用的 Agent 没有被默认探测到，请在下方粘贴该 Agent 的 skills 文件夹绝对路径。EasySkills 会持久化这个 Agent 连接，并把中央技能库同步进去。',
                 't-installed': '正常激活',
                 't-missing': '未探测到',
                 't-search': '筛选',
@@ -1877,8 +2389,8 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 't-webui-access-desc': '强烈建议将此网址添加至浏览器收藏夹。EasySkills 本地 WebUI 运行于 6633 端口，无需联网即可离线运行。',
                 't-add-bookmark': '一键浏览器添加收藏',
                 't-guide': '使用教程',
-                't-guide-title': '使用教程',
-                't-guide-subtitle': '帮助您快速上手并充分利用 EasySkills 的完整指南。',
+                't-guide-title': 'WebUI 使用教程',
+                't-guide-subtitle': '通过这个管理面板完成技能导入、Agent 连接、同步维护和版本更新。',
                 't-guide-startstop-title': '开启与关闭服务',
                 't-guide-startstop-desc': 'EasySkills 由两个部分组成：后台监听守护进程（处理实时技能同步）与本地 WebUI 管理面板（可视化控制台）。以下是控制它们的方法：',
                 't-guide-ss-daemon-title': '1. 后台监听守护进程',
@@ -1888,38 +2400,63 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 't-guide-ss-daemon-start-desc': '在控制台“仪表盘”页面点击“开启监听”按钮，或运行命令行：',
                 't-guide-ss-daemon-stop-desc': '在控制台“仪表盘”页面点击“关闭监听”按钮，或运行命令行：',
                 't-guide-ss-webui-title': '2. WebUI 管理面板',
-                't-guide-ss-webui-desc': '运行在本地 http://localhost:6633 的可视化操作面板。',
+                't-guide-ss-webui-desc': '运行在本地 http://127.0.0.1:6633 的可视化操作面板。',
                 't-guide-ss-webui-start-desc': '双击启动脚本，或运行命令行：',
                 't-guide-ss-webui-stop-desc': '直接关闭弹出的命令行/终端窗口，或在命令行终端中按 Ctrl+C 中断运行。',
-                't-guide-quickstart-title': '快速开始',
-                't-guide-qs1-title': '安装 EasySkills',
-                't-guide-qs1-desc': '运行一行命令安装，或双击对应平台的安装器。引擎将被安装到 ~/EasySkills 目录。',
-                't-guide-qs2-title': '放入技能文件夹',
-                't-guide-qs2-desc': '将任意技能文件夹放入 ~/EasySkills。后台守护进程会在几秒内自动检测并映射到所有已安装的 Agent。',
-                't-guide-qs3-title': '完成 — 所有 Agent 已同步',
-                't-guide-qs3-desc': '所有支持的 Agent（Claude, Gemini, Cursor 等）现在都能通过软链接看到你的技能。修改一次，所有 Agent 立刻同步。',
+                't-guide-quickstart-title': 'WebUI 快速开始',
+                't-guide-qs1-title': '打开控制台',
+                't-guide-qs1-desc': '安装后打开 http://127.0.0.1:6633。控制台会显示中央技能库路径、后台守护状态和当前 Agent 连接数量。',
+                't-guide-qs2-title': '导入或查看技能',
+                't-guide-qs2-desc': '进入技能库，点击导入技能，选择包含 SKILL.md 的文件夹，EasySkills 会把它复制到中央技能库。',
+                't-guide-qs3-title': '连接缺失的 Agent',
+                't-guide-qs3-desc': '进入智能体页。如果某个 Agent 不在列表中，粘贴它的 skills 文件夹绝对路径并注册为自定义 Agent。',
                 't-guide-install-title': '安装方式',
                 't-guide-install-a-title': '方案 A：一行命令安装（推荐）',
                 't-guide-install-b-title': '方案 B：双击安装',
                 't-guide-install-b-desc': '克隆或下载仓库，然后双击 install_mac.command（macOS）或 install_windows.bat（Windows）。',
                 't-guide-install-c-title': '方案 C：让 AI Agent 自动安装',
                 't-guide-install-c-desc': '直接对你的 Agent 说："帮我运行 EasySkills 初始化"。Agent 会读取 SKILL.md，执行安装脚本，并主动询问自定义路径。',
-                't-guide-cli-title': '命令行工具',
-                't-guide-cli-option': '选项',
-                't-guide-cli-desc-h': '说明',
-                't-guide-cli-sync': '同步所有技能到所有 Agent（默认）',
+                't-guide-cli-title': '高级命令行备用方式',
+                't-guide-cli-desc': '大多数用户直接使用 WebUI 即可。确实需要终端时，请按你的平台复制完整命令：',
+                't-guide-cli-platform': '平台',
+                't-guide-cli-option': '完整终端命令',
+                't-guide-cli-desc-h': '使用场景',
+                't-guide-cli-sync': '执行和控制台“全量同步”按钮相同的同步操作。',
                 't-guide-cli-list': '列出所有活跃映射',
-                't-guide-cli-add': '添加并持久化自定义 Agent 路径',
+                't-guide-cli-add': '在不打开 WebUI 的情况下注册自定义 Agent skills 目录。',
                 't-guide-cli-remove': '移除已持久化的自定义路径',
                 't-guide-cli-watch': '安装后台监听守护进程',
                 't-guide-cli-unwatch': '卸载后台监听守护进程',
-                't-guide-cli-cleanup': '清除所有 EasySkills 创建的软链接',
+                't-guide-cli-cleanup': '外部工具移动文件夹后，用于清理失效的 EasySkills 链接。',
                 't-guide-cli-status': '查看守护进程和映射健康状态',
                 't-guide-cli-webui': '启动本地 WebUI 管理面板（端口 6633）',
                 't-guide-cli-help': '显示帮助',
-                't-guide-webui-title': 'WebUI 管理面板',
-                't-guide-webui-desc': '安装完成后，在浏览器中打开 http://localhost:6633，或手动启动：',
+                't-guide-webui-title': 'WebUI 操作地图',
+                't-guide-webui-desc': '把这个面板里的几个标签页当作主工作流。每个标签页负责技能管理的一部分：',
                 't-guide-webui-features': '通过面板即可实时监控守护状态、浏览已安装技能、一键连接/断开 Agent、编辑配置路径、检查版本更新。依赖：Python 3（macOS/Linux）或 PowerShell 5.1+（Windows）。',
+                't-guide-dashboard-card-title': '控制台',
+                't-guide-dashboard-card-desc': '查看守护状态、执行手动同步，并在外部移动或删除文件夹后清理失效链接。',
+                't-guide-skills-card-title': '技能库',
+                't-guide-skills-card-desc': '导入本地技能文件夹，确认哪些文件夹包含 SKILL.md，并删除不再需要的中央技能。',
+                't-guide-agents-card-title': '智能体',
+                't-guide-agents-card-desc': '查看已探测到的 Agent 连接，断开不需要的 Agent，或通过 skills 目录注册默认未支持的 Agent。',
+                't-guide-about-card-title': '关于',
+                't-guide-about-card-desc': '查看已安装版本，对比最新发行版，并通过本地后端执行更新。',
+                't-guide-skills-workflow-title': '在 WebUI 中管理技能',
+                't-guide-skill-step1-title': '导入技能文件夹',
+                't-guide-skill-step1-desc': '打开技能库，点击导入技能，选择技能文件夹本身。该文件夹根目录必须包含 SKILL.md。',
+                't-guide-skill-step2-title': '让 EasySkills 自动同步',
+                't-guide-skill-step2-desc': '导入后，EasySkills 会把文件夹放入中央技能库，并自动刷新 Agent 链接。',
+                't-guide-skill-step3-title': '确认后删除',
+                't-guide-skill-step3-desc': '只有当你希望从 EasySkills 中央技能库移除该文件夹时，才点击技能卡片上的垃圾桶。',
+                't-guide-agents-workflow-title': '在 WebUI 中连接 Agent',
+                't-guide-agents-workflow-desc': '智能体页用于把中央技能库连接到每个 Agent 自己的 skills 目录。',
+                't-guide-agent-step1-title': '查看已探测 Agent',
+                't-guide-agent-step1-desc': '标记为正常激活的卡片，代表 EasySkills 可以立刻映射进去的路径。',
+                't-guide-agent-step2-title': '注册默认未支持的 Agent',
+                't-guide-agent-step2-desc': '如果你的 Agent 不在列表中，把它的 skills 文件夹绝对路径粘贴到注册栏并点击注册 Agent。',
+                't-guide-agent-step3-title': '需要时断开',
+                't-guide-agent-step3-desc': '对不再希望 EasySkills 维护的 Agent，使用断开或注销操作。',
                 't-guide-custom-title': '自定义路径覆盖',
                 't-guide-custom-desc': '通过 _maintenance/custom-targets.txt 中的 Agent名称=/新/路径 语法，可覆盖任何默认 Agent 的技能目录位置。',
                 't-guide-custom-alt': '也可以通过命令行（deploy.sh --add /路径）、本面板的智能体标签页、或直接对 AI 对话来添加自定义路径。',
@@ -1942,7 +2479,7 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 't-guide-notes-title': '注意事项',
                 't-guide-note-defender-text': '如果 Windows Defender 误报，可在 Windows 安全中心将 ~/EasySkills 文件夹加入排除项。',
                 't-guide-note-watcher-text': '后台监听只监控 ~/EasySkills 顶层目录的文件夹增删。不监听子目录——因为技能通过软链映射，内部文件修改会即时反映到所有 Agent。如果存在 ~/.proma，会每 5 分钟轮询 Proma workspace 的 skills 目录。',
-                't-guide-note-port-text': 'WebUI 仅监听 localhost:6633，不接受外部连接。'
+                't-guide-note-port-text': 'WebUI 仅监听 127.0.0.1:6633，不接受外部连接。'
             }
         };
 
@@ -1979,6 +2516,65 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 
                 refreshAll();
             });
+        });
+
+        const skillImportBtn = document.getElementById('skill-import-btn');
+        const skillFolderInput = document.getElementById('skill-folder-input');
+        if (skillImportBtn && skillFolderInput) {
+            skillImportBtn.addEventListener('pointerdown', (event) => {
+                if (event.button && event.button !== 0) return;
+                event.preventDefault();
+                openSkillFolderPicker();
+            });
+            skillImportBtn.addEventListener('click', () => {
+                openSkillFolderPicker();
+            });
+            skillFolderInput.addEventListener('change', async () => {
+                await importSkillFolder(skillFolderInput.files, skillImportBtn);
+                skillFolderInput.value = '';
+            });
+        }
+
+        const skillDeleteOverlay = document.getElementById('skill-delete-overlay');
+        const skillDeleteName = document.getElementById('skill-delete-name');
+        const skillDeleteCancel = document.getElementById('skill-delete-cancel');
+        const skillDeleteConfirm = document.getElementById('skill-delete-confirm');
+        let pendingDeleteSkillName = '';
+        let lastDeleteTrigger = null;
+
+        function closeDeleteSkillDialog() {
+            if (!skillDeleteOverlay) return;
+            skillDeleteOverlay.classList.remove('active');
+            skillDeleteOverlay.setAttribute('aria-hidden', 'true');
+            pendingDeleteSkillName = '';
+            if (lastDeleteTrigger) {
+                lastDeleteTrigger.focus();
+                lastDeleteTrigger = null;
+            }
+        }
+
+        if (skillDeleteOverlay) {
+            skillDeleteOverlay.addEventListener('click', (event) => {
+                if (event.target === skillDeleteOverlay) closeDeleteSkillDialog();
+            });
+        }
+
+        if (skillDeleteCancel) {
+            skillDeleteCancel.addEventListener('click', closeDeleteSkillDialog);
+        }
+
+        if (skillDeleteConfirm) {
+            skillDeleteConfirm.addEventListener('click', async () => {
+                if (!pendingDeleteSkillName) return;
+                const result = await apiCall('/api/skills/delete', { name: pendingDeleteSkillName }, skillDeleteConfirm);
+                if (result) closeDeleteSkillDialog();
+            });
+        }
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && skillDeleteOverlay?.classList.contains('active')) {
+                closeDeleteSkillDialog();
+            }
         });
 
         // --- Theme Swap Module ---
@@ -2021,7 +2617,7 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
             if (syncBtn) {
                 syncBtn.setAttribute('data-tooltip', currentLang === 'en' ? 
                     'Force a manual full synchronization to link all active skills to all registered agents instantly.' : 
-                    '强制执行全量同步：立即扫描中央技能库并重新映射所有已激活的智能体技能通道。');
+                    '强制执行全量同步：立即扫描中央技能库并重新映射所有已激活的 Agent 连接。');
             }
             
             // Dynamic placeholder updating
@@ -2033,9 +2629,10 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
             }
             const searchInput = document.getElementById('agent-search-input');
             if(searchInput) {
-                searchInput.placeholder = currentLang === 'en' ? 
-                    'Filter...' : 
-                    '筛选...';
+                searchInput.placeholder = currentLang === 'en' ?
+                    'Search agents or paths...' :
+                    '搜索 Agent 或路径...';
+                searchInput.setAttribute('aria-label', currentLang === 'en' ? 'Filter agents' : '筛选 Agent');
             }
         }
 
@@ -2235,20 +2832,25 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 'start daemon': 'Booting Daemon...',
                 'stop daemon': 'Stopping Daemon...',
                 'prune invalid': 'Purging Links...',
-                'sync all': 'Syncing Registry...',
-                'connect bridge': 'Connecting...',
+                'sync all': 'Syncing Skills...',
+                'link agent': 'Linking Agent...',
+                'disconnect agent': 'Disconnecting Agent...',
                 'sever link': 'Disconnecting...',
                 'register': 'Registering...',
                 'deregister': 'Deregistering...',
+                'import skill': 'Importing Skill...',
+                'delete skill': 'Deleting Skill...',
                 
                 '开启守护': '正在装载守护...',
                 '停止守护': '正在终止守护...',
                 '清理失效软链接': '正在净化坏链接...',
                 '全量同步': '正在全量同步...',
-                '连接通道': '正在架设通道...',
-                '断开通道': '正在拆除通道...',
+                '连接 Agent': '正在连接 Agent...',
+                '断开 Agent': '正在断开 Agent...',
                 '注册': '正在注册中...',
-                '注销': '正在注销中...'
+                '注销': '正在注销中...',
+                '导入技能': '正在导入技能...',
+                '删除技能': '正在删除技能...'
             };
 
             if (btnElement) {
@@ -2311,6 +2913,10 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                         heading = isZh ? '已添加自定义 Agent！\n\n[运行日志]:\n' : 'Custom agent added successfully!\n\n[Log Output]:\n';
                     } else if (endpoint.includes('/agents/custom/remove')) {
                         heading = isZh ? '已移除自定义 Agent！\n\n[运行日志]:\n' : 'Custom agent removed successfully!\n\n[Log Output]:\n';
+                    } else if (endpoint.includes('/skills/import')) {
+                        heading = isZh ? '技能导入完成！\n\n[运行日志]:\n' : 'Skill imported successfully!\n\n[Log Output]:\n';
+                    } else if (endpoint.includes('/skills/delete')) {
+                        heading = isZh ? '技能删除完成！\n\n[运行日志]:\n' : 'Skill deleted successfully!\n\n[Log Output]:\n';
                     }
                     
                     const logData = data.message || data.output || '';
@@ -2418,6 +3024,93 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
             return text.replace(/[&<>"']/g, m => map[m]);
         }
 
+        function fileToBase64(file) {
+            return file.arrayBuffer().then(buffer => {
+                const bytes = new Uint8Array(buffer);
+                let binary = '';
+                const chunkSize = 0x8000;
+                for (let i = 0; i < bytes.length; i += chunkSize) {
+                    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+                }
+                return btoa(binary);
+            });
+        }
+
+        function getSelectedSkillRoot(files) {
+            const firstPath = files[0]?.webkitRelativePath || files[0]?.name || '';
+            const parts = firstPath.split('/').filter(Boolean);
+            return parts.length > 1 ? parts[0] : '';
+        }
+
+        let lastSkillFolderPickerOpen = 0;
+        function openSkillFolderPicker() {
+            const input = document.getElementById('skill-folder-input');
+            if (!input) return;
+
+            const now = Date.now();
+            if (now - lastSkillFolderPickerOpen < 450) return;
+            lastSkillFolderPickerOpen = now;
+            input.value = '';
+
+            if (typeof input.showPicker === 'function') {
+                try {
+                    input.showPicker();
+                    return;
+                } catch (err) {
+                    // Fall back to click when showPicker is unsupported for directory inputs.
+                }
+            }
+            input.click();
+        }
+
+        async function importSkillFolder(files, btnElement = null) {
+            const selected = Array.from(files || []);
+            const isZh = currentLang === 'zh';
+            if (selected.length === 0) return;
+
+            const root = getSelectedSkillRoot(selected);
+            if (!root) {
+                showToast(isZh ? '请选择一个技能文件夹。' : 'Please select a skill folder.', 'warning');
+                return;
+            }
+
+            const payloadFiles = [];
+            for (const file of selected) {
+                const fullPath = file.webkitRelativePath || file.name;
+                const prefix = root + '/';
+                if (!fullPath.startsWith(prefix)) {
+                    showToast(isZh ? '一次只能导入一个技能文件夹。' : 'Import one skill folder at a time.', 'warning');
+                    return;
+                }
+                const relPath = fullPath.slice(prefix.length);
+                if (!relPath) continue;
+                payloadFiles.push({
+                    path: relPath,
+                    data: await fileToBase64(file)
+                });
+            }
+
+            if (!payloadFiles.some(file => file.path === 'SKILL.md')) {
+                showToast(isZh ? '技能文件夹根目录必须包含 SKILL.md。' : 'The selected skill folder must contain SKILL.md at its root.', 'error');
+                return;
+            }
+
+            await apiCall('/api/skills/import', { name: root, files: payloadFiles }, btnElement);
+        }
+
+        function confirmDeleteSkill(name, btnElement = null) {
+            if (!skillDeleteOverlay || !skillDeleteName || !skillDeleteConfirm) {
+                apiCall('/api/skills/delete', { name }, btnElement);
+                return;
+            }
+            pendingDeleteSkillName = name;
+            lastDeleteTrigger = btnElement;
+            skillDeleteName.textContent = name;
+            skillDeleteOverlay.classList.add('active');
+            skillDeleteOverlay.setAttribute('aria-hidden', 'false');
+            skillDeleteConfirm.focus();
+        }
+
         // --- Render UI Component: Skills Grid ---
         let lastSkillsJson = '';
         function renderSkills(skills) {
@@ -2432,7 +3125,7 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 grid.innerHTML = `
                     <div style="grid-column: 1/-1; text-align: center; padding: var(--space-xl) 0; color: var(--text-muted); font-family: var(--font-display);">
                         <i class="fa-solid fa-folder-open" style="font-size: 2.5rem; margin-bottom: var(--space-md); opacity: 0.4; display: block;"></i>
-                        No Skills detected in registry directory.
+                        No skills detected in the central skill library.
                     </div>
                 `;
                 return;
@@ -2451,13 +3144,23 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                                 <i class="fa-solid fa-cube" style="color: ${s.has_skill_md ? 'var(--success)' : 'var(--text-muted)'};" ></i>
                                 <span>${escapeHtml(s.name)}</span>
                             </div>
-                            ${badge}
+                            <div class="skill-card-tools">
+                                ${badge}
+                                <button class="icon-btn skill-delete-btn" data-skill-name="${escapeHtml(s.name)}" title="${dict[currentLang]['t-delete-skill']}" aria-label="${dict[currentLang]['t-delete-skill']}">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                            </div>
                         </div>
                         <div class="card-subtitle">${escapeHtml(s.path)}</div>
                     </div>
                 `);
             });
             grid.innerHTML = parts.join('');
+            grid.querySelectorAll('.skill-delete-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    confirmDeleteSkill(btn.dataset.skillName, btn);
+                });
+            });
         }
 
         // --- Render UI Component: Agents List ---

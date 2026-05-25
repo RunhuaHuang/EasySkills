@@ -66,12 +66,12 @@ Here are the default paths mapped by the installation scripts for popular local 
 - **Windows**: `%USERPROFILE%\.copilot\skills`
 
 ### 5. Pi (Personal Assistant Client)
-- **macOS**: `~/.pi/skills`
-- **Windows**: `%USERPROFILE%\.pi\skills`
+- **macOS**: `~/.pi/agent/skills`
+- **Windows**: `%USERPROFILE%\.pi\agent\skills`
 
 ### 6. OpenCode
-- **macOS**: `~/.opencode/skills`
-- **Windows**: `%USERPROFILE%\.opencode\skills`
+- **macOS**: `~/.config/opencode/skills`
+- **Windows**: `%USERPROFILE%\.config\opencode\skills`
 
 ### 7. Trae (ByteDance Global)
 - **macOS**: `~/.trae/skills` & `~/Library/Application Support/Trae/skills`
@@ -122,8 +122,8 @@ Here are the default paths mapped by the installation scripts for popular local 
 - **Windows**: `%USERPROFILE%\.warp\skills`
 
 ### 19. Windsurf
-- **macOS**: `~/.windsurf/skills`
-- **Windows**: `%USERPROFILE%\.windsurf\skills`
+- **macOS**: `~/.codeium/windsurf/skills`
+- **Windows**: `%USERPROFILE%\.codeium\windsurf\skills`
 
 ### 20. Firebender
 - **macOS**: `~/.firebender/skills`
@@ -138,8 +138,8 @@ Here are the default paths mapped by the installation scripts for popular local 
 - **Windows**: `%USERPROFILE%\.continue\skills`
 
 ### 23. Goose (Block/AAIF)
-- **macOS**: `~/.goose/skills`
-- **Windows**: `%USERPROFILE%\.goose\skills`
+- **macOS**: `~/.config/goose/skills`
+- **Windows**: `%USERPROFILE%\.config\goose\skills`
 
 ### 24. Agents (Cross-tool Standard)
 - **macOS**: `~/.agents/skills`
@@ -148,6 +148,46 @@ Here are the default paths mapped by the installation scripts for popular local 
 ### 25. Run
 - **macOS**: `~/.run/global-skills/skills`
 - **Windows**: `%USERPROFILE%\.run\global-skills\skills`
+
+### 26. Qoder
+- **macOS**: `~/.qoder/skills`
+- **Windows**: `%USERPROFILE%\.qoder\skills`
+
+### 27. Qwen Code
+- **macOS**: `~/.qwen/skills`
+- **Windows**: `%USERPROFILE%\.qwen\skills`
+
+### 28. CodeBuddy
+- **macOS**: `~/.codebuddy/skills`
+- **Windows**: `%USERPROFILE%\.codebuddy\skills`
+
+### 29. Amp
+- **macOS**: `~/.config/agents/skills`
+- **Windows**: `%USERPROFILE%\.config\agents\skills`
+
+### 30. OpenHands
+- **macOS**: `~/.openhands/skills`
+- **Windows**: `%USERPROFILE%\.openhands\skills`
+
+### 31. Kilo Code
+- **macOS**: `~/.kilocode/skills`
+- **Windows**: `%USERPROFILE%\.kilocode\skills`
+
+### 32. Zencoder
+- **macOS**: `~/.zencoder/skills`
+- **Windows**: `%USERPROFILE%\.zencoder\skills`
+
+### 33. iFlow CLI
+- **macOS**: `~/.iflow/skills`
+- **Windows**: `%USERPROFILE%\.iflow\skills`
+
+### 34. Droid
+- **macOS**: `~/.factory/skills`
+- **Windows**: `%USERPROFILE%\.factory\skills`
+
+### 35. Devin for Terminal
+- **macOS**: `~/.config/devin/skills`
+- **Windows**: `%USERPROFILE%\.config\devin\skills`
 
 ---
 

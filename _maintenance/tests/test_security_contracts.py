@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import base64
 import re
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -103,12 +105,300 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertNotIn("onclick=\"apiCall('/api/agents/", src)
         self.assertIn("addEventListener('click'", src)
 
+    def test_skills_tab_supports_folder_import_and_confirmed_delete(self):
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        html_src = read("_maintenance/webui/index.html")
+
+        self.assertIn("def import_skill_folder", py_src)
+        self.assertIn("def delete_skill", py_src)
+        self.assertIn('"/api/skills/import"', py_src)
+        self.assertIn('"/api/skills/delete"', py_src)
+
+        self.assertIn("function Import-SkillFolder", ps_src)
+        self.assertIn("function Delete-Skill", ps_src)
+        self.assertIn('"/api/skills/import"', ps_src)
+        self.assertIn('"/api/skills/delete"', ps_src)
+
+        self.assertIn("webkitdirectory", html_src)
+        self.assertIn("id=\"skill-folder-input\"", html_src)
+        self.assertIn("id=\"skill-delete-overlay\"", html_src)
+        self.assertIn("skill-card-tools", html_src)
+        self.assertIn("function importSkillFolder", html_src)
+        self.assertIn("function confirmDeleteSkill", html_src)
+        self.assertIn("addEventListener('pointerdown'", html_src)
+        self.assertIn("input.showPicker", html_src)
+        self.assertIn("skillDeleteOverlay.classList.add('active')", html_src)
+        self.assertNotIn("confirm(", html_src)
+        self.assertIn("fa-trash", html_src)
+        self.assertIn("/api/skills/import", html_src)
+        self.assertIn("/api/skills/delete", html_src)
+        self.assertLess(html_src.index("</main>"), html_src.index('id="skill-delete-overlay"'))
+        overlay_css = html_src.split(".skill-delete-overlay {", 1)[1].split("}", 1)[0]
+        self.assertIn("left: 0;", overlay_css)
+        self.assertNotIn("left: 280px;", overlay_css)
+
+    def test_agents_and_guide_are_webui_first(self):
+        html_src = read("_maintenance/webui/index.html")
+
+        self.assertIn("agent-register-note", html_src)
+        self.assertIn("t-agent-register-title", html_src)
+        self.assertIn("t-agent-register-desc", html_src)
+        self.assertIn("skills folder", html_src)
+
+        self.assertIn("WebUI Quick Start", html_src)
+        self.assertIn("WebUI Control Map", html_src)
+        self.assertIn("Managing skills in the WebUI", html_src)
+        self.assertIn("Connecting agents in the WebUI", html_src)
+        self.assertIn("Advanced CLI fallback", html_src)
+        self.assertIn("bash ~/EasySkills/_maintenance/deploy.sh --sync", html_src)
+        self.assertIn('powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\\EasySkills\\_maintenance\\deploy.ps1" -Sync', html_src)
+        self.assertIn('bash ~/EasySkills/_maintenance/deploy.sh --add "/absolute/path/to/agent/skills"', html_src)
+        self.assertIn('powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\\EasySkills\\_maintenance\\deploy.ps1" -Add "C:\\Path\\To\\Agent\\skills"', html_src)
+        self.assertNotIn("CLI Reference</span>", html_src)
+        self.assertNotIn("Agent Chat Commands</span>", html_src)
+        self.assertNotIn("\\\\'", html_src)
+
+    def test_dashboard_explains_central_skill_library_drop_target(self):
+        html_src = read("_maintenance/webui/index.html")
+
+        self.assertIn("central-directory-panel", html_src)
+        self.assertIn("central-directory-title", html_src)
+        self.assertIn("t-central-dir-eyebrow", html_src)
+        self.assertIn("Drop skills into the central skills folder", html_src)
+        self.assertIn("EasySkills will sync them to every linked agent", html_src)
+        self.assertIn("本机中央技能库目录", html_src)
+        self.assertIn("将Skills拖入中央技能文件夹", html_src)
+        self.assertIn("'t-central-dir-copy': ''", html_src)
+        self.assertIn(".central-directory-copy:empty", html_src)
+        dashboard_markup = html_src.split('<section id="dashboard"', 1)[1].split('<section id="skills"', 1)[0]
+        self.assertNotIn("terminal-dots", dashboard_markup)
+
+    def test_skills_and_agents_toolbars_use_shared_visual_system(self):
+        html_src = read("_maintenance/webui/index.html")
+
+        self.assertIn(".skills-import-copy", html_src)
+        self.assertIn("class=\"skills-import-copy t-skill-import-hint\"", html_src)
+        self.assertNotIn("terminal-text t-skill-import-hint", html_src)
+
+        self.assertIn(".agent-list-header", html_src)
+        self.assertIn(".agent-filter-control", html_src)
+        self.assertIn("class=\"agent-filter-input\"", html_src)
+        self.assertIn("Search agents or paths...", html_src)
+        self.assertIn("搜索 Agent 或路径...", html_src)
+        self.assertNotIn("class=\"search-widget\"", html_src)
+        self.assertNotIn("placeholder=\"筛选...\"", html_src)
+
+    def test_english_navigation_uses_user_facing_agent_language(self):
+        html_src = read("_maintenance/webui/index.html")
+
+        self.assertIn("'t-skills': 'Skills'", html_src)
+        self.assertIn("'t-agents': 'Agents'", html_src)
+        self.assertIn("'t-mapped-agents': 'Linked Agents'", html_src)
+        self.assertIn("'t-central-dir': 'Central Skill Library'", html_src)
+        self.assertIn("'t-map': 'Link Agent'", html_src)
+        self.assertIn("'t-unmap': 'Disconnect Agent'", html_src)
+        self.assertIn("central skill library", html_src)
+        self.assertIn("Linked Agents", html_src)
+        self.assertNotIn("'t-skills': 'Registry'", html_src)
+        self.assertNotIn("'t-agents': 'Bridges'", html_src)
+        self.assertNotIn("'t-mapped-agents': 'Linked Bridges'", html_src)
+        self.assertNotIn("connect bridge", html_src)
+
+    def test_readmes_are_webui_first_and_use_current_terms(self):
+        readme = read("README.md")
+        readme_cn = read("README_CN.md")
+
+        self.assertIn("http://127.0.0.1:6633", readme)
+        self.assertIn("skill library import/delete", readme)
+        self.assertIn("linked agents", readme)
+        self.assertIn("register unsupported agents by skills-folder path", readme)
+        self.assertNotIn("http://localhost:6633", readme)
+        self.assertNotIn("agent bridges", readme)
+        self.assertNotIn("skill registry", readme)
+
+        self.assertIn("http://127.0.0.1:6633", readme_cn)
+        self.assertIn("技能库导入/删除", readme_cn)
+        self.assertIn("Agent 连接", readme_cn)
+        self.assertIn("默认未支持的 Agent 注册 skills 文件夹路径", readme_cn)
+        self.assertNotIn("http://localhost:6633", readme_cn)
+
+    def test_python_skill_import_and_delete_are_confined_to_central_dir(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            central = Path(tmp)
+            files = [
+                {
+                    "path": "SKILL.md",
+                    "data": base64.b64encode(b"---\nname: imported\n---\n").decode("ascii"),
+                },
+                {
+                    "path": "scripts/run.sh",
+                    "data": base64.b64encode(b"#!/usr/bin/env bash\n").decode("ascii"),
+                },
+            ]
+
+            with mock.patch.object(webui, "CENTRAL_DIR", central), \
+                 mock.patch.object(webui, "run_deploy", return_value={"success": True, "message": "synced"}):
+                result = webui.import_skill_folder("ImportedSkill", files)
+                self.assertTrue(result["success"], result)
+                self.assertEqual((central / "ImportedSkill" / "SKILL.md").read_text(encoding="utf-8"), "---\nname: imported\n---\n")
+                self.assertEqual((central / "ImportedSkill" / "scripts" / "run.sh").read_bytes(), b"#!/usr/bin/env bash\n")
+
+                blocked = webui.import_skill_folder("../escape", files)
+                self.assertFalse(blocked["success"])
+                self.assertFalse((central.parent / "escape").exists())
+
+                traversal = webui.import_skill_folder("BadSkill", [
+                    {"path": "../outside.txt", "data": base64.b64encode(b"nope").decode("ascii")},
+                    {"path": "SKILL.md", "data": base64.b64encode(b"ok").decode("ascii")},
+                ])
+                self.assertFalse(traversal["success"])
+                self.assertFalse((central / "BadSkill").exists())
+
+                deleted = webui.delete_skill("ImportedSkill")
+                self.assertTrue(deleted["success"], deleted)
+                self.assertFalse((central / "ImportedSkill").exists())
+
     def test_readme_version_and_agent_count_match_release(self):
-        self.assertIn("Version-1.2.1", read("README.md"))
-        self.assertIn("版本-1.2.1", read("README_CN.md"))
-        self.assertIn("25+ agent targets are pre-configured", read("README.md"))
-        self.assertIn("开箱即用支持 25+ 个 Agent", read("README_CN.md"))
-        self.assertEqual("1.2.1", read("_maintenance/.version").strip())
+        self.assertIn("Version-1.2.2", read("README.md"))
+        self.assertIn("版本-1.2.2", read("README_CN.md"))
+        self.assertIn("35+ agent targets are pre-configured", read("README.md"))
+        self.assertIn("开箱即用支持 35+ 个 Agent", read("README_CN.md"))
+        self.assertEqual("1.2.2", read("_maintenance/.version").strip())
+
+    def test_default_agent_targets_include_requested_agents_and_corrected_paths(self):
+        expected_paths = {
+            "Qoder": {
+                "mac": "$HOME/.qoder/skills",
+                "win": "$Home\\.qoder\\skills",
+                "py": 'Path.home() / ".qoder/skills"',
+                "doc_mac": "~/.qoder/skills",
+                "doc_win": "%USERPROFILE%\\.qoder\\skills",
+            },
+            "Qwen Code": {
+                "mac": "$HOME/.qwen/skills",
+                "win": "$Home\\.qwen\\skills",
+                "py": 'Path.home() / ".qwen/skills"',
+                "doc_mac": "~/.qwen/skills",
+                "doc_win": "%USERPROFILE%\\.qwen\\skills",
+            },
+            "CodeBuddy": {
+                "mac": "$HOME/.codebuddy/skills",
+                "win": "$Home\\.codebuddy\\skills",
+                "py": 'Path.home() / ".codebuddy/skills"',
+                "doc_mac": "~/.codebuddy/skills",
+                "doc_win": "%USERPROFILE%\\.codebuddy\\skills",
+            },
+            "Amp": {
+                "mac": "$HOME/.config/agents/skills",
+                "win": "$Home\\.config\\agents\\skills",
+                "py": 'Path.home() / ".config/agents/skills"',
+                "doc_mac": "~/.config/agents/skills",
+                "doc_win": "%USERPROFILE%\\.config\\agents\\skills",
+            },
+            "OpenHands": {
+                "mac": "$HOME/.openhands/skills",
+                "win": "$Home\\.openhands\\skills",
+                "py": 'Path.home() / ".openhands/skills"',
+                "doc_mac": "~/.openhands/skills",
+                "doc_win": "%USERPROFILE%\\.openhands\\skills",
+            },
+            "Kilo Code": {
+                "mac": "$HOME/.kilocode/skills",
+                "win": "$Home\\.kilocode\\skills",
+                "py": 'Path.home() / ".kilocode/skills"',
+                "doc_mac": "~/.kilocode/skills",
+                "doc_win": "%USERPROFILE%\\.kilocode\\skills",
+            },
+            "Zencoder": {
+                "mac": "$HOME/.zencoder/skills",
+                "win": "$Home\\.zencoder\\skills",
+                "py": 'Path.home() / ".zencoder/skills"',
+                "doc_mac": "~/.zencoder/skills",
+                "doc_win": "%USERPROFILE%\\.zencoder\\skills",
+            },
+            "iFlow CLI": {
+                "mac": "$HOME/.iflow/skills",
+                "win": "$Home\\.iflow\\skills",
+                "py": 'Path.home() / ".iflow/skills"',
+                "doc_mac": "~/.iflow/skills",
+                "doc_win": "%USERPROFILE%\\.iflow\\skills",
+            },
+            "Droid": {
+                "mac": "$HOME/.factory/skills",
+                "win": "$Home\\.factory\\skills",
+                "py": 'Path.home() / ".factory/skills"',
+                "doc_mac": "~/.factory/skills",
+                "doc_win": "%USERPROFILE%\\.factory\\skills",
+            },
+            "Devin for Terminal": {
+                "mac": "$HOME/.config/devin/skills",
+                "win": "$Home\\.config\\devin\\skills",
+                "py": 'Path.home() / ".config/devin/skills"',
+                "doc_mac": "~/.config/devin/skills",
+                "doc_win": "%USERPROFILE%\\.config\\devin\\skills",
+            },
+            "OpenCode": {
+                "mac": "$HOME/.config/opencode/skills",
+                "win": "$Home\\.config\\opencode\\skills",
+                "py": 'Path.home() / ".config/opencode/skills"',
+                "doc_mac": "~/.config/opencode/skills",
+                "doc_win": "%USERPROFILE%\\.config\\opencode\\skills",
+            },
+            "Goose": {
+                "mac": "$HOME/.config/goose/skills",
+                "win": "$Home\\.config\\goose\\skills",
+                "py": 'Path.home() / ".config/goose/skills"',
+                "doc_mac": "~/.config/goose/skills",
+                "doc_win": "%USERPROFILE%\\.config\\goose\\skills",
+            },
+            "Windsurf": {
+                "mac": "$HOME/.codeium/windsurf/skills",
+                "win": "$Home\\.codeium\\windsurf\\skills",
+                "py": 'Path.home() / ".codeium/windsurf/skills"',
+                "doc_mac": "~/.codeium/windsurf/skills",
+                "doc_win": "%USERPROFILE%\\.codeium\\windsurf\\skills",
+            },
+            "Pi": {
+                "mac": "$HOME/.pi/agent/skills",
+                "win": "$Home\\.pi\\agent\\skills",
+                "py": 'Path.home() / ".pi/agent/skills"',
+                "doc_mac": "~/.pi/agent/skills",
+                "doc_win": "%USERPROFILE%\\.pi\\agent\\skills",
+            },
+        }
+
+        deploy_sh = read("_maintenance/deploy.sh")
+        deploy_ps = read("_maintenance/deploy.ps1")
+        webui_py = read("_maintenance/webui.py")
+        webui_ps = read("_maintenance/webui.ps1")
+        docs = read("README.md") + read("README_CN.md") + read("SKILL.md")
+
+        for name, paths in expected_paths.items():
+            with self.subTest(agent=name):
+                self.assertIn(paths["mac"], deploy_sh)
+                self.assertIn(paths["win"], deploy_ps)
+                self.assertIn(paths["py"], webui_py)
+                self.assertIn(paths["win"], webui_ps)
+                self.assertIn(paths["doc_mac"], docs)
+                self.assertIn(paths["doc_win"], docs)
+
+        for stale_path in (
+            "$HOME/.opencode/skills",
+            "$Home\\.opencode\\skills",
+            'Path.home() / ".opencode/skills"',
+            "$HOME/.goose/skills",
+            "$Home\\.goose\\skills",
+            'Path.home() / ".goose/skills"',
+            "$HOME/.windsurf/skills",
+            "$Home\\.windsurf\\skills",
+            'Path.home() / ".windsurf/skills"',
+            "$HOME/.pi/skills",
+            "$Home\\.pi\\skills",
+            'Path.home() / ".pi/skills"',
+        ):
+            self.assertNotIn(stale_path, deploy_sh + deploy_ps + webui_py + webui_ps)
 
     def test_update_checks_use_backend_release_proxy(self):
         """The About page must not depend on the browser reaching GitHub.
@@ -313,6 +603,10 @@ class SecurityContractsTest(unittest.TestCase):
         # only via the fallback path when the task is missing.
         self.assertIn("Start-ScheduledTask -TaskName \"EasySkills Watcher\"", ps_src)
         self.assertIn("Disable-ScheduledTask -TaskName \"EasySkills Watcher\"", ps_src)
+        self.assertIn("function Quote-ProcessArgument", ps_src)
+        self.assertIn('Run-DeployCommand @("-Add", $BodyData["path"])', ps_src)
+        self.assertIn('Run-DeployCommand @("-Remove", $BodyData["path"])', ps_src)
+        self.assertNotIn('Run-DeployCommand @("-Add", "`"$($BodyData["path"])`"")', ps_src)
 
         # Legacy deploy/unwatch -KeepWebUI flag still wired up for the
         # fallback path and for the uninstaller.
@@ -326,10 +620,33 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("res.status === 403", src)
         self.assertIn("retryOnForbidden", src)
 
-    def test_macos_webui_launches_detached(self):
-        self.assertIn("nohup python3", read("install_mac.command"))
-        self.assertIn("nohup python3 \"$SCRIPT_DIR/webui.py\"", read("_maintenance/deploy.sh"))
-        self.assertIn("nohup python3 webui.py", read("_maintenance/macOS/Start — 启动.command"))
+    def test_macos_webui_launches_through_launchctl_with_loopback_url(self):
+        for rel in ("_maintenance/deploy.sh", "_maintenance/macOS/Start — 启动.command"):
+            src = read(rel)
+            self.assertIn("com.easyskills.webui.manual", src, rel)
+            self.assertIn("launchctl submit", src, rel)
+            self.assertIn("command -v python3", src, rel)
+            self.assertIn("http://127.0.0.1:6633", src, rel)
+            self.assertNotIn("nohup python3", src, rel)
+
+        for rel in ("install.sh", "install_mac.command"):
+            src = read(rel)
+            self.assertIn('bash "$PERM_DIR/_maintenance/deploy.sh" --webui', src, rel)
+            self.assertIn("http://127.0.0.1:6633", src, rel)
+            self.assertNotIn('open "http://127.0.0.1:6633"', src, rel)
+            self.assertNotIn('xdg-open "http://127.0.0.1:6633"', src, rel)
+            self.assertNotIn("nohup python3", src, rel)
+            self.assertNotIn("launchctl submit", src, rel)
+
+        deploy_src = read("_maintenance/deploy.sh")
+        start_src = read("_maintenance/macOS/Start — 启动.command")
+        self.assertIn("EASYSKILLS_NO_BROWSER=1", start_src)
+        self.assertIn("lsof -tiTCP:6633 -sTCP:LISTEN", deploy_src)
+        self.assertIn('[[ "$cmdline" == *"$SCRIPT_DIR/webui.py"* ]]', deploy_src)
+
+        webui_src = read("_maintenance/webui.py")
+        self.assertIn('sp.Popen(["open", f"http://127.0.0.1:{PORT}"]', webui_src)
+        self.assertIn("http://127.0.0.1:{PORT}", webui_src)
 
     def test_macos_watcher_status_ignores_webui_launchd_service(self):
         webui = load_python_webui_module()

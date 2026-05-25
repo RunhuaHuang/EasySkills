@@ -74,8 +74,8 @@ $Targets = @(
   "$Home\.codex\skills",
   "$Home\.claude\skills",
   "$Home\.copilot\skills",
-  "$Home\.pi\skills",
-  "$Home\.opencode\skills",
+  "$Home\.pi\agent\skills",
+  "$Home\.config\opencode\skills",
   "$Home\.kimi\skills",
   "$Home\.trae\skills",
   "$env:APPDATA\Trae\skills",
@@ -90,13 +90,23 @@ $Targets = @(
   "$Home\.cline\skills",
   "$Home\.roo\skills",
   "$Home\.warp\skills",
-  "$Home\.windsurf\skills",
+  "$Home\.codeium\windsurf\skills",
   "$Home\.firebender\skills",
   "$Home\.augment\skills",
   "$Home\.continue\skills",
-  "$Home\.goose\skills",
+  "$Home\.config\goose\skills",
   "$Home\.agents\skills",
-  "$Home\.run\global-skills\skills"
+  "$Home\.run\global-skills\skills",
+  "$Home\.qoder\skills",
+  "$Home\.qwen\skills",
+  "$Home\.codebuddy\skills",
+  "$Home\.config\agents\skills",
+  "$Home\.openhands\skills",
+  "$Home\.kilocode\skills",
+  "$Home\.zencoder\skills",
+  "$Home\.iflow\skills",
+  "$Home\.factory\skills",
+  "$Home\.config\devin\skills"
 )
 
 # ---- Concurrency lock (named mutex, system-wide) ----
@@ -173,7 +183,7 @@ function Get-AgentName ([string]$Path) {
   if ($Path -like "*\.claude\*") { return "Claude Code" }
   if ($Path -like "*\.copilot\*") { return "GitHub Copilot" }
   if ($Path -like "*\.pi\*") { return "Pi" }
-  if ($Path -like "*\.opencode\*") { return "OpenCode" }
+  if ($Path -like "*\.config\opencode\*") { return "OpenCode" }
   if ($Path -like "*\.kimi\*") { return "Kimi Code" }
   if ($Path -like "*\.trae-cn\*" -or $Path -like "*\Trae-CN\*") { return "Trae CN" }
   if ($Path -like "*\.trae\*" -or $Path -like "*\Trae\*") { return "Trae (Global)" }
@@ -195,11 +205,21 @@ function Get-AgentName ([string]$Path) {
   if ($Path -like "*\.cline\*") { return "Cline" }
   if ($Path -like "*\.roo\*") { return "Roo Code" }
   if ($Path -like "*\.warp\*") { return "Warp" }
-  if ($Path -like "*\.windsurf\*") { return "Windsurf" }
+  if ($Path -like "*\.codeium\windsurf\*") { return "Windsurf" }
   if ($Path -like "*\.firebender\*") { return "Firebender" }
   if ($Path -like "*\.augment\*") { return "Augment" }
   if ($Path -like "*\.continue\*") { return "Continue" }
-  if ($Path -like "*\.goose\*") { return "Goose" }
+  if ($Path -like "*\.config\goose\*") { return "Goose" }
+  if ($Path -like "*\.qoder\*") { return "Qoder" }
+  if ($Path -like "*\.qwen\*") { return "Qwen Code" }
+  if ($Path -like "*\.codebuddy\*") { return "CodeBuddy" }
+  if ($Path -like "*\.config\agents\*") { return "Amp" }
+  if ($Path -like "*\.openhands\*") { return "OpenHands" }
+  if ($Path -like "*\.kilocode\*") { return "Kilo Code" }
+  if ($Path -like "*\.zencoder\*") { return "Zencoder" }
+  if ($Path -like "*\.iflow\*") { return "iFlow CLI" }
+  if ($Path -like "*\.factory\*") { return "Droid" }
+  if ($Path -like "*\.config\devin\*") { return "Devin for Terminal" }
   if ($Path -like "*\.agents\*") { return "Agents (Standard)" }
   if ($Path -like "*\.run\*") { return "Run" }
   return "Custom Agent"

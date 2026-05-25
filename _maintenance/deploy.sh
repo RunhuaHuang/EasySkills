@@ -41,8 +41,8 @@ TARGETS=(
   "$HOME/.codex/skills"
   "$HOME/.claude/skills"
   "$HOME/.copilot/skills"
-  "$HOME/.pi/skills"
-  "$HOME/.opencode/skills"
+  "$HOME/.pi/agent/skills"
+  "$HOME/.config/opencode/skills"
   "$HOME/.kimi/skills"
   "$HOME/.trae/skills"
   "$HOME/Library/Application Support/Trae/skills"
@@ -57,13 +57,23 @@ TARGETS=(
   "$HOME/.cline/skills"
   "$HOME/.roo/skills"
   "$HOME/.warp/skills"
-  "$HOME/.windsurf/skills"
+  "$HOME/.codeium/windsurf/skills"
   "$HOME/.firebender/skills"
   "$HOME/.augment/skills"
   "$HOME/.continue/skills"
-  "$HOME/.goose/skills"
+  "$HOME/.config/goose/skills"
   "$HOME/.agents/skills"
   "$HOME/.run/global-skills/skills"
+  "$HOME/.qoder/skills"
+  "$HOME/.qwen/skills"
+  "$HOME/.codebuddy/skills"
+  "$HOME/.config/agents/skills"
+  "$HOME/.openhands/skills"
+  "$HOME/.kilocode/skills"
+  "$HOME/.zencoder/skills"
+  "$HOME/.iflow/skills"
+  "$HOME/.factory/skills"
+  "$HOME/.config/devin/skills"
 )
 
 # ---- Concurrency lock (PID-based, stale-safe) ----
@@ -137,7 +147,7 @@ get_agent_name() {
   if [[ "$path" == *".claude"* ]]; then echo "Claude Code"; return; fi
   if [[ "$path" == *".copilot"* ]]; then echo "GitHub Copilot"; return; fi
   if [[ "$path" == *".pi"* ]]; then echo "Pi"; return; fi
-  if [[ "$path" == *".opencode"* ]]; then echo "OpenCode"; return; fi
+  if [[ "$path" == *".config/opencode"* ]]; then echo "OpenCode"; return; fi
   if [[ "$path" == *".kimi"* ]]; then echo "Kimi Code"; return; fi
   if [[ "$path" == *".trae-cn"* || "$path" == *"/Trae-CN/"* ]]; then echo "Trae CN"; return; fi
   if [[ "$path" == *".trae"* || "$path" == *"/Trae/"* ]]; then echo "Trae (Global)"; return; fi
@@ -156,11 +166,21 @@ get_agent_name() {
   if [[ "$path" == *".cline"* ]]; then echo "Cline"; return; fi
   if [[ "$path" == *".roo"* ]]; then echo "Roo Code"; return; fi
   if [[ "$path" == *".warp"* ]]; then echo "Warp"; return; fi
-  if [[ "$path" == *".windsurf"* ]]; then echo "Windsurf"; return; fi
+  if [[ "$path" == *".codeium/windsurf"* ]]; then echo "Windsurf"; return; fi
   if [[ "$path" == *".firebender"* ]]; then echo "Firebender"; return; fi
   if [[ "$path" == *".augment"* ]]; then echo "Augment"; return; fi
   if [[ "$path" == *".continue"* ]]; then echo "Continue"; return; fi
-  if [[ "$path" == *".goose"* ]]; then echo "Goose"; return; fi
+  if [[ "$path" == *".config/goose"* ]]; then echo "Goose"; return; fi
+  if [[ "$path" == *".qoder"* ]]; then echo "Qoder"; return; fi
+  if [[ "$path" == *".qwen"* ]]; then echo "Qwen Code"; return; fi
+  if [[ "$path" == *".codebuddy"* ]]; then echo "CodeBuddy"; return; fi
+  if [[ "$path" == *".config/agents"* ]]; then echo "Amp"; return; fi
+  if [[ "$path" == *".openhands"* ]]; then echo "OpenHands"; return; fi
+  if [[ "$path" == *".kilocode"* ]]; then echo "Kilo Code"; return; fi
+  if [[ "$path" == *".zencoder"* ]]; then echo "Zencoder"; return; fi
+  if [[ "$path" == *".iflow"* ]]; then echo "iFlow CLI"; return; fi
+  if [[ "$path" == *".factory"* ]]; then echo "Droid"; return; fi
+  if [[ "$path" == *".config/devin"* ]]; then echo "Devin for Terminal"; return; fi
   if [[ "$path" == *".agents"* ]]; then echo "Agents (Standard)"; return; fi
   if [[ "$path" == *".run"* ]]; then echo "Run"; return; fi
   echo "Custom Agent"
@@ -382,6 +402,42 @@ show_help() {
   echo "  -h, --help          Show this help documentation"
 }
 
+start_webui() {
+  if ! command -v python3 &>/dev/null; then
+    echo "Note: python3 not found — WebUI skipped. Install Python 3 to use the WebUI."
+    return 1
+  fi
+
+  local python_bin
+  python_bin="$(command -v python3)"
+
+  if [ "$(uname -s)" = "Darwin" ] && command -v launchctl &>/dev/null; then
+    local webui_label="com.easyskills.webui.manual"
+    launchctl remove "$webui_label" 2>/dev/null || true
+    if command -v lsof &>/dev/null; then
+      local pid
+      for pid in $(lsof -tiTCP:6633 -sTCP:LISTEN 2>/dev/null); do
+        local cmdline
+        cmdline=$(ps -p "$pid" -o command= 2>/dev/null || true)
+        if [[ "$cmdline" == *"$SCRIPT_DIR/webui.py"* ]]; then
+          kill "$pid" 2>/dev/null || true
+        fi
+      done
+    fi
+    if launchctl submit -l "$webui_label" -- "$python_bin" "$SCRIPT_DIR/webui.py" 2>/dev/null; then
+      echo "WebUI launching on http://127.0.0.1:6633"
+      return 0
+    fi
+  fi
+
+  if command -v setsid &>/dev/null; then
+    setsid "$python_bin" "$SCRIPT_DIR/webui.py" >/dev/null 2>&1 &
+  else
+    "$python_bin" "$SCRIPT_DIR/webui.py" >/dev/null 2>&1 &
+  fi
+  echo "WebUI launching on http://127.0.0.1:6633"
+}
+
 # Parse command line options
 ACTION="sync"
 ARG=""
@@ -420,9 +476,6 @@ case "$ACTION" in
   unwatch) bash "$SCRIPT_DIR/unwatch.sh" ;;
   cleanup) run_cleanup ;;
   status) run_status ;;
-  webui)
-    nohup python3 "$SCRIPT_DIR/webui.py" >/dev/null 2>&1 &
-    echo "WebUI launching on http://localhost:6633"
-    ;;
+  webui) start_webui ;;
   help) show_help ;;
 esac

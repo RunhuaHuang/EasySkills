@@ -53,8 +53,8 @@ $DefaultAgents = @(
     @{ Name="Codex"; Path="$Home\.codex\skills" },
     @{ Name="Claude Code"; Path="$Home\.claude\skills" },
     @{ Name="GitHub Copilot"; Path="$Home\.copilot\skills" },
-    @{ Name="Pi"; Path="$Home\.pi\skills" },
-    @{ Name="OpenCode"; Path="$Home\.opencode\skills" },
+    @{ Name="Pi"; Path="$Home\.pi\agent\skills" },
+    @{ Name="OpenCode"; Path="$Home\.config\opencode\skills" },
     @{ Name="Kimi Code"; Path="$Home\.kimi\skills" },
     @{ Name="Trae (Global)"; Path="$Home\.trae\skills" },
     @{ Name="Trae (Global, App)"; Path="$env:APPDATA\Trae\skills" },
@@ -69,13 +69,23 @@ $DefaultAgents = @(
     @{ Name="Cline"; Path="$Home\.cline\skills" },
     @{ Name="Roo Code"; Path="$Home\.roo\skills" },
     @{ Name="Warp"; Path="$Home\.warp\skills" },
-    @{ Name="Windsurf"; Path="$Home\.windsurf\skills" },
+    @{ Name="Windsurf"; Path="$Home\.codeium\windsurf\skills" },
     @{ Name="Firebender"; Path="$Home\.firebender\skills" },
     @{ Name="Augment"; Path="$Home\.augment\skills" },
     @{ Name="Continue"; Path="$Home\.continue\skills" },
-    @{ Name="Goose"; Path="$Home\.goose\skills" },
+    @{ Name="Goose"; Path="$Home\.config\goose\skills" },
     @{ Name="Agents (Standard)"; Path="$Home\.agents\skills" },
-    @{ Name="Run"; Path="$Home\.run\global-skills\skills" }
+    @{ Name="Run"; Path="$Home\.run\global-skills\skills" },
+    @{ Name="Qoder"; Path="$Home\.qoder\skills" },
+    @{ Name="Qwen Code"; Path="$Home\.qwen\skills" },
+    @{ Name="CodeBuddy"; Path="$Home\.codebuddy\skills" },
+    @{ Name="Amp"; Path="$Home\.config\agents\skills" },
+    @{ Name="OpenHands"; Path="$Home\.openhands\skills" },
+    @{ Name="Kilo Code"; Path="$Home\.kilocode\skills" },
+    @{ Name="Zencoder"; Path="$Home\.zencoder\skills" },
+    @{ Name="iFlow CLI"; Path="$Home\.iflow\skills" },
+    @{ Name="Droid"; Path="$Home\.factory\skills" },
+    @{ Name="Devin for Terminal"; Path="$Home\.config\devin\skills" }
 )
 
 $ExcludeNames = @("_maintenance", ".git", "node_modules", "dist")
@@ -203,7 +213,7 @@ function Get-AgentNameFromPath([string]$PathStr) {
     if ($PathStr -like "*\.claude\*") { return "Claude Code" }
     if ($PathStr -like "*\.copilot\*") { return "GitHub Copilot" }
     if ($PathStr -like "*\.pi\*") { return "Pi" }
-    if ($PathStr -like "*\.opencode\*") { return "OpenCode" }
+    if ($PathStr -like "*\.config\opencode\*") { return "OpenCode" }
     if ($PathStr -like "*\.kimi\*") { return "Kimi Code" }
     if ($PathStr -like "*\.trae-cn\*" -or $PathStr -like "*\Trae-CN\*") { return "Trae CN" }
     if ($PathStr -like "*\.trae\*" -or $PathStr -like "*\Trae\*") { return "Trae (Global)" }
@@ -216,11 +226,21 @@ function Get-AgentNameFromPath([string]$PathStr) {
     if ($PathStr -like "*\.cline\*") { return "Cline" }
     if ($PathStr -like "*\.roo\*") { return "Roo Code" }
     if ($PathStr -like "*\.warp\*") { return "Warp" }
-    if ($PathStr -like "*\.windsurf\*") { return "Windsurf" }
+    if ($PathStr -like "*\.codeium\windsurf\*") { return "Windsurf" }
     if ($PathStr -like "*\.firebender\*") { return "Firebender" }
     if ($PathStr -like "*\.augment\*") { return "Augment" }
     if ($PathStr -like "*\.continue\*") { return "Continue" }
-    if ($PathStr -like "*\.goose\*") { return "Goose" }
+    if ($PathStr -like "*\.config\goose\*") { return "Goose" }
+    if ($PathStr -like "*\.qoder\*") { return "Qoder" }
+    if ($PathStr -like "*\.qwen\*") { return "Qwen Code" }
+    if ($PathStr -like "*\.codebuddy\*") { return "CodeBuddy" }
+    if ($PathStr -like "*\.config\agents\*") { return "Amp" }
+    if ($PathStr -like "*\.openhands\*") { return "OpenHands" }
+    if ($PathStr -like "*\.kilocode\*") { return "Kilo Code" }
+    if ($PathStr -like "*\.zencoder\*") { return "Zencoder" }
+    if ($PathStr -like "*\.iflow\*") { return "iFlow CLI" }
+    if ($PathStr -like "*\.factory\*") { return "Droid" }
+    if ($PathStr -like "*\.config\devin\*") { return "Devin for Terminal" }
     if ($PathStr -like "*\.agents\*") { return "Agents (Standard)" }
     if ($PathStr -like "*\.run\*") { return "Run" }
     return "Custom Agent"
@@ -404,16 +424,45 @@ function Stop-WatcherTask {
     }
 }
 
+function Quote-ProcessArgument([string]$Arg) {
+    if ($null -eq $Arg) { return '""' }
+    if ($Arg -eq "") { return '""' }
+    if ($Arg -notmatch '[\s"]') { return $Arg }
+
+    $Out = '"'
+    $Backslashes = 0
+    foreach ($Ch in $Arg.ToCharArray()) {
+        if ($Ch -eq '\') {
+            $Backslashes += 1
+            continue
+        }
+        if ($Ch -eq '"') {
+            if ($Backslashes -gt 0) { $Out += ('\' * ($Backslashes * 2)) }
+            $Out += '\"'
+            $Backslashes = 0
+            continue
+        }
+        if ($Backslashes -gt 0) {
+            $Out += ('\' * $Backslashes)
+            $Backslashes = 0
+        }
+        $Out += $Ch
+    }
+    if ($Backslashes -gt 0) { $Out += ('\' * ($Backslashes * 2)) }
+    $Out += '"'
+    return $Out
+}
+
 function Run-DeployCommand([string[]]$ArgsArr) {
     try {
         $DeployScript = Join-Path $ScriptDir "deploy.ps1"
         $TempOut = [System.IO.Path]::GetTempFileName()
         $TempErr = [System.IO.Path]::GetTempFileName()
-        $ArgList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$DeployScript`"") + $ArgsArr
+        $ArgList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $DeployScript) + $ArgsArr
 
         $ProcInfo = New-Object System.Diagnostics.ProcessStartInfo
         $ProcInfo.FileName = "powershell.exe"
-        $ProcInfo.Arguments = ($ArgList -join " ")
+        $ProcInfo.Arguments = (($ArgList | ForEach-Object { Quote-ProcessArgument ([string]$_) }) -join " ")
         $ProcInfo.UseShellExecute = $false
         $ProcInfo.RedirectStandardOutput = $true
         $ProcInfo.RedirectStandardError = $true
@@ -526,6 +575,124 @@ function Do-Map([string]$TargetPath) {
     } catch {
         return @{ success = $false; message = $_.Exception.Message }
     }
+}
+
+function Get-PayloadValue($Item, [string]$Name) {
+    if ($Item -is [hashtable]) {
+        if ($Item.ContainsKey($Name)) { return $Item[$Name] }
+        return $null
+    }
+    if ($Item -and $Item.PSObject -and $Item.PSObject.Properties[$Name]) {
+        return $Item.PSObject.Properties[$Name].Value
+    }
+    return $null
+}
+
+function Test-SkillName([string]$Name) {
+    $Clean = if ($Name) { $Name.Trim() } else { "" }
+    if (-not $Clean) { return @{ ok = $false; value = "Skill name cannot be empty" } }
+    if ($Clean.StartsWith("_") -or $Clean.StartsWith(".") -or ($ExcludeNames -contains $Clean)) {
+        return @{ ok = $false; value = "Reserved skill name" }
+    }
+    if ($Clean.Contains("/") -or $Clean.Contains("\") -or $Clean.Contains([char]0) -or $Clean -eq "." -or $Clean -eq "..") {
+        return @{ ok = $false; value = "Invalid skill name" }
+    }
+    return @{ ok = $true; value = $Clean }
+}
+
+function ConvertTo-SafeRelativePath([string]$PathValue) {
+    if (-not $PathValue -or $PathValue.Contains([char]0)) { return $null }
+    $Normalized = $PathValue.Replace("\", "/")
+    if ($Normalized.StartsWith("/") -or $Normalized.Contains(":")) { return $null }
+    $Parts = $Normalized.Split("/")
+    foreach ($Part in $Parts) {
+        if (-not $Part -or $Part -eq "." -or $Part -eq "..") { return $null }
+    }
+    return ($Parts -join [System.IO.Path]::DirectorySeparatorChar)
+}
+
+function Import-SkillFolder([string]$Name, $Files) {
+    $NameCheck = Test-SkillName $Name
+    if (-not $NameCheck.ok) { return @{ success = $false; message = $NameCheck.value } }
+    $CleanName = $NameCheck.value
+    if (-not $Files -or @($Files).Count -eq 0) {
+        return @{ success = $false; message = "No files were provided" }
+    }
+
+    if (-not (Test-Path $CentralDir)) {
+        New-Item -ItemType Directory -Path $CentralDir -Force | Out-Null
+    }
+    $Target = Join-Path $CentralDir $CleanName
+    if (Test-Path $Target) {
+        return @{ success = $false; message = "Skill already exists: $CleanName" }
+    }
+
+    $Prepared = @()
+    $HasSkillMd = $false
+    foreach ($File in @($Files)) {
+        $RelRaw = [string](Get-PayloadValue $File "path")
+        $Rel = ConvertTo-SafeRelativePath $RelRaw
+        if (-not $Rel) { return @{ success = $false; message = "Invalid file path in upload" } }
+        $Data = Get-PayloadValue $File "data"
+        if (-not ($Data -is [string])) {
+            return @{ success = $false; message = "Invalid file data: $RelRaw" }
+        }
+        try {
+            $Bytes = [System.Convert]::FromBase64String($Data)
+        } catch {
+            return @{ success = $false; message = "Invalid base64 data: $RelRaw" }
+        }
+        if ($RelRaw.Replace("\", "/") -eq "SKILL.md") { $HasSkillMd = $true }
+        $Prepared += @{ rel = $Rel; bytes = $Bytes }
+    }
+    if (-not $HasSkillMd) {
+        return @{ success = $false; message = "Selected folder must contain SKILL.md at its root" }
+    }
+
+    $TmpDir = Join-Path $CentralDir ".import-$([Guid]::NewGuid().ToString('N'))"
+    try {
+        New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
+        foreach ($Item in $Prepared) {
+            $Dest = Join-Path $TmpDir $Item.rel
+            $Parent = Split-Path -Path $Dest -Parent
+            if (-not (Test-Path $Parent)) {
+                New-Item -ItemType Directory -Path $Parent -Force | Out-Null
+            }
+            [System.IO.File]::WriteAllBytes($Dest, [byte[]]$Item.bytes)
+        }
+        Move-Item -LiteralPath $TmpDir -Destination $Target
+    } catch {
+        try { if (Test-Path $TmpDir) { Remove-Item -LiteralPath $TmpDir -Recurse -Force } } catch {}
+        return @{ success = $false; message = "Import failed: $($_.Exception.Message)" }
+    }
+
+    $Sync = Run-DeployCommand @("-Sync")
+    $Msg = "Imported $CleanName"
+    if ($Sync.message) { $Msg = "$Msg`n$($Sync.message)" }
+    return @{ success = $true; message = $Msg; skill = $CleanName }
+}
+
+function Delete-Skill([string]$Name) {
+    $NameCheck = Test-SkillName $Name
+    if (-not $NameCheck.ok) { return @{ success = $false; message = $NameCheck.value } }
+    $CleanName = $NameCheck.value
+    $Target = Join-Path $CentralDir $CleanName
+    if (-not (Test-Path $Target)) {
+        return @{ success = $false; message = "Skill not found: $CleanName" }
+    }
+    try {
+        Remove-Item -LiteralPath $Target -Recurse -Force
+    } catch {
+        return @{ success = $false; message = "Delete failed: $($_.Exception.Message)" }
+    }
+
+    $Cleanup = Run-DeployCommand @("-Cleanup")
+    $Sync = Run-DeployCommand @("-Sync")
+    $Msg = "Deleted $CleanName"
+    foreach ($Result in @($Cleanup, $Sync)) {
+        if ($Result.message) { $Msg = "$Msg`n$($Result.message)" }
+    }
+    return @{ success = $true; message = $Msg; skill = $CleanName }
 }
 
 function Run-SelfUpdate {
@@ -821,9 +988,13 @@ function Invoke-WebUIRequest($Context) {
         } elseif ($UrlPath -eq "/api/agents/update") {
             Send-JsonResponse $Context (Update-AgentPath $BodyData["name"] $BodyData["old_path"] $BodyData["new_path"])
         } elseif ($UrlPath -eq "/api/agents/custom/add") {
-            Send-JsonResponse $Context (Run-DeployCommand @("-Add", "`"$($BodyData["path"])`""))
+            Send-JsonResponse $Context (Run-DeployCommand @("-Add", $BodyData["path"]))
         } elseif ($UrlPath -eq "/api/agents/custom/remove") {
-            Send-JsonResponse $Context (Run-DeployCommand @("-Remove", "`"$($BodyData["path"])`""))
+            Send-JsonResponse $Context (Run-DeployCommand @("-Remove", $BodyData["path"]))
+        } elseif ($UrlPath -eq "/api/skills/import") {
+            Send-JsonResponse $Context (Import-SkillFolder $BodyData["name"] $BodyData["files"])
+        } elseif ($UrlPath -eq "/api/skills/delete") {
+            Send-JsonResponse $Context (Delete-Skill $BodyData["name"])
         } elseif ($UrlPath -eq "/api/update") {
             Send-JsonResponse $Context (Run-SelfUpdate)
         } else {
@@ -860,14 +1031,14 @@ while ($true) {
         Write-Host ""
         Write-Host "  EasySkills WebUI (Windows)"
         Write-Host "  =========================================="
-        Write-Host "    http://localhost:$Port"
+        Write-Host "    http://127.0.0.1:$Port"
         Write-Host "    Press Ctrl+C to stop"
         Write-Host "  =========================================="
         Write-Host ""
 
         $SkipBrowser = $NoBrowser -or ($env:EASYSKILLS_NO_BROWSER -eq "1")
         if (-not $SkipBrowser -and -not $BrowserOpened) {
-            try { Start-Process "http://localhost:$Port" } catch {
+            try { Start-Process "http://127.0.0.1:$Port" } catch {
                 Write-WebUILog "Browser open failed (ignored): $($_.Exception.Message)"
             }
             $BrowserOpened = $true

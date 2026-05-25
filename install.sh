@@ -82,7 +82,8 @@ bash "$PERM_DIR/_maintenance/watch.sh"
 # --- Launch WebUI in background & pop up browser ---
 if command -v python3 &>/dev/null; then
   echo "Launching WebUI Manager on port 6633..."
-  nohup python3 "$PERM_DIR/_maintenance/webui.py" >/dev/null 2>&1 &
+  bash "$PERM_DIR/_maintenance/deploy.sh" --webui
+  echo "WebUI URL: http://127.0.0.1:6633"
 else
   echo "Note: python3 not found — WebUI skipped. Install Python 3 to use the WebUI."
 fi

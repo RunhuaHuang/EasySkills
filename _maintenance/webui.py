@@ -8,6 +8,8 @@
 
 import http.server
 import socketserver
+import base64
+import binascii
 import hmac
 import json
 import os
@@ -45,8 +47,8 @@ DEFAULT_AGENTS = [
     ("Codex",                          Path.home() / ".codex/skills"),
     ("Claude Code",                    Path.home() / ".claude/skills"),
     ("GitHub Copilot",                 Path.home() / ".copilot/skills"),
-    ("Pi",                             Path.home() / ".pi/skills"),
-    ("OpenCode",                       Path.home() / ".opencode/skills"),
+    ("Pi",                             Path.home() / ".pi/agent/skills"),
+    ("OpenCode",                       Path.home() / ".config/opencode/skills"),
     ("Kimi Code",                      Path.home() / ".kimi/skills"),
     ("Trae (Global)",                  Path.home() / ".trae/skills"),
     ("Trae (Global, App)",             Path.home() / "Library/Application Support/Trae/skills"),
@@ -62,12 +64,22 @@ DEFAULT_AGENTS = [
     ("Roo Code",                       Path.home() / ".roo/skills"),
     ("Run",                            Path.home() / ".run" / "global-skills" / "skills"),
     ("Warp",                           Path.home() / ".warp/skills"),
-    ("Windsurf",                       Path.home() / ".windsurf/skills"),
+    ("Windsurf",                       Path.home() / ".codeium/windsurf/skills"),
     ("Firebender",                     Path.home() / ".firebender/skills"),
     ("Augment",                        Path.home() / ".augment/skills"),
     ("Continue",                       Path.home() / ".continue/skills"),
-    ("Goose",                          Path.home() / ".goose/skills"),
+    ("Goose",                          Path.home() / ".config/goose/skills"),
     ("Agents (Standard)",              Path.home() / ".agents/skills"),
+    ("Qoder",                          Path.home() / ".qoder/skills"),
+    ("Qwen Code",                      Path.home() / ".qwen/skills"),
+    ("CodeBuddy",                      Path.home() / ".codebuddy/skills"),
+    ("Amp",                            Path.home() / ".config/agents/skills"),
+    ("OpenHands",                      Path.home() / ".openhands/skills"),
+    ("Kilo Code",                      Path.home() / ".kilocode/skills"),
+    ("Zencoder",                       Path.home() / ".zencoder/skills"),
+    ("iFlow CLI",                      Path.home() / ".iflow/skills"),
+    ("Droid",                          Path.home() / ".factory/skills"),
+    ("Devin for Terminal",             Path.home() / ".config/devin/skills"),
 ]
 
 EXCLUDE_NAMES = {"_maintenance", ".git", "node_modules", "dist"}
@@ -136,7 +148,7 @@ def get_agent_name(path: str) -> str:
     if ".claude" in path_lower: return "Claude Code"
     if ".copilot" in path_lower: return "GitHub Copilot"
     if ".pi" in path_lower: return "Pi"
-    if ".opencode" in path_lower: return "OpenCode"
+    if ".config/opencode" in path_lower: return "OpenCode"
     if ".kimi" in path_lower: return "Kimi Code"
     if ".trae-cn" in path_lower or "/trae-cn/" in path_lower: return "Trae CN"
     if ".trae" in path_lower or "/trae/" in path_lower: return "Trae (Global)"
@@ -149,11 +161,21 @@ def get_agent_name(path: str) -> str:
     if ".cline" in path_lower: return "Cline"
     if ".roo" in path_lower: return "Roo Code"
     if ".warp" in path_lower: return "Warp"
-    if ".windsurf" in path_lower: return "Windsurf"
+    if ".codeium/windsurf" in path_lower: return "Windsurf"
     if ".firebender" in path_lower: return "Firebender"
     if ".augment" in path_lower: return "Augment"
     if ".continue" in path_lower: return "Continue"
-    if ".goose" in path_lower: return "Goose"
+    if ".config/goose" in path_lower: return "Goose"
+    if ".qoder" in path_lower: return "Qoder"
+    if ".qwen" in path_lower: return "Qwen Code"
+    if ".codebuddy" in path_lower: return "CodeBuddy"
+    if ".config/agents" in path_lower: return "Amp"
+    if ".openhands" in path_lower: return "OpenHands"
+    if ".kilocode" in path_lower: return "Kilo Code"
+    if ".zencoder" in path_lower: return "Zencoder"
+    if ".iflow" in path_lower: return "iFlow CLI"
+    if ".factory" in path_lower: return "Droid"
+    if ".config/devin" in path_lower: return "Devin for Terminal"
     if ".agents" in path_lower: return "Agents (Standard)"
     if ".run" in path_lower: return "Run"
     return "Custom Agent"
@@ -340,6 +362,104 @@ def run_deploy(*args: str) -> dict:
         }
     except Exception as e:
         return {"success": False, "output": str(e), "message": str(e)}
+
+
+def _validate_skill_name(name: str) -> tuple[bool, str]:
+    name = (name or "").strip()
+    if not name:
+        return False, "Skill name cannot be empty"
+    if name.startswith(("_", ".")) or name in EXCLUDE_NAMES:
+        return False, "Reserved skill name"
+    if "/" in name or "\\" in name or "\x00" in name or name in (".", ".."):
+        return False, "Invalid skill name"
+    return True, name
+
+
+def _safe_relative_path(path: str) -> Path | None:
+    if not path or "\x00" in path:
+        return None
+    rel = Path(path.replace("\\", "/"))
+    if rel.is_absolute() or any(part in ("", ".", "..") for part in rel.parts):
+        return None
+    return rel
+
+
+def import_skill_folder(name: str, files: list[dict]) -> dict:
+    valid, clean_name = _validate_skill_name(name)
+    if not valid:
+        return {"success": False, "message": clean_name}
+    if not isinstance(files, list) or not files:
+        return {"success": False, "message": "No files were provided"}
+
+    CENTRAL_DIR.mkdir(parents=True, exist_ok=True)
+    target = CENTRAL_DIR / clean_name
+    if target.exists() or target.is_symlink():
+        return {"success": False, "message": f"Skill already exists: {clean_name}"}
+
+    prepared: list[tuple[Path, bytes]] = []
+    has_skill_md = False
+    for item in files:
+        if not isinstance(item, dict):
+            return {"success": False, "message": "Invalid file payload"}
+        rel = _safe_relative_path(str(item.get("path", "")))
+        if rel is None:
+            return {"success": False, "message": "Invalid file path in upload"}
+        data = item.get("data", "")
+        if not isinstance(data, str):
+            return {"success": False, "message": f"Invalid file data: {rel}"}
+        try:
+            content = base64.b64decode(data.encode("ascii"), validate=True)
+        except (binascii.Error, UnicodeEncodeError, ValueError):
+            return {"success": False, "message": f"Invalid base64 data: {rel}"}
+        if rel.as_posix() == "SKILL.md":
+            has_skill_md = True
+        prepared.append((rel, content))
+
+    if not has_skill_md:
+        return {"success": False, "message": "Selected folder must contain SKILL.md at its root"}
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix=".import-", dir=str(CENTRAL_DIR)))
+    try:
+        for rel, content in prepared:
+            dest = tmp_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
+        tmp_dir.rename(target)
+    except Exception as e:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return {"success": False, "message": f"Import failed: {e}"}
+
+    sync = run_deploy("--sync")
+    msg = f"Imported {clean_name}"
+    if sync.get("message"):
+        msg += f"\n{sync['message']}"
+    return {"success": True, "message": msg, "skill": clean_name}
+
+
+def delete_skill(name: str) -> dict:
+    valid, clean_name = _validate_skill_name(name)
+    if not valid:
+        return {"success": False, "message": clean_name}
+
+    target = CENTRAL_DIR / clean_name
+    if not target.exists() and not target.is_symlink():
+        return {"success": False, "message": f"Skill not found: {clean_name}"}
+
+    try:
+        if target.is_symlink():
+            target.unlink()
+        else:
+            shutil.rmtree(target)
+    except Exception as e:
+        return {"success": False, "message": f"Delete failed: {e}"}
+
+    cleanup = run_deploy("--cleanup")
+    sync = run_deploy("--sync")
+    msg = f"Deleted {clean_name}"
+    for result in (cleanup, sync):
+        if result.get("message"):
+            msg += f"\n{result['message']}"
+    return {"success": True, "message": msg, "skill": clean_name}
 
 
 def do_map(target_path: str) -> dict:
@@ -672,6 +792,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "/api/agents/update":        lambda: update_agent_path(body.get("name", ""), body.get("old_path", ""), body.get("new_path", "")),
             "/api/agents/custom/add":    lambda: run_deploy("--add", body.get("path", "")),
             "/api/agents/custom/remove": lambda: run_deploy("--remove", body.get("path", "")),
+            "/api/skills/import":        lambda: import_skill_folder(body.get("name", ""), body.get("files", [])),
+            "/api/skills/delete":        lambda: delete_skill(body.get("name", "")),
             "/api/update":               lambda: do_self_update(),
         }
 
@@ -690,26 +812,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
 def main():
     print(f"\n  🚀 EasySkills WebUI")
     print(f"  ┌──────────────────────────────────────┐")
-    print(f"  │   http://localhost:{PORT}               │")
+    print(f"  │   http://127.0.0.1:{PORT}              │")
     print(f"  │   Press Ctrl+C to stop               │")
     print(f"  └──────────────────────────────────────┘\n")
 
-    # Auto-open browser (cross-platform)
-    try:
-        import subprocess as sp
-        current_os = platform.system()
-        if current_os == "Darwin":
-            sp.Popen(["open", f"http://localhost:{PORT}"],
-                     stdout=sp.DEVNULL, stderr=sp.DEVNULL)
-        elif current_os == "Linux":
-            sp.Popen(["xdg-open", f"http://localhost:{PORT}"],
-                     stdout=sp.DEVNULL, stderr=sp.DEVNULL)
-        # Windows is handled by webui.ps1, but just in case:
-        elif current_os == "Windows":
-            sp.Popen(["cmd", "/c", "start", f"http://localhost:{PORT}"],
-                     stdout=sp.DEVNULL, stderr=sp.DEVNULL)
-    except Exception:
-        pass
+    # Auto-open browser (cross-platform), unless suppressed by caller
+    if os.environ.get("EASYSKILLS_NO_BROWSER") != "1":
+        try:
+            import subprocess as sp
+            current_os = platform.system()
+            if current_os == "Darwin":
+                sp.Popen(["open", f"http://127.0.0.1:{PORT}"],
+                         stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+            elif current_os == "Linux":
+                sp.Popen(["xdg-open", f"http://127.0.0.1:{PORT}"],
+                         stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+            # Windows is handled by webui.ps1, but just in case:
+            elif current_os == "Windows":
+                sp.Popen(["cmd", "/c", "start", f"http://127.0.0.1:{PORT}"],
+                         stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+        except Exception:
+            pass
 
     class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         allow_reuse_address = True
