@@ -2,7 +2,7 @@
 name: EasySkills
 description: Cross-platform automated skills manager. Automatically detects macOS/Windows, creates a centralized skills directory, registers background file watchers, and maps your custom skills dynamically to all installed agents.
 homepage: https://github.com/RunhuaHuang/EasySkills
-version: 1.1.0
+version: 1.2.1
 metadata: {"clawdbot":{"emoji":"🚀","requires":{"bins":["bash","powershell"]}}}
 ---
 

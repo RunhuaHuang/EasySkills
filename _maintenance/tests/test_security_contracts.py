@@ -92,11 +92,31 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("addEventListener('click'", src)
 
     def test_readme_version_and_agent_count_match_release(self):
-        self.assertIn("Version-1.2.0", read("README.md"))
-        self.assertIn("版本-1.2.0", read("README_CN.md"))
+        self.assertIn("Version-1.2.1", read("README.md"))
+        self.assertIn("版本-1.2.1", read("README_CN.md"))
         self.assertIn("25 agents are pre-configured", read("README.md"))
         self.assertIn("开箱即用支持 25 个 Agent", read("README_CN.md"))
-        self.assertEqual("1.2.0", read("_maintenance/.version").strip())
+        self.assertEqual("1.2.1", read("_maintenance/.version").strip())
+
+    def test_update_checks_use_backend_release_proxy(self):
+        """The About page must not depend on the browser reaching GitHub.
+
+        The self-update path already fetches GitHub from the local backend with
+        a User-Agent. The manual "Check for Updates" path should use the same
+        backend boundary so CORS/ad blockers/browser-side GitHub failures do
+        not make a real release look like "unknown".
+        """
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        html_src = read("_maintenance/webui/index.html")
+
+        self.assertIn("def get_latest_release", py_src)
+        self.assertIn('"/api/latest-release"', py_src)
+        self.assertIn("function Get-LatestRelease", ps_src)
+        self.assertIn('"/api/latest-release"', ps_src)
+        self.assertIn("fetchLatestRelease", html_src)
+        self.assertIn("fetch('/api/latest-release')", html_src)
+        self.assertNotIn("fetch('https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest')", html_src)
 
     # -------------------------------------------------------------------------
     # Windows background launching — Scheduled Tasks (S4U) + AV-safe launchers

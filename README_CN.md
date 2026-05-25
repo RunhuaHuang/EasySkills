@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#-安装方式)
 [![Agents](https://img.shields.io/badge/支持Agent-25+-orange.svg)](#-支持的-agent-列表)
-[![Version](https://img.shields.io/badge/版本-1.2.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Version](https://img.shields.io/badge/版本-1.2.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **一个技能目录，统治所有 Agent。**
 

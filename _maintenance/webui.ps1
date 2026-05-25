@@ -88,6 +88,32 @@ function Get-EasySkillsVersion {
     return "unknown"
 }
 
+function Get-LatestRelease {
+    $Headers = @{ "Accept" = "application/vnd.github+json"; "User-Agent" = "EasySkills-WebUI" }
+    try {
+        $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest" -Headers $Headers -TimeoutSec 15
+    } catch {
+        return @{ success = $false; message = "Failed to fetch release info: $_" }
+    }
+
+    $LatestTag = $Release.tag_name
+    if (-not $LatestTag) {
+        return @{ success = $false; message = "Could not determine latest version" }
+    }
+
+    return @{
+        success = $true
+        tag_name = $LatestTag
+        name = $Release.name
+        html_url = $Release.html_url
+        published_at = $Release.published_at
+        tarball_url = $Release.tarball_url
+        zipball_url = $Release.zipball_url
+        draft = [bool]$Release.draft
+        prerelease = [bool]$Release.prerelease
+    }
+}
+
 # --------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------
@@ -458,11 +484,9 @@ function Do-Map([string]$TargetPath) {
 
 function Run-SelfUpdate {
     try {
-        $Headers = @{ "Accept" = "application/vnd.github+json"; "User-Agent" = "EasySkills-WebUI" }
-        try {
-            $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest" -Headers $Headers -TimeoutSec 15
-        } catch {
-            return @{ success = $false; message = "Failed to fetch release info: $_" }
+        $Release = Get-LatestRelease
+        if (-not $Release.success) {
+            return $Release
         }
 
         $LatestTag = $Release.tag_name
@@ -480,6 +504,7 @@ function Run-SelfUpdate {
 
         try {
             $ZipPath = Join-Path $TmpDir "release.zip"
+            $Headers = @{ "Accept" = "application/vnd.github+json"; "User-Agent" = "EasySkills-WebUI" }
             Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath -Headers $Headers -TimeoutSec 60 -UseBasicParsing
 
             $ExtractDir = Join-Path $TmpDir "extracted"
@@ -698,6 +723,8 @@ function Invoke-WebUIRequest($Context) {
             Send-JsonResponse $Context (Get-SkillsData)
         } elseif ($UrlPath -eq "/api/agents") {
             Send-JsonResponse $Context (Get-VisibleAgentsData)
+        } elseif ($UrlPath -eq "/api/latest-release") {
+            Send-JsonResponse $Context (Get-LatestRelease)
         } else {
             $Context.Response.StatusCode = 404
             $Context.Response.Close()

@@ -229,6 +229,34 @@ def get_version():
     return "unknown"
 
 
+def get_latest_release() -> dict:
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "EasySkills-WebUI"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            release = json.loads(resp.read().decode())
+
+        latest_tag = release.get("tag_name", "")
+        if not latest_tag:
+            return {"success": False, "message": "Could not determine latest version"}
+
+        return {
+            "success": True,
+            "tag_name": latest_tag,
+            "name": release.get("name", ""),
+            "html_url": release.get("html_url", ""),
+            "published_at": release.get("published_at", ""),
+            "tarball_url": release.get("tarball_url", ""),
+            "zipball_url": release.get("zipball_url", ""),
+            "draft": bool(release.get("draft", False)),
+            "prerelease": bool(release.get("prerelease", False)),
+        }
+    except Exception as e:
+        return {"success": False, "message": f"Failed to fetch release info: {e}"}
+
+
 def get_watcher_status():
     try:
         if platform.system() == "Darwin":
@@ -399,13 +427,9 @@ def update_agent_path(name: str, old_path: str, new_path: str) -> dict:
 
 def do_self_update() -> dict:
     try:
-        req = urllib.request.Request(
-            "https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest",
-            headers={"Accept": "application/vnd.github+json", "User-Agent": "EasySkills-WebUI"},
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            release = json.loads(resp.read().decode())
-
+        release = get_latest_release()
+        if not release.get("success"):
+            return release
         latest_tag = release.get("tag_name", "")
         if not latest_tag:
             return {"success": False, "message": "Could not determine latest version"}
@@ -585,6 +609,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         elif path == "/api/agents":
             self._json(get_visible_agents())
+
+        elif path == "/api/latest-release":
+            self._json(get_latest_release())
 
         else:
             self.send_response(404)

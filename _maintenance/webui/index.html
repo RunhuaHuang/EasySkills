@@ -2400,13 +2400,12 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
             if (activeNav === 'about') {
                 const latestLabel = document.getElementById('latest-version');
                 if (latestLabel && latestLabel.innerText === 'Loading...') {
-                    // Quietly fetch updates on first load
-                    fetch('https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest')
-                        .then(res => res.json())
+                    // Quietly fetch updates on first load through the local backend.
+                    fetchLatestRelease()
                         .then(data => {
-                            const latestVer = data.tag_name || 'unknown';
-                            latestLabel.innerText = latestVer;
-                        }).catch(() => {
+                            latestLabel.innerText = normalizeVersionTag(data.tag_name);
+                        })
+                        .catch(() => {
                             latestLabel.innerText = window._esCurrentVersion || 'unknown';
                         });
                 }
@@ -2721,6 +2720,26 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
         }
 
         // --- GitHub Live Update Service ---
+        function normalizeVersionTag(version) {
+            const raw = (version || '').toString().trim();
+            if (!raw || raw === 'unknown') return 'unknown';
+            return raw.startsWith('v') ? raw : 'v' + raw;
+        }
+
+        async function fetchLatestRelease() {
+            const res = await fetch('/api/latest-release');
+            let data = {};
+            try {
+                data = await res.json();
+            } catch (err) {
+                throw new Error('Invalid release response');
+            }
+            if (!res.ok || !data.success || !data.tag_name) {
+                throw new Error(data.message || 'Failed to fetch release info');
+            }
+            return data;
+        }
+
         async function checkUpdates(btn) {
             if (btn) {
                 btn.disabled = true;
@@ -2729,13 +2748,12 @@ Cursor=/Users/me/custom-cursor/skills</code></pre>
                 btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: var(--primary); font-size: 1.15rem; margin-right: 6px;"></i> <span>${currentLang === 'en' ? 'Checking...' : '正在检索...'}</span>`;
                 
                 try {
-                    const res = await fetch('https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest');
-                    const data = await res.json();
-                    const latestVer = data.tag_name || 'unknown';
+                    const data = await fetchLatestRelease();
+                    const latestVer = normalizeVersionTag(data.tag_name);
                     
                     document.getElementById('latest-version').innerText = latestVer;
                     
-                    const currentVer = window._esCurrentVersion || 'v1.0.1';
+                    const currentVer = normalizeVersionTag(window._esCurrentVersion || 'v1.0.1');
                     const tagBadge = document.getElementById('update-status-tag');
                     
                     const updateBtn = document.getElementById('btn-update-now');
