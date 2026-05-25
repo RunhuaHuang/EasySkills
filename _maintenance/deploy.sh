@@ -333,9 +333,11 @@ run_status() {
 
   # Watcher status
   local watcher_running=false
-  if launchctl list 2>/dev/null | grep -q "easyskills"; then
+  local watcher_pid
+  watcher_pid=$(launchctl list 2>/dev/null | awk '$3 == "com.easyskills.watcher" { print $1; exit }')
+  if [ -n "$watcher_pid" ]; then
     local pid
-    pid=$(launchctl list 2>/dev/null | grep "easyskills" | awk '{print $1}')
+    pid="$watcher_pid"
     echo "   Watcher: ✅ Running (PID $pid)"
     watcher_running=true
   else

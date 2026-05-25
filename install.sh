@@ -89,7 +89,7 @@ fi
 
 # --- Verify watcher status ---
 echo ""
-if launchctl list 2>/dev/null | grep -q "easyskills"; then
+if launchctl list 2>/dev/null | awk '$3 == "com.easyskills.watcher" { found=1 } END { exit found ? 0 : 1 }'; then
   echo "✅ Watcher is running"
 else
   echo "⚠️  Watcher not detected. Try: launchctl load ~/Library/LaunchAgents/com.easyskills.watcher.plist"

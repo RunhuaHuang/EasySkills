@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import re
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 from pathlib import Path
 
 
@@ -9,6 +11,16 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def read(rel: str) -> str:
     return (ROOT / rel).read_text(encoding="utf-8")
+
+
+def load_python_webui_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("easyskills_webui_test", ROOT / "_maintenance/webui.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 class SecurityContractsTest(unittest.TestCase):
@@ -94,8 +106,8 @@ class SecurityContractsTest(unittest.TestCase):
     def test_readme_version_and_agent_count_match_release(self):
         self.assertIn("Version-1.2.1", read("README.md"))
         self.assertIn("版本-1.2.1", read("README_CN.md"))
-        self.assertIn("25 agents are pre-configured", read("README.md"))
-        self.assertIn("开箱即用支持 25 个 Agent", read("README_CN.md"))
+        self.assertIn("25+ agent targets are pre-configured", read("README.md"))
+        self.assertIn("开箱即用支持 25+ 个 Agent", read("README_CN.md"))
         self.assertEqual("1.2.1", read("_maintenance/.version").strip())
 
     def test_update_checks_use_backend_release_proxy(self):
@@ -318,6 +330,22 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("nohup python3", read("install_mac.command"))
         self.assertIn("nohup python3 \"$SCRIPT_DIR/webui.py\"", read("_maintenance/deploy.sh"))
         self.assertIn("nohup python3 webui.py", read("_maintenance/macOS/Start — 启动.command"))
+
+    def test_macos_watcher_status_ignores_webui_launchd_service(self):
+        webui = load_python_webui_module()
+        launchctl_output = "16125\t0\tcom.easyskills.webui.manual\n"
+
+        with mock.patch.object(webui.platform, "system", return_value="Darwin"), \
+             mock.patch.object(webui.subprocess, "run", return_value=SimpleNamespace(stdout=launchctl_output)):
+            self.assertEqual({"running": False, "pid": None}, webui.get_watcher_status())
+
+    def test_macos_watcher_status_matches_exact_watcher_launchd_label(self):
+        webui = load_python_webui_module()
+        launchctl_output = "-\t0\tcom.easyskills.webui.manual\n123\t0\tcom.easyskills.watcher\n"
+
+        with mock.patch.object(webui.platform, "system", return_value="Darwin"), \
+             mock.patch.object(webui.subprocess, "run", return_value=SimpleNamespace(stdout=launchctl_output)):
+            self.assertEqual({"running": True, "pid": "123"}, webui.get_watcher_status())
 
 
 if __name__ == "__main__":

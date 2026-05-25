@@ -37,6 +37,7 @@ if not WEBUI_DIR.exists():
 PORT = 6633
 WEBUI_TOKEN = os.environ.get("EASYSKILLS_WEBUI_TOKEN") or secrets.token_urlsafe(32)
 ALLOWED_ORIGINS = {f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"}
+WATCHER_LAUNCHD_LABEL = "com.easyskills.watcher"
 
 DEFAULT_AGENTS = [
     ("Antigravity CLI",                Path.home() / ".gemini/config/skills"),
@@ -301,8 +302,9 @@ def get_watcher_status():
                 capture_output=True, text=True, timeout=5
             )
             for line in r.stdout.splitlines():
-                if "easyskills" in line.lower():
-                    pid = line.split()[0]
+                parts = line.split(None, 2)
+                if len(parts) >= 3 and parts[2] == WATCHER_LAUNCHD_LABEL:
+                    pid = parts[0]
                     return {"running": True, "pid": None if pid == "-" else pid}
         elif platform.system() == "Linux":
             r = subprocess.run(
