@@ -59,7 +59,7 @@ if (Test-Path $LegacyRootTargets) {
 # Only run in installed location, skip if inside a git repo
 $GitDir = Join-Path $CentralDir ".git"
 if (-not (Test-Path $GitDir)) {
-  foreach ($Stale in @("README.md","README_CN.md","LICENSE","install.sh","install.ps1",
+  foreach ($Stale in @("README.md","README_EN.md","README_CN.md","LICENSE","install.sh","install.ps1",
                        "install_mac.command","install_windows.bat",
                        "uninstall_mac.command","uninstall_windows.bat")) {
     $StaleFile = Join-Path $CentralDir $Stale

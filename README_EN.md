@@ -1,0 +1,239 @@
+<div align="center">
+
+# EasySkills
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#installation)
+[![Agents](https://img.shields.io/badge/Supported%20Agents-35+-orange.svg)](#supported-agents)
+[![Version](https://img.shields.io/badge/Version-1.2.2-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+
+**One skill library. Every agent. Always in sync.**
+
+Drop a skill folder once into `~/EasySkills`.
+It appears in Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 35+ more agent targets — instantly, through native links.
+
+Local-first &bull; Zero idle CPU &bull; WebUI included
+
+[**中文文档**](README.md)
+
+</div>
+
+---
+
+## Quick Start
+
+<table>
+<tr>
+<td><b>macOS / Linux</b></td>
+<td>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+```
+
+</td>
+</tr>
+<tr>
+<td><b>Windows</b></td>
+<td>
+
+```powershell
+irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+```
+
+</td>
+</tr>
+</table>
+
+The installer creates `~/EasySkills`, detects supported agents, maps shared skills, starts the watcher, and launches the WebUI.
+
+> **Alternative:** Clone this repo and double-click `install_mac.command` (macOS) or `install_windows.bat` (Windows).
+> Or just tell your agent: *"Help me initialize EasySkills."*
+
+---
+
+## How It Works
+
+```
+~/EasySkills/                           ← your single skill library
+├── _maintenance/                       ← engine (invisible to agents)
+├── MyAwesomeSkill/                     ← drop it here once
+├── CodeReviewSkill/
+└── DeployHelper/
+        │
+        ▼ symlink (macOS/Linux) / junction (Windows)
+┌─────────────────────────────────────────────┐
+│ ~/.claude/skills/MyAwesomeSkill  ──→  ✓     │
+│ ~/.cursor/skills/MyAwesomeSkill  ──→  ✓     │
+│ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
+│ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
+│ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
+│ ... 35+ targets, all in sync, all the time  │
+└─────────────────────────────────────────────┘
+```
+
+EasySkills maps each shared skill into agent-specific folders with native links — not copies. Edit a file once, every agent sees the change immediately. The watcher auto-syncs when you add or remove top-level skill folders. Agent-owned private skills are never touched.
+
+---
+
+## WebUI Dashboard
+
+Manage everything from a local-only dashboard at `http://127.0.0.1:6633`.
+
+Provides skill library import/delete, linked agents management, register unsupported agents by skills-folder path, manual sync, broken link cleanup, and update checks — all from one place.
+
+```bash
+# macOS / Linux
+bash ~/EasySkills/_maintenance/deploy.sh --webui
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
+```
+
+<p align="center">
+  <img src="docs/assets/webui-dashboard-macos.jpg" alt="EasySkills WebUI dashboard on macOS" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/webui-agents-macos.jpg" alt="EasySkills WebUI linked agents on macOS" width="100%">
+</p>
+
+---
+
+## Features
+
+| | Feature | Details |
+|:---:|:---|:---|
+| **1** | **Skill library import/delete** | Import skill folders through the WebUI; delete with confirmation dialog. Manage linked agents visually |
+| **2** | **Agent auto-discovery** | Detects 35+ mainstream agents and only links paths that actually exist |
+| **3** | **Live mapping** | Watcher syncs skill additions/removals within seconds |
+| **4** | **Non-invasive** | Shared skills sit beside agent-specific skills — private skills keep working |
+| **5** | **Zero-privilege Windows** | NTFS directory junctions — no admin mode or Developer Mode needed |
+| **6** | **Silent watcher** | `launchd` + `WatchPaths` (macOS) &bull; Scheduled Task + hidden `FileSystemWatcher` (Windows) |
+| **7** | **Local-first safety** | Skips existing real folders, uses file locks, listens on `127.0.0.1` only |
+| **8** | **Concurrency protection** | PID lock (macOS) / named mutex (Windows) prevents overlapping syncs |
+
+---
+
+## CLI Reference
+
+```bash
+# macOS / Linux
+bash ~/EasySkills/_maintenance/deploy.sh [option]
+
+# Windows (PowerShell)
+powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
+```
+
+| Option | Description |
+|---|---|
+| *(none)* / `--sync` | Sync all skills to all agents |
+| `--list` | List all active mappings |
+| `--add <path>` | Add & persist a custom agent path |
+| `--remove <path>` | Remove a persisted custom path |
+| `--watch` | Install background watcher |
+| `--unwatch` | Uninstall background watcher |
+| `--webui` | Start the local WebUI on port 6633 |
+| `--cleanup` | Remove all EasySkills symlinks |
+| `--help` | Show help |
+
+### Agent Chat Commands
+
+Once EasySkills is loaded as a skill, manage everything through natural language:
+
+| Task | Prompt |
+|---|---|
+| Initialize | *"Run EasySkills and set up my skills sync"* |
+| Add custom path | *"Map EasySkills to `/path/to/agent/skills`"* |
+| View mappings | *"Show all active EasySkills mappings"* |
+| Remove a path | *"Remove `/path/to/agent/skills` from EasySkills"* |
+
+---
+
+## Supported Agents
+
+35+ agent targets are pre-configured. Custom paths can be added at any time via CLI, WebUI, or chat.
+
+<details>
+<summary><b>View full agent list</b></summary>
+
+| # | Agent | macOS Path | Windows Path |
+|:-:|:---|:---|:---|
+| 1 | **Antigravity CLI** | `~/.gemini/config/skills` | `%USERPROFILE%\.gemini\config\skills` |
+| 1b | **Antigravity IDE** | `~/.gemini/antigravity/skills` | `%USERPROFILE%\.gemini\antigravity\skills` |
+| 2 | **Codex (OpenAI)** | `~/.codex/skills` | `%USERPROFILE%\.codex\skills` |
+| 3 | **Claude Code** | `~/.claude/skills` | `%USERPROFILE%\.claude\skills` |
+| 4 | **GitHub Copilot** | `~/.copilot/skills` | `%USERPROFILE%\.copilot\skills` |
+| 5 | **Pi** | `~/.pi/agent/skills` | `%USERPROFILE%\.pi\agent\skills` |
+| 6 | **OpenCode** | `~/.config/opencode/skills` | `%USERPROFILE%\.config\opencode\skills` |
+| 7 | **Trae (Global)** | `~/.trae/skills` | `%USERPROFILE%\.trae\skills` |
+| 8 | **Trae CN** | `~/.trae-cn/skills` | `%USERPROFILE%\.trae-cn\skills` |
+| 9 | **Kimi Code (Moonshot)** | `~/.kimi/skills` | `%USERPROFILE%\.kimi\skills` |
+| 10 | **OpenClaw** | `~/.openclaw/skills` | `%USERPROFILE%\.openclaw\skills` |
+| 11 | **Hermes Agent** | `~/.hermes/skills` | `%USERPROFILE%\.hermes\skills` |
+| 12 | **Proma** | `~/.proma/default-skills` | `%USERPROFILE%\.proma\default-skills` |
+| 13 | **Cursor** | `~/.cursor/skills` | `%USERPROFILE%\.cursor\skills` |
+| 14 | **Kiro Agent (AWS)** | `~/.kiro/skills` | `%USERPROFILE%\.kiro\skills` |
+| 15 | **Junie (JetBrains)** | `~/.junie/skills` | `%USERPROFILE%\.junie\skills` |
+| 16 | **Cline** | `~/.cline/skills` | `%USERPROFILE%\.cline\skills` |
+| 17 | **Roo Code** | `~/.roo/skills` | `%USERPROFILE%\.roo\skills` |
+| 18 | **Warp** | `~/.warp/skills` | `%USERPROFILE%\.warp\skills` |
+| 19 | **Windsurf** | `~/.codeium/windsurf/skills` | `%USERPROFILE%\.codeium\windsurf\skills` |
+| 20 | **Firebender** | `~/.firebender/skills` | `%USERPROFILE%\.firebender\skills` |
+| 21 | **Augment** | `~/.augment/skills` | `%USERPROFILE%\.augment\skills` |
+| 22 | **Continue** | `~/.continue/skills` | `%USERPROFILE%\.continue\skills` |
+| 23 | **Goose (Block/AAIF)** | `~/.config/goose/skills` | `%USERPROFILE%\.config\goose\skills` |
+| 24 | **Agents (Standard)** | `~/.agents/skills` | `%USERPROFILE%\.agents\skills` |
+| 25 | **Run** | `~/.run/global-skills/skills` | `%USERPROFILE%\.run\global-skills\skills` |
+| 26 | **Qoder** | `~/.qoder/skills` | `%USERPROFILE%\.qoder\skills` |
+| 27 | **Qwen Code** | `~/.qwen/skills` | `%USERPROFILE%\.qwen\skills` |
+| 28 | **CodeBuddy** | `~/.codebuddy/skills` | `%USERPROFILE%\.codebuddy\skills` |
+| 29 | **Amp** | `~/.config/agents/skills` | `%USERPROFILE%\.config\agents\skills` |
+| 30 | **OpenHands** | `~/.openhands/skills` | `%USERPROFILE%\.openhands\skills` |
+| 31 | **Kilo Code** | `~/.kilocode/skills` | `%USERPROFILE%\.kilocode\skills` |
+| 32 | **Zencoder** | `~/.zencoder/skills` | `%USERPROFILE%\.zencoder\skills` |
+| 33 | **iFlow CLI** | `~/.iflow/skills` | `%USERPROFILE%\.iflow\skills` |
+| 34 | **Droid** | `~/.factory/skills` | `%USERPROFILE%\.factory\skills` |
+| 35 | **Devin for Terminal** | `~/.config/devin/skills` | `%USERPROFILE%\.config\devin\skills` |
+
+> Trae and Trae CN also map to `~/Library/Application Support/Trae[-CN]/skills` (macOS) and `%APPDATA%\Trae[-CN]\skills` (Windows).
+
+</details>
+
+---
+
+## Notes
+
+**Windows Defender** — The installer can automatically add a Defender exclusion via UAC prompt. You can also manually whitelist `%USERPROFILE%\EasySkills` in Windows Security settings.
+
+**Watcher Scope** — The watcher monitors only the **top-level** of `~/EasySkills` (folder additions/removals). It does not watch inside subdirectories — since skills are symlinked, internal file changes are instantly reflected everywhere without re-syncing. If `~/.proma` exists, EasySkills also polls Proma workspace `skills` folders every 5 minutes so new workspaces are picked up automatically.
+
+---
+
+## Contributing
+
+To add support for a new agent:
+
+1. Add the default skills path to `TARGETS` in `_maintenance/deploy.sh` and `_maintenance/deploy.ps1`
+2. Add the name mapping in `get_agent_name` / `Get-AgentName` in both files
+3. Update the agent tables in `README.md`, `README_EN.md`, and `SKILL.md`
+4. Submit a pull request
+
+---
+
+## License
+
+[MIT](LICENSE) &copy; 2026 Runhua Huang
+
+---
+
+<details>
+<summary>Star History</summary>
+
+<div align="center">
+
+[![Star History Chart](https://api.star-history.com/svg?repos=RunhuaHuang/EasySkills&type=Date)](https://star-history.com/#RunhuaHuang/EasySkills&Date)
+
+</div>
+
+</details>

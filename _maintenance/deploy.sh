@@ -27,7 +27,7 @@ fi
 # --- One-time cleanup: remove stale files from root (older-install leftovers) ---
 # Only run in installed location (~/EasySkills), skip if inside a git repo
 if [ ! -d "$CENTRAL_DIR/.git" ]; then
-  for _stale in README.md README_CN.md LICENSE install.sh install.ps1 \
+  for _stale in README.md README_EN.md README_CN.md LICENSE install.sh install.ps1 \
                 install_mac.command install_windows.bat \
                 uninstall_mac.command uninstall_windows.bat; do
     rm -f "$CENTRAL_DIR/$_stale" 2>/dev/null

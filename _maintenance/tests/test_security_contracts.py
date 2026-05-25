@@ -206,16 +206,16 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertNotIn("connect bridge", html_src)
 
     def test_readmes_are_webui_first_and_use_current_terms(self):
-        readme = read("README.md")
-        readme_cn = read("README_CN.md")
+        readme_cn = read("README.md")
+        readme_en = read("README_EN.md")
 
-        self.assertIn("http://127.0.0.1:6633", readme)
-        self.assertIn("skill library import/delete", readme)
-        self.assertIn("linked agents", readme)
-        self.assertIn("register unsupported agents by skills-folder path", readme)
-        self.assertNotIn("http://localhost:6633", readme)
-        self.assertNotIn("agent bridges", readme)
-        self.assertNotIn("skill registry", readme)
+        self.assertIn("http://127.0.0.1:6633", readme_en)
+        self.assertIn("skill library import/delete", readme_en)
+        self.assertIn("linked agents", readme_en)
+        self.assertIn("register unsupported agents by skills-folder path", readme_en)
+        self.assertNotIn("http://localhost:6633", readme_en)
+        self.assertNotIn("agent bridges", readme_en)
+        self.assertNotIn("skill registry", readme_en)
 
         self.assertIn("http://127.0.0.1:6633", readme_cn)
         self.assertIn("技能库导入/删除", readme_cn)
@@ -261,10 +261,10 @@ class SecurityContractsTest(unittest.TestCase):
                 self.assertFalse((central / "ImportedSkill").exists())
 
     def test_readme_version_and_agent_count_match_release(self):
-        self.assertIn("Version-1.2.2", read("README.md"))
-        self.assertIn("版本-1.2.2", read("README_CN.md"))
-        self.assertIn("35+ agent targets are pre-configured", read("README.md"))
-        self.assertIn("开箱即用支持 35+ 个 Agent", read("README_CN.md"))
+        self.assertIn("Version-1.2.2", read("README_EN.md"))
+        self.assertIn("版本-1.2.2", read("README.md"))
+        self.assertIn("35+ agent targets are pre-configured", read("README_EN.md"))
+        self.assertIn("开箱即用支持 35+ 个 Agent", read("README.md"))
         self.assertEqual("1.2.2", read("_maintenance/.version").strip())
 
     def test_default_agent_targets_include_requested_agents_and_corrected_paths(self):
@@ -373,7 +373,7 @@ class SecurityContractsTest(unittest.TestCase):
         deploy_ps = read("_maintenance/deploy.ps1")
         webui_py = read("_maintenance/webui.py")
         webui_ps = read("_maintenance/webui.ps1")
-        docs = read("README.md") + read("README_CN.md") + read("SKILL.md")
+        docs = read("README.md") + read("README_EN.md") + read("SKILL.md")
 
         for name, paths in expected_paths.items():
             with self.subTest(agent=name):

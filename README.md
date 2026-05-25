@@ -3,24 +3,24 @@
 # EasySkills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#installation)
-[![Agents](https://img.shields.io/badge/Supported%20Agents-35+-orange.svg)](#supported-agents)
-[![Version](https://img.shields.io/badge/Version-1.2.2-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#安装方式)
+[![Agents](https://img.shields.io/badge/支持Agent-35+-orange.svg)](#支持的-agent-列表)
+[![Version](https://img.shields.io/badge/版本-1.2.2-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
-**One skill library. Every agent. Always in sync.**
+**一个技能库，所有 Agent，始终同步。**
 
-Drop a skill folder once into `~/EasySkills`.
-It appears in Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 35+ more agent targets — instantly, through native links.
+只需将技能文件夹放入 `~/EasySkills` 一次，
+它就会通过原生链接，自动出现在 Claude Code、Codex、Cursor、Gemini、Copilot、Windsurf、Trae 等 35+ Agent 的技能目录中。
 
-Local-first &bull; Zero idle CPU &bull; WebUI included
+本地优先 &bull; 空闲零 CPU &bull; 自带 WebUI
 
-[**中文文档**](README_CN.md)
+[**English**](README_EN.md)
 
 </div>
 
 ---
 
-## Quick Start
+## 快速开始
 
 <table>
 <tr>
@@ -45,42 +45,42 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 </tr>
 </table>
 
-The installer creates `~/EasySkills`, detects supported agents, maps shared skills, starts the watcher, and launches the WebUI.
+安装器会创建 `~/EasySkills`，自动检测已安装的 Agent，映射共享技能，启动后台监听，并拉起本地 WebUI。
 
-> **Alternative:** Clone this repo and double-click `install_mac.command` (macOS) or `install_windows.bat` (Windows).
-> Or just tell your agent: *"Help me initialize EasySkills."*
+> **其他方式：** 克隆仓库后双击 `install_mac.command`（macOS）或 `install_windows.bat`（Windows）。
+> 或直接对 Agent 说：*"帮我初始化 EasySkills。"*
 
 ---
 
-## How It Works
+## 工作原理
 
 ```
-~/EasySkills/                           ← your single skill library
-├── _maintenance/                       ← engine (invisible to agents)
-├── MyAwesomeSkill/                     ← drop it here once
+~/EasySkills/                           ← 你的统一技能库
+├── _maintenance/                       ← 引擎（对 Agent 不可见）
+├── MyAwesomeSkill/                     ← 放进来一次
 ├── CodeReviewSkill/
 └── DeployHelper/
         │
-        ▼ symlink (macOS/Linux) / junction (Windows)
+        ▼ 软链接 (macOS/Linux) / 目录联结 (Windows)
 ┌─────────────────────────────────────────────┐
 │ ~/.claude/skills/MyAwesomeSkill  ──→  ✓     │
 │ ~/.cursor/skills/MyAwesomeSkill  ──→  ✓     │
 │ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
 │ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
 │ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
-│ ... 35+ targets, all in sync, all the time  │
+│ ... 35+ 个目标，全部同步，始终一致         │
 └─────────────────────────────────────────────┘
 ```
 
-EasySkills maps each shared skill into agent-specific folders with native links — not copies. Edit a file once, every agent sees the change immediately. The watcher auto-syncs when you add or remove top-level skill folders. Agent-owned private skills are never touched.
+EasySkills 使用原生链接（而非复制）将共享技能映射到各 Agent 的 skills 目录。修改一处，所有 Agent 即时看到。后台监听在顶层技能文件夹增删时自动同步。Agent 自己的专属技能不受影响。
 
 ---
 
-## WebUI Dashboard
+## WebUI 控制台
 
-Manage everything from a local-only dashboard at `http://127.0.0.1:6633`.
+通过本地控制台 `http://127.0.0.1:6633` 管理一切。
 
-Provides skill library import/delete, linked agents management, register unsupported agents by skills-folder path, manual sync, broken link cleanup, and update checks — all from one place.
+提供技能库导入/删除、Agent 连接管理、为默认未支持的 Agent 注册 skills 文件夹路径、手动同步、无效链接清理和版本更新检查——全部在一个页面完成。
 
 ```bash
 # macOS / Linux
@@ -91,73 +91,73 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 ```
 
 <p align="center">
-  <img src="docs/assets/webui-dashboard-macos.jpg" alt="EasySkills WebUI dashboard on macOS" width="100%">
+  <img src="docs/assets/webui-dashboard-macos.jpg" alt="EasySkills macOS WebUI 控制台" width="100%">
 </p>
 
 <p align="center">
-  <img src="docs/assets/webui-agents-macos.jpg" alt="EasySkills WebUI linked agents on macOS" width="100%">
+  <img src="docs/assets/webui-agents-macos.jpg" alt="EasySkills macOS Agent 连接管理界面" width="100%">
 </p>
 
 ---
 
-## Features
+## 核心特性
 
-| | Feature | Details |
+| | 特性 | 说明 |
 |:---:|:---|:---|
-| **1** | **Skill library import/delete** | Import skill folders through the WebUI; delete with confirmation dialog. Manage linked agents visually |
-| **2** | **Agent auto-discovery** | Detects 35+ mainstream agents and only links paths that actually exist |
-| **3** | **Live mapping** | Watcher syncs skill additions/removals within seconds |
-| **4** | **Non-invasive** | Shared skills sit beside agent-specific skills — private skills keep working |
-| **5** | **Zero-privilege Windows** | NTFS directory junctions — no admin mode or Developer Mode needed |
-| **6** | **Silent watcher** | `launchd` + `WatchPaths` (macOS) &bull; Scheduled Task + hidden `FileSystemWatcher` (Windows) |
-| **7** | **Local-first safety** | Skips existing real folders, uses file locks, listens on `127.0.0.1` only |
-| **8** | **Concurrency protection** | PID lock (macOS) / named mutex (Windows) prevents overlapping syncs |
+| **1** | **技能库导入/删除** | 通过 WebUI 导入技能文件夹；删除时弹窗确认 |
+| **2** | **Agent 自动检测** | 自动识别 35+ 主流 Agent，只为真实存在的路径建立连接 |
+| **3** | **实时映射** | 监听服务在几秒内同步技能增删 |
+| **4** | **非侵入式** | 共享技能与 Agent 专属技能并列存在——原有 skills 不受影响 |
+| **5** | **Windows 免提权** | 使用 NTFS 目录联结，无需管理员权限或开发者模式 |
+| **6** | **静默监听** | macOS: `launchd` + `WatchPaths` &bull; Windows: 计划任务 + 隐藏 `FileSystemWatcher` |
+| **7** | **本地优先安全** | 跳过已有真实目录，使用文件锁，仅监听 `127.0.0.1` |
+| **8** | **并发安全** | macOS PID 锁 / Windows 命名互斥锁，防止同步重入 |
 
 ---
 
-## CLI Reference
+## 命令行工具
 
 ```bash
 # macOS / Linux
-bash ~/EasySkills/_maintenance/deploy.sh [option]
+bash ~/EasySkills/_maintenance/deploy.sh [选项]
 
 # Windows (PowerShell)
-powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
+powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [选项]
 ```
 
-| Option | Description |
+| 选项 | 说明 |
 |---|---|
-| *(none)* / `--sync` | Sync all skills to all agents |
-| `--list` | List all active mappings |
-| `--add <path>` | Add & persist a custom agent path |
-| `--remove <path>` | Remove a persisted custom path |
-| `--watch` | Install background watcher |
-| `--unwatch` | Uninstall background watcher |
-| `--webui` | Start the local WebUI on port 6633 |
-| `--cleanup` | Remove all EasySkills symlinks |
-| `--help` | Show help |
+| *（无）* / `--sync` | 同步所有技能到所有 Agent |
+| `--list` | 列出所有活跃映射 |
+| `--add <路径>` | 添加并持久化自定义 Agent 路径 |
+| `--remove <路径>` | 移除已持久化的自定义路径 |
+| `--watch` | 安装后台监听 |
+| `--unwatch` | 卸载后台监听 |
+| `--webui` | 启动本地 WebUI（端口 6633） |
+| `--cleanup` | 清除所有 EasySkills 软链接 |
+| `--help` | 显示帮助 |
 
-### Agent Chat Commands
+### 自然语言管理
 
-Once EasySkills is loaded as a skill, manage everything through natural language:
+EasySkills 加载为技能后，直接对 AI 助手说：
 
-| Task | Prompt |
+| 任务 | 提示词 |
 |---|---|
-| Initialize | *"Run EasySkills and set up my skills sync"* |
-| Add custom path | *"Map EasySkills to `/path/to/agent/skills`"* |
-| View mappings | *"Show all active EasySkills mappings"* |
-| Remove a path | *"Remove `/path/to/agent/skills` from EasySkills"* |
+| 初始化 | *"运行 EasySkills，帮我初始化技能同步系统"* |
+| 添加自定义路径 | *"帮我把技能映射到 `/path/to/agent/skills`"* |
+| 查看映射状态 | *"列出 EasySkills 当前所有映射"* |
+| 移除路径 | *"从 EasySkills 移除 `/path/to/agent/skills`"* |
 
 ---
 
-## Supported Agents
+## 支持的 Agent 列表
 
-35+ agent targets are pre-configured. Custom paths can be added at any time via CLI, WebUI, or chat.
+开箱即用支持 35+ 个 Agent 目标路径，可随时通过命令行、WebUI 或对话添加自定义路径。
 
 <details>
-<summary><b>View full agent list</b></summary>
+<summary><b>查看完整列表</b></summary>
 
-| # | Agent | macOS Path | Windows Path |
+| # | Agent | macOS 路径 | Windows 路径 |
 |:-:|:---|:---|:---|
 | 1 | **Antigravity CLI** | `~/.gemini/config/skills` | `%USERPROFILE%\.gemini\config\skills` |
 | 1b | **Antigravity IDE** | `~/.gemini/antigravity/skills` | `%USERPROFILE%\.gemini\antigravity\skills` |
@@ -196,32 +196,32 @@ Once EasySkills is loaded as a skill, manage everything through natural language
 | 34 | **Droid** | `~/.factory/skills` | `%USERPROFILE%\.factory\skills` |
 | 35 | **Devin for Terminal** | `~/.config/devin/skills` | `%USERPROFILE%\.config\devin\skills` |
 
-> Trae and Trae CN also map to `~/Library/Application Support/Trae[-CN]/skills` (macOS) and `%APPDATA%\Trae[-CN]\skills` (Windows).
+> Trae 和 Trae CN 同时映射到 `~/Library/Application Support/Trae[-CN]/skills`（macOS）和 `%APPDATA%\Trae[-CN]\skills`（Windows）。
 
 </details>
 
 ---
 
-## Notes
+## 注意事项
 
-**Windows Defender** — The installer can automatically add a Defender exclusion via UAC prompt. You can also manually whitelist `%USERPROFILE%\EasySkills` in Windows Security settings.
+**Windows Defender** — 安装器可通过 UAC 弹窗自动添加白名单。也可以手动在 Windows 安全中心将 `%USERPROFILE%\EasySkills` 加入排除项。
 
-**Watcher Scope** — The watcher monitors only the **top-level** of `~/EasySkills` (folder additions/removals). It does not watch inside subdirectories — since skills are symlinked, internal file changes are instantly reflected everywhere without re-syncing. If `~/.proma` exists, EasySkills also polls Proma workspace `skills` folders every 5 minutes so new workspaces are picked up automatically.
-
----
-
-## Contributing
-
-To add support for a new agent:
-
-1. Add the default skills path to `TARGETS` in `_maintenance/deploy.sh` and `_maintenance/deploy.ps1`
-2. Add the name mapping in `get_agent_name` / `Get-AgentName` in both files
-3. Update the agent tables in `README.md`, `README_CN.md`, and `SKILL.md`
-4. Submit a pull request
+**监听范围** — 后台监听只监控 `~/EasySkills` **顶层目录**的文件夹增删。不监听子目录内部——因为技能是通过软链映射的，内部文件修改会即时反映到所有 Agent，无需重新同步。如果存在 `~/.proma`，EasySkills 会每 5 分钟轮询 Proma workspace 的 `skills` 目录，自动发现新工作区。
 
 ---
 
-## License
+## 参与贡献
+
+添加新 Agent 支持：
+
+1. 在 `_maintenance/deploy.sh` 和 `_maintenance/deploy.ps1` 的 `TARGETS` 数组中添加路径
+2. 在两个文件的 `get_agent_name` / `Get-AgentName` 函数中添加名称映射
+3. 更新 `README.md`、`README_EN.md` 和 `SKILL.md` 中的 Agent 表格
+4. 提交 Pull Request
+
+---
+
+## 许可证
 
 [MIT](LICENSE) &copy; 2026 Runhua Huang
 
