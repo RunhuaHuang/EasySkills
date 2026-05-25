@@ -114,6 +114,8 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn('"/api/latest-release"', py_src)
         self.assertIn("function Get-LatestRelease", ps_src)
         self.assertIn('"/api/latest-release"', ps_src)
+        self.assertIn("archive/refs/tags", py_src)
+        self.assertIn("archive/refs/tags", ps_src)
         self.assertIn("fetchLatestRelease", html_src)
         self.assertIn("fetch('/api/latest-release')", html_src)
         self.assertNotIn("fetch('https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest')", html_src)

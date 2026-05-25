@@ -79,6 +79,10 @@ $DefaultAgents = @(
 )
 
 $ExcludeNames = @("_maintenance", ".git", "node_modules", "dist")
+$GitHubRepo = "RunhuaHuang/EasySkills"
+$GitHubApiLatestRelease = "https://api.github.com/repos/$GitHubRepo/releases/latest"
+$GitHubLatestRelease = "https://github.com/$GitHubRepo/releases/latest"
+$GitHubReleaseTagPrefix = "https://github.com/$GitHubRepo/releases/tag/"
 
 $VersionFile = Join-Path -Path $ScriptDir -ChildPath ".version"
 function Get-EasySkillsVersion {
@@ -88,11 +92,53 @@ function Get-EasySkillsVersion {
     return "unknown"
 }
 
+function New-ReleaseInfoFromTag([string]$Tag, [string]$Name = "") {
+    if (-not $Name) { $Name = $Tag }
+    return @{
+        success = $true
+        tag_name = $Tag
+        name = $Name
+        html_url = "https://github.com/$GitHubRepo/releases/tag/$Tag"
+        published_at = ""
+        tarball_url = "https://github.com/$GitHubRepo/archive/refs/tags/$Tag.tar.gz"
+        zipball_url = "https://github.com/$GitHubRepo/archive/refs/tags/$Tag.zip"
+        draft = $false
+        prerelease = $false
+    }
+}
+
+function Get-LatestReleaseViaRedirect {
+    try {
+        $Response = Invoke-WebRequest -Uri $GitHubLatestRelease -MaximumRedirection 5 -UseBasicParsing -TimeoutSec 15 -Headers @{ "User-Agent" = "EasySkills-WebUI" }
+        $FinalUrl = $null
+        if ($Response.BaseResponse.ResponseUri) {
+            $FinalUrl = $Response.BaseResponse.ResponseUri.AbsoluteUri
+        } elseif ($Response.BaseResponse.RequestMessage -and $Response.BaseResponse.RequestMessage.RequestUri) {
+            $FinalUrl = $Response.BaseResponse.RequestMessage.RequestUri.AbsoluteUri
+        }
+        if (-not $FinalUrl -or -not $FinalUrl.StartsWith($GitHubReleaseTagPrefix)) {
+            return @{ success = $false; message = "Could not determine latest version" }
+        }
+        $Tag = [System.Uri]::UnescapeDataString($FinalUrl.Substring($GitHubReleaseTagPrefix.Length).Trim("/"))
+        if (-not $Tag) {
+            return @{ success = $false; message = "Could not determine latest version" }
+        }
+        return New-ReleaseInfoFromTag $Tag
+    } catch {
+        return @{ success = $false; message = "Failed to fetch release redirect: $_" }
+    }
+}
+
 function Get-LatestRelease {
     $Headers = @{ "Accept" = "application/vnd.github+json"; "User-Agent" = "EasySkills-WebUI" }
     try {
-        $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest" -Headers $Headers -TimeoutSec 15
+        $Release = Invoke-RestMethod -Uri $GitHubApiLatestRelease -Headers $Headers -TimeoutSec 15
     } catch {
+        $Fallback = Get-LatestReleaseViaRedirect
+        if ($Fallback.success) {
+            $Fallback.message = "GitHub API unavailable; used release redirect fallback ($_)"
+            return $Fallback
+        }
         return @{ success = $false; message = "Failed to fetch release info: $_" }
     }
 

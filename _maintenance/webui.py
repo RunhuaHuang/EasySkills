@@ -70,6 +70,10 @@ DEFAULT_AGENTS = [
 ]
 
 EXCLUDE_NAMES = {"_maintenance", ".git", "node_modules", "dist"}
+GITHUB_REPO = "RunhuaHuang/EasySkills"
+GITHUB_API_LATEST_RELEASE = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_LATEST_RELEASE = f"https://github.com/{GITHUB_REPO}/releases/latest"
+GITHUB_RELEASE_TAG_PREFIX = f"https://github.com/{GITHUB_REPO}/releases/tag/"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -230,9 +234,37 @@ def get_version():
 
 
 def get_latest_release() -> dict:
+    def release_from_tag(tag: str, name: str = "") -> dict:
+        return {
+            "success": True,
+            "tag_name": tag,
+            "name": name or tag,
+            "html_url": f"https://github.com/{GITHUB_REPO}/releases/tag/{tag}",
+            "published_at": "",
+            "tarball_url": f"https://github.com/{GITHUB_REPO}/archive/refs/tags/{tag}.tar.gz",
+            "zipball_url": f"https://github.com/{GITHUB_REPO}/archive/refs/tags/{tag}.zip",
+            "draft": False,
+            "prerelease": False,
+        }
+
+    def get_latest_release_via_redirect() -> dict:
+        req = urllib.request.Request(
+            GITHUB_LATEST_RELEASE,
+            headers={"User-Agent": "EasySkills-WebUI"},
+            method="HEAD",
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            final_url = resp.geturl()
+        if not final_url.startswith(GITHUB_RELEASE_TAG_PREFIX):
+            return {"success": False, "message": "Could not determine latest version"}
+        tag = urllib.parse.unquote(final_url.removeprefix(GITHUB_RELEASE_TAG_PREFIX)).strip("/")
+        if not tag:
+            return {"success": False, "message": "Could not determine latest version"}
+        return release_from_tag(tag)
+
     try:
         req = urllib.request.Request(
-            "https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest",
+            GITHUB_API_LATEST_RELEASE,
             headers={"Accept": "application/vnd.github+json", "User-Agent": "EasySkills-WebUI"},
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -254,6 +286,10 @@ def get_latest_release() -> dict:
             "prerelease": bool(release.get("prerelease", False)),
         }
     except Exception as e:
+        fallback = get_latest_release_via_redirect()
+        if fallback.get("success"):
+            fallback["message"] = f"GitHub API unavailable; used release redirect fallback ({e})"
+            return fallback
         return {"success": False, "message": f"Failed to fetch release info: {e}"}
 
 
