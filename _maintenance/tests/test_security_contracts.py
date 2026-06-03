@@ -82,8 +82,8 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertNotRegex(ps_src, r"CustomList \+= @\{ Name = \(Get-AgentNameFromPath \$WsSkills\.FullName\)")
 
     def test_double_click_installers_copy_skill_md_to_root(self):
-        self.assertIn('cp "$CURRENT_DIR/SKILL.md" "$PERM_DIR/SKILL.md"', read("install_mac.command"))
-        self.assertIn('copy /Y "%CURRENT_DIR%SKILL.md" "%PERM_DIR%\\SKILL.md" > nul', read("install_windows.bat"))
+        self.assertIn('cp "$CURRENT_DIR/README_SYSTEM.md" "$PERM_DIR/README_SYSTEM.md"', read("install_mac.command"))
+        self.assertIn('copy /Y "%CURRENT_DIR%README_SYSTEM.md" "%PERM_DIR%\\README_SYSTEM.md" > nul', read("install_windows.bat"))
 
     def test_cleanup_only_matches_current_central_dir(self):
         for rel in ("_maintenance/deploy.sh", "_maintenance/deploy.ps1", "_maintenance/webui.py", "_maintenance/webui.ps1"):
@@ -261,11 +261,11 @@ class SecurityContractsTest(unittest.TestCase):
                 self.assertFalse((central / "ImportedSkill").exists())
 
     def test_readme_version_and_agent_count_match_release(self):
-        self.assertIn("Version-1.2.2", read("README_EN.md"))
-        self.assertIn("版本-1.2.2", read("README.md"))
-        self.assertIn("35+ agent targets are pre-configured", read("README_EN.md"))
-        self.assertIn("开箱即用支持 35+ 个 Agent", read("README.md"))
-        self.assertEqual("1.2.2", read("_maintenance/.version").strip())
+        self.assertIn("Version-1.3.0", read("README_EN.md"))
+        self.assertIn("版本-1.3.0", read("README.md"))
+        self.assertIn("38+ agent targets are pre-configured", read("README_EN.md"))
+        self.assertIn("开箱即用支持 38+ 个 Agent", read("README.md"))
+        self.assertEqual("1.3.0", read("_maintenance/.version").strip())
 
     def test_default_agent_targets_include_requested_agents_and_corrected_paths(self):
         expected_paths = {
@@ -373,7 +373,7 @@ class SecurityContractsTest(unittest.TestCase):
         deploy_ps = read("_maintenance/deploy.ps1")
         webui_py = read("_maintenance/webui.py")
         webui_ps = read("_maintenance/webui.ps1")
-        docs = read("README.md") + read("README_EN.md") + read("SKILL.md")
+        docs = read("README.md") + read("README_EN.md") + read("README_SYSTEM.md")
 
         for name, paths in expected_paths.items():
             with self.subTest(agent=name):
@@ -663,6 +663,200 @@ class SecurityContractsTest(unittest.TestCase):
         with mock.patch.object(webui.platform, "system", return_value="Darwin"), \
              mock.patch.object(webui.subprocess, "run", return_value=SimpleNamespace(stdout=launchctl_output)):
             self.assertEqual({"running": True, "pid": "123"}, webui.get_watcher_status())
+
+    # -------------------------------------------------------------------------
+    # agents.json — single source of truth
+    # -------------------------------------------------------------------------
+
+    def test_agents_json_exists_and_has_valid_structure(self):
+        """agents.json must exist and contain a well-formed agents list."""
+        import json
+        path = ROOT / "_maintenance" / "agents.json"
+        self.assertTrue(path.exists(), "agents.json missing")
+        data = json.loads(path.read_text(encoding="utf-8"))
+        self.assertIn("agents", data)
+        agents = data["agents"]
+        self.assertGreaterEqual(len(agents), 38, "agents.json should have >= 38 entries")
+        for agent in agents:
+            self.assertIn("name", agent)
+            self.assertIn("mac_path", agent)
+            self.assertIn("win_path", agent)
+            self.assertTrue(agent["mac_path"].startswith("~/"), f"{agent['name']} mac_path should start with ~/")
+            self.assertTrue(agent["win_path"].startswith("%USERPROFILE%\\"), f"{agent['name']} win_path should start with %USERPROFILE%\\")
+
+    def test_scripts_reference_agents_json(self):
+        """All four scripts must reference agents.json for loading."""
+        for rel in ("_maintenance/deploy.sh", "_maintenance/deploy.ps1",
+                    "_maintenance/webui.py", "_maintenance/webui.ps1"):
+            src = read(rel)
+            self.assertIn("agents.json", src, f"{rel} does not reference agents.json")
+
+    def test_hardcoded_fallbacks_match_agents_json(self):
+        """Hardcoded fallback arrays must contain the same paths as agents.json."""
+        import json
+        data = json.loads((ROOT / "_maintenance" / "agents.json").read_text(encoding="utf-8"))
+
+        # Check deploy.sh fallback — names appear in case statements
+        sh_src = read("_maintenance/deploy.sh")
+        for agent in data["agents"]:
+            name = agent["name"]
+            self.assertIn(f'"{name}"', sh_src, f"deploy.sh fallback missing name: {name}")
+
+        # Check deploy.ps1 fallback — paths appear in the targets array
+        ps_src = read("_maintenance/deploy.ps1")
+        for agent in data["agents"]:
+            # win_path uses %USERPROFILE% which expands to $Home in PS fallback
+            win_rel = agent["win_path"].replace("%USERPROFILE%\\", "")
+            self.assertIn(win_rel, ps_src, f"deploy.ps1 fallback missing path: {win_rel}")
+
+    # -------------------------------------------------------------------------
+    # Persistent WebUI token
+    # -------------------------------------------------------------------------
+
+    def test_webui_persists_token_to_file(self):
+        """webui.py must read/write a persistent token file stored inside
+        SCRIPT_DIR (not in the bare home directory root)."""
+        src = read("_maintenance/webui.py")
+        self.assertIn(".easyskills-token", src)
+        self.assertIn("TOKEN_FILE", src)
+        self.assertIn("def _load_or_create_token", src)
+        # Token must be co-located with the installation, not in bare home
+        self.assertIn("TOKEN_FILE = SCRIPT_DIR / \".easyskills-token\"", src)
+        self.assertNotIn('TOKEN_FILE = Path.home() / ".easyskills-token"', src)
+
+    def test_windows_webui_persists_token_to_file(self):
+        """webui.ps1 must read/write a persistent token file."""
+        src = read("_maintenance/webui.ps1")
+        self.assertIn(".easyskills-token", src)
+        self.assertIn("Initialize-WebUIToken", src)
+
+    # -------------------------------------------------------------------------
+    # Rollback support
+    # -------------------------------------------------------------------------
+
+    def test_self_update_creates_backup_before_overwrite(self):
+        """do_self_update must back up _maintenance atomically before overwriting."""
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        self.assertIn("_maintenance.bak", py_src)
+        self.assertIn("_maintenance.bak", ps_src)
+        # New atomic pattern: build in .new, then rename
+        self.assertIn("_maintenance.new", py_src)
+        self.assertIn("dest_maint.rename(backup_maint)", py_src)
+        self.assertIn("new_maint_tmp.rename(dest_maint)", py_src)
+
+    def test_rollback_endpoint_exists(self):
+        """Both backends must expose /api/rollback."""
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        html_src = read("_maintenance/webui/index.html")
+        self.assertIn('"/api/rollback"', py_src)
+        self.assertIn('"/api/rollback"', ps_src)
+        self.assertIn("do_rollback", py_src)
+        self.assertIn("Do-Rollback", ps_src)
+
+    def test_rollback_ui_in_frontend(self):
+        """Frontend must have rollback button and JS function."""
+        html_src = read("_maintenance/webui/index.html")
+        self.assertIn('id="btn-rollback"', html_src)
+        self.assertIn("function performRollback", html_src)
+        self.assertIn("t-rollback", html_src)
+
+    def test_status_endpoint_reports_backup_existence(self):
+        """Both backends must expose has_backup in /api/status."""
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        self.assertIn("has_backup", py_src)
+        self.assertIn("has_backup", ps_src)
+
+    def test_rollback_function_checks_for_backup(self):
+        """Rollback must fail gracefully when no backup exists."""
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(webui, "CENTRAL_DIR", Path(tmp)):
+                result = webui.do_rollback()
+                self.assertFalse(result["success"])
+                self.assertIn("No backup", result["message"])
+
+    # -------------------------------------------------------------------------
+    # Linux systemd support
+    # -------------------------------------------------------------------------
+
+    def test_systemd_unit_files_exist(self):
+        """systemd service and path units must exist."""
+        self.assertTrue((ROOT / "_maintenance/systemd/easyskills-watcher.service").exists())
+        self.assertTrue((ROOT / "_maintenance/systemd/easyskills-watcher.path").exists())
+
+    def test_watch_sh_handles_linux(self):
+        """watch.sh must handle Linux with systemd."""
+        src = read("_maintenance/watch.sh")
+        self.assertIn("Linux", src)
+        self.assertIn("systemctl", src)
+        self.assertIn("easyskills-watcher.path", src)
+
+    def test_unwatch_sh_handles_linux(self):
+        """unwatch.sh must handle Linux with systemd."""
+        src = read("_maintenance/unwatch.sh")
+        self.assertIn("Linux", src)
+        self.assertIn("systemctl", src)
+
+    # -------------------------------------------------------------------------
+    # Code-quality contracts added by code review
+    # -------------------------------------------------------------------------
+
+    def test_self_update_verifies_download_integrity(self):
+        """do_self_update must perform a SHA-256 double-download check."""
+        py_src = read("_maintenance/webui.py")
+        self.assertIn("_sha256_file", py_src)
+        self.assertIn("import hashlib", py_src)
+        self.assertIn("hmac.compare_digest(digest1, digest2)", py_src)
+        self.assertIn("Integrity check failed", py_src)
+
+    def test_oversized_body_returns_413(self):
+        """_body() must return None and do_POST must send 413 for oversized payloads."""
+        py_src = read("_maintenance/webui.py")
+        self.assertIn("return None  # Signal to caller: send 413", py_src)
+        self.assertIn("self.send_response(413)", py_src)
+        self.assertIn("body is None", py_src)
+
+    def test_agent_prefix_map_is_module_level_constant(self):
+        """_AGENT_PREFIX_MAP must be defined at module level, not inside a function."""
+        py_src = read("_maintenance/webui.py")
+        self.assertIn("_AGENT_PREFIX_MAP", py_src)
+        # Must not redefine it inside get_agent_name
+        fn_body = py_src.split("def get_agent_name")[1].split("\ndef ")[0]
+        self.assertNotIn("_AGENT_PREFIX_MAP = [", fn_body)
+
+    def test_rollback_uses_atomic_rename(self):
+        """do_rollback must use atomic rename not file-by-file copy."""
+        py_src = read("_maintenance/webui.py")
+        self.assertIn("_maintenance.rollback", py_src)
+        self.assertIn("rollback_tmp.rename(dest_maint)", py_src)
+        # The old iterdir() copy loop must not be present in do_rollback
+        rollback_fn = py_src.split("def do_rollback")[1].split("\ndef ")[0]
+        self.assertNotIn("for item in backup_maint.iterdir()", rollback_fn)
+
+    def test_install_scripts_remove_legacy_skill_md(self):
+        """Installer scripts must delete the old SKILL.md to avoid ambiguity."""
+        sh_src = read("install.sh")
+        ps_src = read("install.ps1")
+        self.assertIn('rm -f "$PERM_DIR/SKILL.md"', sh_src)
+        self.assertIn('Remove-Item $LegacySkillMd -Force', ps_src)
+
+    def test_deploy_sh_central_resolved_fails_loudly(self):
+        """central_resolved must fail loudly (return 1) if cd fails, not produce empty string."""
+        sh_src = read("_maintenance/deploy.sh")
+        # The error guards must appear in both run_sync and run_cleanup
+        self.assertEqual(
+            sh_src.count("Aborting sync."),
+            1,
+            "run_sync must have exactly one loud-fail guard for central_resolved"
+        )
+        self.assertEqual(
+            sh_src.count("Aborting cleanup."),
+            1,
+            "run_cleanup must have exactly one loud-fail guard for central_resolved"
+        )
 
 
 if __name__ == "__main__":

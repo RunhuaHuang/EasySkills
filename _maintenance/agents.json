@@ -1,0 +1,206 @@
+{
+  "_comment": "Single source of truth for all agent targets. Scripts and docs read from here.",
+  "version": 1,
+  "agents": [
+    {
+      "name": "Antigravity CLI",
+      "mac_path": "~/.gemini/config/skills",
+      "win_path": "%USERPROFILE%\\.gemini\\config\\skills"
+    },
+    {
+      "name": "Antigravity IDE",
+      "mac_path": "~/.gemini/antigravity/skills",
+      "win_path": "%USERPROFILE%\\.gemini\\antigravity\\skills"
+    },
+    {
+      "name": "Codex",
+      "mac_path": "~/.codex/skills",
+      "win_path": "%USERPROFILE%\\.codex\\skills"
+    },
+    {
+      "name": "Claude Code",
+      "mac_path": "~/.claude/skills",
+      "win_path": "%USERPROFILE%\\.claude\\skills"
+    },
+    {
+      "name": "GitHub Copilot",
+      "mac_path": "~/.copilot/skills",
+      "win_path": "%USERPROFILE%\\.copilot\\skills"
+    },
+    {
+      "name": "Pi",
+      "mac_path": "~/.pi/agent/skills",
+      "win_path": "%USERPROFILE%\\.pi\\agent\\skills"
+    },
+    {
+      "name": "OpenCode",
+      "mac_path": "~/.config/opencode/skills",
+      "win_path": "%USERPROFILE%\\.config\\opencode\\skills"
+    },
+    {
+      "name": "Kimi Code",
+      "mac_path": "~/.kimi/skills",
+      "win_path": "%USERPROFILE%\\.kimi\\skills"
+    },
+    {
+      "name": "Trae (Global)",
+      "mac_path": "~/.trae/skills",
+      "win_path": "%USERPROFILE%\\.trae\\skills",
+      "mac_extra_path": "~/Library/Application Support/Trae/skills",
+      "win_extra_path": "%APPDATA%\\Trae\\skills"
+    },
+    {
+      "name": "Trae CN",
+      "mac_path": "~/.trae-cn/skills",
+      "win_path": "%USERPROFILE%\\.trae-cn\\skills",
+      "mac_extra_path": "~/Library/Application Support/Trae-CN/skills",
+      "win_extra_path": "%APPDATA%\\Trae-CN\\skills"
+    },
+    {
+      "name": "OpenClaw",
+      "mac_path": "~/.openclaw/skills",
+      "win_path": "%USERPROFILE%\\.openclaw\\skills"
+    },
+    {
+      "name": "Hermes Agent",
+      "mac_path": "~/.hermes/skills",
+      "win_path": "%USERPROFILE%\\.hermes\\skills"
+    },
+    {
+      "name": "Proma",
+      "mac_path": "~/.proma/default-skills",
+      "win_path": "%USERPROFILE%\\.proma\\default-skills",
+      "_note": "Proma also auto-discovers workspace skills dirs at runtime"
+    },
+    {
+      "name": "Cursor",
+      "mac_path": "~/.cursor/skills",
+      "win_path": "%USERPROFILE%\\.cursor\\skills"
+    },
+    {
+      "name": "Kiro Agent",
+      "mac_path": "~/.kiro/skills",
+      "win_path": "%USERPROFILE%\\.kiro\\skills"
+    },
+    {
+      "name": "Junie (JetBrains)",
+      "mac_path": "~/.junie/skills",
+      "win_path": "%USERPROFILE%\\.junie\\skills"
+    },
+    {
+      "name": "Cline",
+      "mac_path": "~/.cline/skills",
+      "win_path": "%USERPROFILE%\\.cline\\skills"
+    },
+    {
+      "name": "Roo Code",
+      "mac_path": "~/.roo/skills",
+      "win_path": "%USERPROFILE%\\.roo\\skills"
+    },
+    {
+      "name": "Run",
+      "mac_path": "~/.run/global-skills/skills",
+      "win_path": "%USERPROFILE%\\.run\\global-skills\\skills"
+    },
+    {
+      "name": "Warp",
+      "mac_path": "~/.warp/skills",
+      "win_path": "%USERPROFILE%\\.warp\\skills"
+    },
+    {
+      "name": "Windsurf",
+      "mac_path": "~/.codeium/windsurf/skills",
+      "win_path": "%USERPROFILE%\\.codeium\\windsurf\\skills"
+    },
+    {
+      "name": "Firebender",
+      "mac_path": "~/.firebender/skills",
+      "win_path": "%USERPROFILE%\\.firebender\\skills"
+    },
+    {
+      "name": "Augment",
+      "mac_path": "~/.augment/skills",
+      "win_path": "%USERPROFILE%\\.augment\\skills"
+    },
+    {
+      "name": "Continue",
+      "mac_path": "~/.continue/skills",
+      "win_path": "%USERPROFILE%\\.continue\\skills"
+    },
+    {
+      "name": "Goose",
+      "mac_path": "~/.config/goose/skills",
+      "win_path": "%USERPROFILE%\\.config\\goose\\skills"
+    },
+    {
+      "name": "Agents (Standard)",
+      "mac_path": "~/.agents/skills",
+      "win_path": "%USERPROFILE%\\.agents\\skills"
+    },
+    {
+      "name": "Qoder",
+      "mac_path": "~/.qoder/skills",
+      "win_path": "%USERPROFILE%\\.qoder\\skills"
+    },
+    {
+      "name": "Qwen Code",
+      "mac_path": "~/.qwen/skills",
+      "win_path": "%USERPROFILE%\\.qwen\\skills"
+    },
+    {
+      "name": "CodeBuddy",
+      "mac_path": "~/.codebuddy/skills",
+      "win_path": "%USERPROFILE%\\.codebuddy\\skills"
+    },
+    {
+      "name": "Amp",
+      "mac_path": "~/.config/agents/skills",
+      "win_path": "%USERPROFILE%\\.config\\agents\\skills"
+    },
+    {
+      "name": "OpenHands",
+      "mac_path": "~/.openhands/skills",
+      "win_path": "%USERPROFILE%\\.openhands\\skills"
+    },
+    {
+      "name": "Kilo Code",
+      "mac_path": "~/.kilocode/skills",
+      "win_path": "%USERPROFILE%\\.kilocode\\skills"
+    },
+    {
+      "name": "Zencoder",
+      "mac_path": "~/.zencoder/skills",
+      "win_path": "%USERPROFILE%\\.zencoder\\skills"
+    },
+    {
+      "name": "iFlow CLI",
+      "mac_path": "~/.iflow/skills",
+      "win_path": "%USERPROFILE%\\.iflow\\skills"
+    },
+    {
+      "name": "Droid",
+      "mac_path": "~/.factory/skills",
+      "win_path": "%USERPROFILE%\\.factory\\skills"
+    },
+    {
+      "name": "Devin for Terminal",
+      "mac_path": "~/.config/devin/skills",
+      "win_path": "%USERPROFILE%\\.config\\devin\\skills"
+    },
+    {
+      "name": "WorkBuddy",
+      "mac_path": "~/.workbuddy/skills",
+      "win_path": "%USERPROFILE%\\.workbuddy\\skills"
+    },
+    {
+      "name": "QClaw",
+      "mac_path": "~/.qclaw/skills",
+      "win_path": "%USERPROFILE%\\.qclaw\\skills"
+    },
+    {
+      "name": "CodeWhale",
+      "mac_path": "~/.codewhale/skills",
+      "win_path": "%USERPROFILE%\\.codewhale\\skills"
+    }
+  ]
+}

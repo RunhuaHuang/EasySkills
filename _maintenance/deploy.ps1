@@ -1,6 +1,7 @@
 # ==============================================================================
 # Script: deploy.ps1 (Windows)
 # Description: Active skills mapping and persistence CLI tool for Windows.
+#              Reads agent targets from agents.json with hardcoded fallback.
 # ==============================================================================
 
 Param(
@@ -67,47 +68,93 @@ if (-not (Test-Path $GitDir)) {
   }
 }
 
-# Default target skills directories
-$Targets = @(
-  "$Home\.gemini\config\skills",
-  "$Home\.gemini\antigravity\skills",
-  "$Home\.codex\skills",
-  "$Home\.claude\skills",
-  "$Home\.copilot\skills",
-  "$Home\.pi\agent\skills",
-  "$Home\.config\opencode\skills",
-  "$Home\.kimi\skills",
-  "$Home\.trae\skills",
-  "$env:APPDATA\Trae\skills",
-  "$Home\.trae-cn\skills",
-  "$env:APPDATA\Trae-CN\skills",
-  "$Home\.openclaw\skills",
-  "$Home\.hermes\skills",
-  "$Home\.proma\default-skills",
-  "$Home\.cursor\skills",
-  "$Home\.kiro\skills",
-  "$Home\.junie\skills",
-  "$Home\.cline\skills",
-  "$Home\.roo\skills",
-  "$Home\.warp\skills",
-  "$Home\.codeium\windsurf\skills",
-  "$Home\.firebender\skills",
-  "$Home\.augment\skills",
-  "$Home\.continue\skills",
-  "$Home\.config\goose\skills",
-  "$Home\.agents\skills",
-  "$Home\.run\global-skills\skills",
-  "$Home\.qoder\skills",
-  "$Home\.qwen\skills",
-  "$Home\.codebuddy\skills",
-  "$Home\.config\agents\skills",
-  "$Home\.openhands\skills",
-  "$Home\.kilocode\skills",
-  "$Home\.zencoder\skills",
-  "$Home\.iflow\skills",
-  "$Home\.factory\skills",
-  "$Home\.config\devin\skills"
-)
+# ---- Load agent targets from agents.json (single source of truth) ----
+$AgentsJsonFile = Join-Path -Path $ScriptDir -ChildPath "agents.json"
+$script:Targets = @()
+$script:AgentNameMap = @{}
+
+function Load-Agents {
+  $loaded = $false
+  if (Test-Path $AgentsJsonFile) {
+    try {
+      $Data = Get-Content $AgentsJsonFile -Raw | ConvertFrom-Json
+      if ($Data.agents) {
+        $TargetList = [System.Collections.ArrayList]::new()
+        $NameMap = @{}
+        foreach ($Agent in $Data.agents) {
+          $WinPath = $Agent.win_path -replace '%USERPROFILE%', $Home
+          if ($WinPath) {
+            [void]$TargetList.Add($WinPath)
+            $NameMap[$WinPath] = $Agent.name
+          }
+          if ($Agent.win_extra_path) {
+            $ExtraPath = $Agent.win_extra_path -replace '%APPDATA%', $env:APPDATA
+            if ($ExtraPath) {
+              [void]$TargetList.Add($ExtraPath)
+              $NameMap[$ExtraPath] = $Agent.name
+            }
+          }
+        }
+        if ($TargetList.Count -gt 0) {
+          $script:Targets = @($TargetList)
+          $script:AgentNameMap = $NameMap
+          $loaded = $true
+        }
+      }
+    } catch {
+      Write-Warning "Failed to parse agents.json: $_"
+    }
+  }
+  if (-not $loaded) {
+    # Fallback: hardcoded defaults (kept in sync with agents.json)
+    $script:Targets = @(
+      "$Home\.gemini\config\skills",
+      "$Home\.gemini\antigravity\skills",
+      "$Home\.codex\skills",
+      "$Home\.claude\skills",
+      "$Home\.copilot\skills",
+      "$Home\.pi\agent\skills",
+      "$Home\.config\opencode\skills",
+      "$Home\.kimi\skills",
+      "$Home\.trae\skills",
+      "$env:APPDATA\Trae\skills",
+      "$Home\.trae-cn\skills",
+      "$env:APPDATA\Trae-CN\skills",
+      "$Home\.openclaw\skills",
+      "$Home\.hermes\skills",
+      "$Home\.proma\default-skills",
+      "$Home\.cursor\skills",
+      "$Home\.kiro\skills",
+      "$Home\.junie\skills",
+      "$Home\.cline\skills",
+      "$Home\.roo\skills",
+      "$Home\.warp\skills",
+      "$Home\.codeium\windsurf\skills",
+      "$Home\.firebender\skills",
+      "$Home\.augment\skills",
+      "$Home\.continue\skills",
+      "$Home\.config\goose\skills",
+      "$Home\.agents\skills",
+      "$Home\.run\global-skills\skills",
+      "$Home\.qoder\skills",
+      "$Home\.qwen\skills",
+      "$Home\.codebuddy\skills",
+      "$Home\.config\agents\skills",
+      "$Home\.openhands\skills",
+      "$Home\.kilocode\skills",
+      "$Home\.zencoder\skills",
+      "$Home\.iflow\skills",
+      "$Home\.factory\skills",
+      "$Home\.config\devin\skills",
+      "$Home\.workbuddy\skills",
+      "$Home\.qclaw\skills",
+      "$Home\.codewhale\skills"
+    )
+    $script:AgentNameMap = @{}
+  }
+}
+
+Load-Agents
 
 # ---- Concurrency lock (named mutex, system-wide) ----
 $script:DeployMutex = $null
@@ -136,7 +183,11 @@ function Get-AgentRoot ([string]$Target) {
     return Join-Path $env:APPDATA $AppName
   } elseif ($Target -like "$Home\*") {
     $Rel = $Target.Substring($Home.Length + 1)
-    $First = $Rel.Split('\')[0]
+    $Parts = $Rel.Split('\')
+    $First = $Parts[0]
+    if ($First -eq ".config" -and $Parts.Length -gt 1) {
+      return Join-Path $Home (Join-Path ".config" $Parts[1])
+    }
     return Join-Path $Home $First
   } else {
     return $Target
@@ -176,19 +227,65 @@ function Load-CustomTargets {
   }
 }
 
+$DisabledTargetsFile = Join-Path -Path $ScriptDir -ChildPath "disabled-targets.txt"
+$script:DisabledTargets = @{}
+
+function Load-DisabledTargets {
+  $script:DisabledTargets = @{}
+  if (Test-Path $DisabledTargetsFile) {
+    $Lines = Get-Content $DisabledTargetsFile
+    foreach ($Line in $Lines) {
+      if ($Line -and !(($Line.Trim()).StartsWith("#"))) {
+        $Target = $Line.Trim()
+        if ($Line.Contains("=")) {
+          $Parts = $Line.Split("=", 2)
+          $Target = $Parts[1].Trim()
+        }
+        if ($Target) {
+          if ($Target.StartsWith("~")) {
+            $Target = $Target.Replace("~", $Home)
+          }
+          try {
+            $AbsPath = (Get-Item $Target).FullName
+          } catch {
+            $AbsPath = $Target
+          }
+          $script:DisabledTargets[$AbsPath] = $true
+        }
+      }
+    }
+  }
+}
+
+function Remove-DisabledTarget([string]$Path) {
+  if (!$Path) { return }
+  $AbsPath = $Path
+  if (Test-Path $Path) {
+    $AbsPath = (Get-Item $Path).FullName
+  }
+  if (Test-Path $DisabledTargetsFile) {
+    $Content = Get-Content $DisabledTargetsFile
+    $NewContent = $Content | Where-Object {
+      $LinePath = $_.Trim()
+      if ($_.Contains("=")) { $LinePath = $_.Split("=", 2)[1].Trim() }
+      try {
+        $LineAbs = $LinePath
+        if (Test-Path $LinePath) { $LineAbs = (Get-Item $LinePath).FullName }
+        $LineAbs -ne $AbsPath
+      } catch {
+        $LinePath -ne $AbsPath
+      }
+    }
+    Set-Content -Path $DisabledTargetsFile -Value $NewContent
+  }
+}
+
 function Get-AgentName ([string]$Path) {
-  if ($Path -like "*\.gemini\antigravity\*") { return "Antigravity IDE" }
-  if ($Path -like "*\.gemini\*") { return "Antigravity CLI" }
-  if ($Path -like "*\.codex\*") { return "Codex" }
-  if ($Path -like "*\.claude\*") { return "Claude Code" }
-  if ($Path -like "*\.copilot\*") { return "GitHub Copilot" }
-  if ($Path -like "*\.pi\*") { return "Pi" }
-  if ($Path -like "*\.config\opencode\*") { return "OpenCode" }
-  if ($Path -like "*\.kimi\*") { return "Kimi Code" }
-  if ($Path -like "*\.trae-cn\*" -or $Path -like "*\Trae-CN\*") { return "Trae CN" }
-  if ($Path -like "*\.trae\*" -or $Path -like "*\Trae\*") { return "Trae (Global)" }
-  if ($Path -like "*\.openclaw\*") { return "OpenClaw" }
-  if ($Path -like "*\.hermes\*") { return "Hermes Agent" }
+  # O(1) lookup from agents.json-derived map
+  if ($script:AgentNameMap.ContainsKey($Path)) {
+    return $script:AgentNameMap[$Path]
+  }
+  # Dynamic Proma workspace detection
   if ($Path -like "*\.proma\agent-workspaces\*") {
     $Parts = $Path.Split('\')
     for ($i = 0; $i -lt $Parts.Length; $i++) {
@@ -198,35 +295,59 @@ function Get-AgentName ([string]$Path) {
     }
     return "Proma Workspace"
   }
-  if ($Path -like "*\.proma\*") { return "Proma" }
-  if ($Path -like "*\.cursor\*") { return "Cursor" }
-  if ($Path -like "*\.kiro\*") { return "Kiro Agent" }
-  if ($Path -like "*\.junie\*") { return "Junie (JetBrains)" }
-  if ($Path -like "*\.cline\*") { return "Cline" }
-  if ($Path -like "*\.roo\*") { return "Roo Code" }
-  if ($Path -like "*\.warp\*") { return "Warp" }
-  if ($Path -like "*\.codeium\windsurf\*") { return "Windsurf" }
-  if ($Path -like "*\.firebender\*") { return "Firebender" }
-  if ($Path -like "*\.augment\*") { return "Augment" }
-  if ($Path -like "*\.continue\*") { return "Continue" }
-  if ($Path -like "*\.config\goose\*") { return "Goose" }
-  if ($Path -like "*\.qoder\*") { return "Qoder" }
-  if ($Path -like "*\.qwen\*") { return "Qwen Code" }
-  if ($Path -like "*\.codebuddy\*") { return "CodeBuddy" }
-  if ($Path -like "*\.config\agents\*") { return "Amp" }
-  if ($Path -like "*\.openhands\*") { return "OpenHands" }
-  if ($Path -like "*\.kilocode\*") { return "Kilo Code" }
-  if ($Path -like "*\.zencoder\*") { return "Zencoder" }
-  if ($Path -like "*\.iflow\*") { return "iFlow CLI" }
-  if ($Path -like "*\.factory\*") { return "Droid" }
-  if ($Path -like "*\.config\devin\*") { return "Devin for Terminal" }
-  if ($Path -like "*\.agents\*") { return "Agents (Standard)" }
-  if ($Path -like "*\.run\*") { return "Run" }
-  return "Custom Agent"
+  # Fallback: prefix-based matching (precise, avoids substring false positives)
+  $Rel = $Path
+  if ($Path.StartsWith("$Home\")) { $Rel = $Path.Substring($Home.Length + 1) }
+  elseif ($Path.StartsWith("$env:APPDATA\")) { $Rel = $Path.Substring($env:APPDATA.Length + 1) }
+  switch -Wildcard ($Rel) {
+    ".gemini\antigravity\*"    { return "Antigravity IDE" }
+    ".gemini\*"                { return "Antigravity CLI" }
+    ".codex\*"                 { return "Codex" }
+    ".claude\*"                { return "Claude Code" }
+    ".copilot\*"               { return "GitHub Copilot" }
+    ".pi\*"                    { return "Pi" }
+    ".config\opencode\*"       { return "OpenCode" }
+    ".kimi\*"                  { return "Kimi Code" }
+    ".trae-cn\*"               { return "Trae CN" }
+    ".trae\*"                  { return "Trae (Global)" }
+    ".openclaw\*"              { return "OpenClaw" }
+    ".hermes\*"                { return "Hermes Agent" }
+    ".proma\*"                 { return "Proma" }
+    ".cursor\*"                { return "Cursor" }
+    ".kiro\*"                  { return "Kiro Agent" }
+    ".junie\*"                 { return "Junie (JetBrains)" }
+    ".cline\*"                 { return "Cline" }
+    ".roo\*"                   { return "Roo Code" }
+    ".warp\*"                  { return "Warp" }
+    ".codeium\windsurf\*"      { return "Windsurf" }
+    ".firebender\*"            { return "Firebender" }
+    ".augment\*"               { return "Augment" }
+    ".continue\*"              { return "Continue" }
+    ".config\goose\*"          { return "Goose" }
+    ".qoder\*"                 { return "Qoder" }
+    ".qwen\*"                  { return "Qwen Code" }
+    ".codebuddy\*"             { return "CodeBuddy" }
+    ".config\agents\*"         { return "Amp" }
+    ".openhands\*"             { return "OpenHands" }
+    ".kilocode\*"              { return "Kilo Code" }
+    ".zencoder\*"              { return "Zencoder" }
+    ".iflow\*"                 { return "iFlow CLI" }
+    ".factory\*"               { return "Droid" }
+    ".config\devin\*"          { return "Devin for Terminal" }
+    ".workbuddy\*"             { return "WorkBuddy" }
+    ".qclaw\*"                 { return "QClaw" }
+    ".codewhale\*"             { return "CodeWhale" }
+    ".agents\*"                { return "Agents (Standard)" }
+    ".run\*"                   { return "Run" }
+    "Trae-CN\*"                { return "Trae CN" }
+    "Trae\*"                   { return "Trae (Global)" }
+    default                    { return "Custom Agent" }
+  }
 }
 
 function Run-Sync {
   Load-CustomTargets
+  Load-DisabledTargets
   $script:SuccessfulInjections = @()
 
   foreach ($Path in $CustomPath) {
@@ -237,30 +358,27 @@ function Run-Sync {
   Write-Host "Starting EasySkills Sync (Windows)..." -ForegroundColor Cyan
   Write-Host "==========================================================" -ForegroundColor Cyan
 
-  # PART A: Map EasySkills itself
+  # PART A: Legacy cleanup (Remove EasySkills self-mapping from previous versions)
+  $CentralResolved = (Resolve-Path -LiteralPath $CentralDir).ProviderPath
   foreach ($Target in $script:Targets) {
-    $AgentRoot = Get-AgentRoot $Target
-    if (!(Test-Path $AgentRoot)) { continue }
-
-    if (!(Test-Path $Target)) {
-      New-Item -ItemType Directory -Path $Target -Force | Out-Null
-    }
-
     $DestPath = Join-Path -Path $Target -ChildPath "EasySkills"
-
     if (Test-Path $DestPath) {
       $Item = Get-Item $DestPath
       if ($Item.Attributes -match "ReparsePoint") {
-        Remove-Item $DestPath -Recurse -Force
-      } else {
-        continue
+        $LinkTarget = $Item.Target
+        $ResolvedTarget = $null
+        if ($LinkTarget) {
+          try {
+            $ResolvedTarget = (Resolve-Path -LiteralPath $LinkTarget).ProviderPath
+          } catch {
+            try { $ResolvedTarget = [System.IO.Path]::GetFullPath($LinkTarget) } catch {}
+          }
+        }
+        if ($ResolvedTarget -and $ResolvedTarget.Equals($CentralResolved, [System.StringComparison]::OrdinalIgnoreCase)) {
+          Remove-Item $Item.FullName -Recurse -Force
+          Write-Host "   * Cleaned up legacy self-mapping -> $DestPath" -ForegroundColor Green
+        }
       }
-    }
-
-    New-Item -ItemType Junction -Path $DestPath -Value $CentralDir | Out-Null
-    Write-Host "   * Self-Mapped EasySkills -> $DestPath" -ForegroundColor Green
-    if ($script:SuccessfulInjections -notcontains $Target) {
-      $script:SuccessfulInjections += $Target
     }
   }
 
@@ -269,13 +387,22 @@ function Run-Sync {
 
   foreach ($SkillDir in $SkillDirs) {
     $SkillName = $SkillDir.Name
-    if ($SkillName -eq "node_modules" -or $SkillName -eq ".git" -or $SkillName -eq "dist" -or $SkillName -eq "_maintenance" -or $SkillName -like "_*") {
+    if ($SkillName -eq "node_modules" -or $SkillName -eq ".git" -or $SkillName -eq "dist" -or $SkillName -eq "docs" -or $SkillName -eq "_maintenance" -or $SkillName -like "_*") {
       continue
     }
 
     Write-Host "   Found skill: $SkillName" -ForegroundColor Magenta
 
     foreach ($Target in $script:Targets) {
+      try {
+        $AbsTarget = (Get-Item $Target).FullName
+      } catch {
+        $AbsTarget = $Target
+      }
+      if ($script:DisabledTargets.ContainsKey($AbsTarget)) {
+        continue
+      }
+
       $AgentRoot = Get-AgentRoot $Target
       if (!(Test-Path $AgentRoot)) { continue }
 
@@ -355,6 +482,7 @@ function Add-Target ([string]$Path) {
     Add-Content -Path $CustomTargetsFile -Value $AbsPath
     Write-Host "Successfully persisted custom target: $AbsPath" -ForegroundColor Green
   }
+  Remove-DisabledTarget $Path
   Run-Sync
 }
 
@@ -363,11 +491,21 @@ function Remove-Target ([string]$Path) {
     Write-Error "Error: Please specify a path to remove."
     exit 1
   }
+  # Resolve to absolute path (same as Add-Target)
+  $AbsPath = $Path
+  if (Test-Path $Path) {
+    $AbsPath = (Get-Item $Path).FullName
+  }
   if (Test-Path $CustomTargetsFile) {
     $Content = Get-Content $CustomTargetsFile
-    $NewContent = $Content | Where-Object { $_ -ne $Path }
+    $NewContent = $Content | Where-Object {
+      $LinePath = $_.Trim()
+      if ($_.Contains("=")) { $LinePath = $_.Split("=", 2)[1].Trim() }
+      $LinePath -ne $AbsPath
+    }
     Set-Content -Path $CustomTargetsFile -Value $NewContent
-    Write-Host "Successfully removed path: $Path" -ForegroundColor Green
+    Remove-DisabledTarget $Path
+    Write-Host "Successfully removed path: $AbsPath" -ForegroundColor Green
     Run-Sync
   } else {
     Write-Host "No custom targets file found." -ForegroundColor Gray

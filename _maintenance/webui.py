@@ -6,6 +6,7 @@
 #        or: bash _maintenance/deploy.sh --webui
 # ==============================================================================
 
+import hashlib
 import http.server
 import socketserver
 import base64
@@ -33,56 +34,269 @@ if HOME_CENTRAL_DIR.exists() and HOME_CENTRAL_DIR.is_dir() and not (CENTRAL_DIR 
     SCRIPT_DIR = HOME_CENTRAL_DIR / "_maintenance"
 
 CUSTOM_TARGETS_FILE = SCRIPT_DIR / "custom-targets.txt"
+DISABLED_TARGETS_FILE = SCRIPT_DIR / "disabled-targets.txt"
+
+def _add_to_disabled_targets(path_str: str):
+    if not path_str or not path_str.strip():
+        return
+    path_str = path_str.strip()
+    try:
+        norm_path = str(Path(path_str).expanduser().resolve())
+    except Exception:
+        norm_path = str(Path(path_str).expanduser())
+
+    lines = []
+    if DISABLED_TARGETS_FILE.exists():
+        try:
+            lines = DISABLED_TARGETS_FILE.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            pass
+
+    exists = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        try:
+            line_path = str(Path(stripped).expanduser().resolve())
+        except Exception:
+            line_path = str(Path(stripped).expanduser())
+        if line_path == norm_path:
+            exists = True
+            break
+
+    if not exists:
+        lines.append(norm_path)
+        try:
+            DISABLED_TARGETS_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+def _remove_from_disabled_targets(path_str: str):
+    if not path_str or not path_str.strip() or not DISABLED_TARGETS_FILE.exists():
+        return
+    path_str = path_str.strip()
+    try:
+        norm_path = str(Path(path_str).expanduser().resolve())
+    except Exception:
+        norm_path = str(Path(path_str).expanduser())
+
+    lines = []
+    try:
+        lines = DISABLED_TARGETS_FILE.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+
+    new_lines = []
+    updated = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            new_lines.append(line)
+            continue
+        try:
+            line_path = str(Path(stripped).expanduser().resolve())
+        except Exception:
+            line_path = str(Path(stripped).expanduser())
+        if line_path == norm_path:
+            updated = True
+        else:
+            new_lines.append(line)
+    
+    if updated:
+        try:
+            DISABLED_TARGETS_FILE.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+def _get_disabled_targets() -> set[str]:
+    disabled = set()
+    if DISABLED_TARGETS_FILE.exists():
+        try:
+            for line in DISABLED_TARGETS_FILE.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    try:
+                        norm = str(Path(stripped).expanduser().resolve())
+                    except Exception:
+                        norm = str(Path(stripped).expanduser())
+                    disabled.add(norm)
+        except OSError:
+            pass
+    return disabled
+AGENTS_JSON_FILE = SCRIPT_DIR / "agents.json"
 WEBUI_DIR = SCRIPT_DIR / "webui"
 if not WEBUI_DIR.exists():
     WEBUI_DIR = Path(__file__).parent.resolve() / "webui"
 PORT = 6633
-WEBUI_TOKEN = os.environ.get("EASYSKILLS_WEBUI_TOKEN") or secrets.token_urlsafe(32)
 ALLOWED_ORIGINS = {f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"}
 WATCHER_LAUNCHD_LABEL = "com.easyskills.watcher"
 
-DEFAULT_AGENTS = [
-    ("Antigravity CLI",                Path.home() / ".gemini/config/skills"),
-    ("Antigravity IDE",                Path.home() / ".gemini/antigravity/skills"),
-    ("Codex",                          Path.home() / ".codex/skills"),
-    ("Claude Code",                    Path.home() / ".claude/skills"),
-    ("GitHub Copilot",                 Path.home() / ".copilot/skills"),
-    ("Pi",                             Path.home() / ".pi/agent/skills"),
-    ("OpenCode",                       Path.home() / ".config/opencode/skills"),
-    ("Kimi Code",                      Path.home() / ".kimi/skills"),
-    ("Trae (Global)",                  Path.home() / ".trae/skills"),
-    ("Trae (Global, App)",             Path.home() / "Library/Application Support/Trae/skills"),
-    ("Trae CN",                        Path.home() / ".trae-cn/skills"),
-    ("Trae CN (App)",                  Path.home() / "Library/Application Support/Trae-CN/skills"),
-    ("OpenClaw",                       Path.home() / ".openclaw/skills"),
-    ("Hermes Agent",                   Path.home() / ".hermes/skills"),
-    ("Proma",                          Path.home() / ".proma/default-skills"),
-    ("Cursor",                         Path.home() / ".cursor/skills"),
-    ("Kiro Agent",                     Path.home() / ".kiro/skills"),
-    ("Junie (JetBrains)",              Path.home() / ".junie/skills"),
-    ("Cline",                          Path.home() / ".cline/skills"),
-    ("Roo Code",                       Path.home() / ".roo/skills"),
-    ("Run",                            Path.home() / ".run" / "global-skills" / "skills"),
-    ("Warp",                           Path.home() / ".warp/skills"),
-    ("Windsurf",                       Path.home() / ".codeium/windsurf/skills"),
-    ("Firebender",                     Path.home() / ".firebender/skills"),
-    ("Augment",                        Path.home() / ".augment/skills"),
-    ("Continue",                       Path.home() / ".continue/skills"),
-    ("Goose",                          Path.home() / ".config/goose/skills"),
-    ("Agents (Standard)",              Path.home() / ".agents/skills"),
-    ("Qoder",                          Path.home() / ".qoder/skills"),
-    ("Qwen Code",                      Path.home() / ".qwen/skills"),
-    ("CodeBuddy",                      Path.home() / ".codebuddy/skills"),
-    ("Amp",                            Path.home() / ".config/agents/skills"),
-    ("OpenHands",                      Path.home() / ".openhands/skills"),
-    ("Kilo Code",                      Path.home() / ".kilocode/skills"),
-    ("Zencoder",                       Path.home() / ".zencoder/skills"),
-    ("iFlow CLI",                      Path.home() / ".iflow/skills"),
-    ("Droid",                          Path.home() / ".factory/skills"),
-    ("Devin for Terminal",             Path.home() / ".config/devin/skills"),
+# ---- Persistent token (survives restarts) ----
+# Stored under SCRIPT_DIR (not bare home) so it stays with the installation
+# and is not visible to unrelated home-dir processes.
+TOKEN_FILE = SCRIPT_DIR / ".easyskills-token"
+
+def _load_or_create_token() -> str:
+    env_token = os.environ.get("EASYSKILLS_WEBUI_TOKEN")
+    if env_token:
+        return env_token
+    try:
+        if TOKEN_FILE.exists():
+            token = TOKEN_FILE.read_text(encoding="utf-8").strip()
+            if len(token) >= 16:
+                return token
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(32)
+    try:
+        # Atomic create — fails if another process created it first
+        fd = os.open(str(TOKEN_FILE), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.write(fd, token.encode("utf-8"))
+        finally:
+            os.close(fd)
+    except FileExistsError:
+        # Another process won the race — retry reading up to 3 times
+        for _ in range(3):
+            try:
+                candidate = TOKEN_FILE.read_text(encoding="utf-8").strip()
+                if len(candidate) >= 16:
+                    return candidate
+            except OSError:
+                pass
+            import time
+            time.sleep(0.05)
+        # Both processes failed to write a valid token; surface as an error
+        raise RuntimeError(
+            f"Token file {TOKEN_FILE} exists but could not be read after 3 retries."
+        )
+    except OSError:
+        pass
+    return token
+
+WEBUI_TOKEN = _load_or_create_token()
+
+# ---- Load agents from agents.json (single source of truth) ----
+def _load_default_agents() -> list[tuple[str, Path]]:
+    """Load agent list from agents.json, with hardcoded fallback."""
+    try:
+        if AGENTS_JSON_FILE.exists():
+            with open(AGENTS_JSON_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            def _expand(p: str) -> str:
+                p = (p or "").strip()
+                # Only a leading '~' is the home shortcut; never touch later ones.
+                if p == "~" or p.startswith("~/"):
+                    return str(Path.home()) + p[1:]
+                return p
+            agents = []
+            for a in data.get("agents", []):
+                name = a.get("name", "")
+                mac = _expand(a.get("mac_path", ""))
+                if mac:
+                    agents.append((name, Path(mac)))
+                extra = _expand(a.get("mac_extra_path", ""))
+                if extra:
+                    agents.append((name, Path(extra)))
+            if agents:
+                return agents
+    except Exception:
+        pass
+    # Fallback: hardcoded defaults (kept in sync with agents.json)
+    return [
+        ("Antigravity CLI",                Path.home() / ".gemini/config/skills"),
+        ("Antigravity IDE",                Path.home() / ".gemini/antigravity/skills"),
+        ("Codex",                          Path.home() / ".codex/skills"),
+        ("Claude Code",                    Path.home() / ".claude/skills"),
+        ("GitHub Copilot",                 Path.home() / ".copilot/skills"),
+        ("Pi",                             Path.home() / ".pi/agent/skills"),
+        ("OpenCode",                       Path.home() / ".config/opencode/skills"),
+        ("Kimi Code",                      Path.home() / ".kimi/skills"),
+        ("Trae (Global)",                  Path.home() / ".trae/skills"),
+        ("Trae (Global)",                  Path.home() / "Library/Application Support/Trae/skills"),
+        ("Trae CN",                        Path.home() / ".trae-cn/skills"),
+        ("Trae CN",                        Path.home() / "Library/Application Support/Trae-CN/skills"),
+        ("OpenClaw",                       Path.home() / ".openclaw/skills"),
+        ("Hermes Agent",                   Path.home() / ".hermes/skills"),
+        ("Proma",                          Path.home() / ".proma/default-skills"),
+        ("Cursor",                         Path.home() / ".cursor/skills"),
+        ("Kiro Agent",                     Path.home() / ".kiro/skills"),
+        ("Junie (JetBrains)",              Path.home() / ".junie/skills"),
+        ("Cline",                          Path.home() / ".cline/skills"),
+        ("Roo Code",                       Path.home() / ".roo/skills"),
+        ("Run",                            Path.home() / ".run" / "global-skills" / "skills"),
+        ("Warp",                           Path.home() / ".warp/skills"),
+        ("Windsurf",                       Path.home() / ".codeium/windsurf/skills"),
+        ("Firebender",                     Path.home() / ".firebender/skills"),
+        ("Augment",                        Path.home() / ".augment/skills"),
+        ("Continue",                       Path.home() / ".continue/skills"),
+        ("Goose",                          Path.home() / ".config/goose/skills"),
+        ("Agents (Standard)",              Path.home() / ".agents/skills"),
+        ("Qoder",                          Path.home() / ".qoder/skills"),
+        ("Qwen Code",                      Path.home() / ".qwen/skills"),
+        ("CodeBuddy",                      Path.home() / ".codebuddy/skills"),
+        ("Amp",                            Path.home() / ".config/agents/skills"),
+        ("OpenHands",                      Path.home() / ".openhands/skills"),
+        ("Kilo Code",                      Path.home() / ".kilocode/skills"),
+        ("Zencoder",                       Path.home() / ".zencoder/skills"),
+        ("iFlow CLI",                      Path.home() / ".iflow/skills"),
+        ("Droid",                          Path.home() / ".factory/skills"),
+        ("Devin for Terminal",             Path.home() / ".config/devin/skills"),
+        ("WorkBuddy",                      Path.home() / ".workbuddy/skills"),
+        ("QClaw",                          Path.home() / ".qclaw/skills"),
+        ("CodeWhale",                      Path.home() / ".codewhale/skills"),
+    ]
+
+DEFAULT_AGENTS = _load_default_agents()
+
+EXCLUDE_NAMES = {"_maintenance", ".git", "node_modules", "dist", "docs"}
+
+# Module-level constant: built once, not re-allocated on every get_agent_name() call.
+_AGENT_PREFIX_MAP: list[tuple[str, str]] = [
+    (".gemini/antigravity/", "Antigravity IDE"),
+    (".gemini/",            "Antigravity CLI"),
+    (".codex/",             "Codex"),
+    (".claude/",            "Claude Code"),
+    (".copilot/",           "GitHub Copilot"),
+    (".pi/",                "Pi"),
+    (".config/opencode/",   "OpenCode"),
+    (".kimi/",              "Kimi Code"),
+    (".trae-cn/",           "Trae CN"),
+    (".trae/",              "Trae (Global)"),
+    (".openclaw/",          "OpenClaw"),
+    (".hermes/",            "Hermes Agent"),
+    (".proma/",             "Proma"),
+    (".cursor/",            "Cursor"),
+    (".kiro/",              "Kiro Agent"),
+    (".junie/",             "Junie (JetBrains)"),
+    (".cline/",             "Cline"),
+    (".roo/",               "Roo Code"),
+    (".warp/",              "Warp"),
+    (".codeium/windsurf/",  "Windsurf"),
+    (".firebender/",        "Firebender"),
+    (".augment/",           "Augment"),
+    (".continue/",          "Continue"),
+    (".config/goose/",      "Goose"),
+    (".qoder/",             "Qoder"),
+    (".qwen/",              "Qwen Code"),
+    (".codebuddy/",         "CodeBuddy"),
+    (".config/agents/",     "Amp"),
+    (".openhands/",         "OpenHands"),
+    (".kilocode/",          "Kilo Code"),
+    (".zencoder/",          "Zencoder"),
+    (".iflow/",             "iFlow CLI"),
+    (".factory/",           "Droid"),
+    (".config/devin/",      "Devin for Terminal"),
+    (".workbuddy/",         "WorkBuddy"),
+    (".qclaw/",             "QClaw"),
+    (".codewhale/",         "CodeWhale"),
+    (".agents/",            "Agents (Standard)"),
+    (".run/",               "Run"),
+    ("Trae-CN/",            "Trae CN"),
+    ("Trae/",               "Trae (Global)"),
 ]
 
-EXCLUDE_NAMES = {"_maintenance", ".git", "node_modules", "dist"}
 GITHUB_REPO = "RunhuaHuang/EasySkills"
 GITHUB_API_LATEST_RELEASE = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_LATEST_RELEASE = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -101,6 +315,8 @@ def get_agent_root(target: Path) -> Path:
         return lib_app / rel.parts[0]
     if str(target).startswith(str(home)):
         rel = target.relative_to(home)
+        if len(rel.parts) > 1 and rel.parts[0] == ".config":
+            return home / ".config" / rel.parts[1]
         return home / rel.parts[0]
     return target.parent
 
@@ -115,7 +331,7 @@ def get_skills():
                 skills.append({
                     "name": item.name,
                     "path": str(item),
-                    "has_skill_md": (item / "SKILL.md").exists(),
+                    "has_skill_md": (item / "SKILL.md").exists() or (item / "README_SYSTEM.md").exists(),
                 })
     return skills
 
@@ -131,8 +347,37 @@ def get_custom_targets():
     return lines
 
 
-def is_mapped(target_path: str) -> bool:
-    return (Path(target_path) / "EasySkills").is_symlink()
+def is_mapped(target_path: str, disabled_set: set[str], has_skills: bool) -> bool:
+    try:
+        norm_path = str(Path(target_path).expanduser().resolve())
+    except Exception:
+        norm_path = str(Path(target_path).expanduser())
+        
+    if norm_path in disabled_set:
+        return False
+        
+    target = Path(target_path)
+    if not target.exists() or not target.is_dir():
+        return False
+        
+    if not has_skills:
+        return True
+        
+    try:
+        central_resolved = CENTRAL_DIR.resolve()
+        for item in target.iterdir():
+            if item.is_symlink():
+                try:
+                    link_target = Path(os.readlink(str(item)))
+                    if not link_target.is_absolute():
+                        link_target = item.parent / link_target
+                    if link_target.resolve().parent == central_resolved:
+                        return True
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return False
 
 
 def is_proma_workspace_target(path: str) -> bool:
@@ -141,43 +386,17 @@ def is_proma_workspace_target(path: str) -> bool:
 
 
 def get_agent_name(path: str) -> str:
-    path_lower = path.lower()
-    if "antigravity" in path_lower and ".gemini" in path_lower: return "Antigravity IDE"
-    if ".gemini" in path_lower: return "Antigravity CLI"
-    if ".codex" in path_lower: return "Codex"
-    if ".claude" in path_lower: return "Claude Code"
-    if ".copilot" in path_lower: return "GitHub Copilot"
-    if ".pi" in path_lower: return "Pi"
-    if ".config/opencode" in path_lower: return "OpenCode"
-    if ".kimi" in path_lower: return "Kimi Code"
-    if ".trae-cn" in path_lower or "/trae-cn/" in path_lower: return "Trae CN"
-    if ".trae" in path_lower or "/trae/" in path_lower: return "Trae (Global)"
-    if ".openclaw" in path_lower: return "OpenClaw"
-    if ".hermes" in path_lower: return "Hermes Agent"
-    if ".proma" in path_lower: return "Proma"
-    if ".cursor" in path_lower: return "Cursor"
-    if ".kiro" in path_lower: return "Kiro Agent"
-    if ".junie" in path_lower: return "Junie (JetBrains)"
-    if ".cline" in path_lower: return "Cline"
-    if ".roo" in path_lower: return "Roo Code"
-    if ".warp" in path_lower: return "Warp"
-    if ".codeium/windsurf" in path_lower: return "Windsurf"
-    if ".firebender" in path_lower: return "Firebender"
-    if ".augment" in path_lower: return "Augment"
-    if ".continue" in path_lower: return "Continue"
-    if ".config/goose" in path_lower: return "Goose"
-    if ".qoder" in path_lower: return "Qoder"
-    if ".qwen" in path_lower: return "Qwen Code"
-    if ".codebuddy" in path_lower: return "CodeBuddy"
-    if ".config/agents" in path_lower: return "Amp"
-    if ".openhands" in path_lower: return "OpenHands"
-    if ".kilocode" in path_lower: return "Kilo Code"
-    if ".zencoder" in path_lower: return "Zencoder"
-    if ".iflow" in path_lower: return "iFlow CLI"
-    if ".factory" in path_lower: return "Droid"
-    if ".config/devin" in path_lower: return "Devin for Terminal"
-    if ".agents" in path_lower: return "Agents (Standard)"
-    if ".run" in path_lower: return "Run"
+    home = str(Path.home())
+    lib_app = str(Path.home() / "Library" / "Application Support")
+    rel = path
+    if path.startswith(lib_app + os.sep):
+        rel = path[len(lib_app) + 1:]
+    elif path.startswith(home + os.sep):
+        rel = path[len(home) + 1:]
+    rel_lower = rel.lower()
+    for prefix, name in _AGENT_PREFIX_MAP:
+        if rel_lower.startswith(prefix):
+            return name
     return "Custom Agent"
 
 
@@ -203,6 +422,8 @@ def get_agents():
 
     seen: set[str] = set()
     agents = []
+    disabled_set = _get_disabled_targets()
+    has_skills = len(get_skills()) > 0
 
     # 1. Add Default Agents (checking for overrides)
     for name, default_path in DEFAULT_AGENTS:
@@ -213,11 +434,12 @@ def get_agents():
         p = Path(path_str)
         agent_root = get_agent_root(p)
         active = agent_root.exists()
+        
         agents.append({
             "name": name,
             "path": path_str,
             "active": active,
-            "mapped": is_mapped(path_str) if p.exists() else False,
+            "mapped": is_mapped(path_str, disabled_set, has_skills),
             "custom": name in custom_overrides,
         })
 
@@ -228,11 +450,12 @@ def get_agents():
         seen.add(path_str)
         p = Path(path_str)
         active = p.exists() or p.parent.exists()
+
         agents.append({
             "name": name,
             "path": path_str,
             "active": active,
-            "mapped": is_mapped(path_str) if p.exists() else False,
+            "mapped": is_mapped(path_str, disabled_set, has_skills),
             "custom": True,
         })
 
@@ -466,15 +689,10 @@ def do_map(target_path: str) -> dict:
     if not target_path or not target_path.strip():
         return {"success": False, "message": "Target path cannot be empty"}
     target_path = target_path.strip()
+    _remove_from_disabled_targets(target_path)
     target = Path(target_path)
     try:
         target.mkdir(parents=True, exist_ok=True)
-        # EasySkills self-link
-        self_link = target / "EasySkills"
-        if self_link.is_symlink():
-            self_link.unlink()
-        if not self_link.exists():
-            self_link.symlink_to(CENTRAL_DIR)
         # Per-skill links
         for skill_dir in CENTRAL_DIR.iterdir():
             if not skill_dir.is_dir():
@@ -495,6 +713,7 @@ def do_unmap(target_path: str) -> dict:
     if not target_path or not target_path.strip():
         return {"success": False, "message": "Target path cannot be empty"}
     target_path = target_path.strip()
+    _add_to_disabled_targets(target_path)
     target = Path(target_path)
     if not target.exists():
         return {"success": False, "message": "Path does not exist"}
@@ -578,9 +797,20 @@ def update_agent_path(name: str, old_path: str, new_path: str) -> dict:
         return {"success": False, "message": f"Failed to write config: {e}"}
 
     # Automatically symlink to the new configuration location
+    _remove_from_disabled_targets(old_path)
+    _remove_from_disabled_targets(new_path)
     do_map(new_path)
 
     return {"success": True, "message": f"Updated {name} to {new_path}"}
+
+
+def _sha256_file(path: str) -> str:
+    """Return the hex SHA-256 digest of the file at *path*."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def do_self_update() -> dict:
@@ -600,6 +830,20 @@ def do_self_update() -> dict:
             archive_path = os.path.join(tmp, "release.tar.gz")
             urllib.request.urlretrieve(tarball_url, archive_path)
 
+            # --- Integrity check: re-download and compare SHA-256 ---
+            # GitHub serves the tarball deterministically for a given tag, so
+            # two independent downloads must produce the identical digest.
+            verify_path = os.path.join(tmp, "release_verify.tar.gz")
+            urllib.request.urlretrieve(tarball_url, verify_path)
+            digest1 = _sha256_file(archive_path)
+            digest2 = _sha256_file(verify_path)
+            if not hmac.compare_digest(digest1, digest2):
+                return {
+                    "success": False,
+                    "message": "Integrity check failed: download digest mismatch. Aborting update.",
+                }
+            os.unlink(verify_path)
+
             with tarfile.open(archive_path, "r:gz") as tf:
                 try:
                     tf.extractall(tmp, filter="data")
@@ -611,33 +855,91 @@ def do_self_update() -> dict:
                 return {"success": False, "message": "Empty archive"}
             src_root = Path(tmp) / extracted[0]
 
+            # Preserve user runtime files (not shipped in the release tarball)
             custom_backup = None
             if CUSTOM_TARGETS_FILE.exists():
                 custom_backup = CUSTOM_TARGETS_FILE.read_text(encoding="utf-8")
+            disabled_backup = None
+            if DISABLED_TARGETS_FILE.exists():
+                disabled_backup = DISABLED_TARGETS_FILE.read_text(encoding="utf-8")
+
+            # --- Backup current _maintenance for rollback (atomic via temp rename) ---
+            dest_maint = CENTRAL_DIR / "_maintenance"
+            backup_maint = CENTRAL_DIR / "_maintenance.bak"
+            backup_maint_new = CENTRAL_DIR / "_maintenance.bak.new"
 
             src_maint = src_root / "_maintenance"
-            if src_maint.is_dir():
-                dest_maint = CENTRAL_DIR / "_maintenance"
-                for item in src_maint.iterdir():
-                    dest = dest_maint / item.name
-                    if item.is_dir():
-                        if dest.exists():
-                            shutil.rmtree(dest)
-                        shutil.copytree(item, dest)
-                    else:
-                        shutil.copy2(item, dest)
+            if not src_maint.is_dir():
+                return {"success": False, "message": "Archive does not contain _maintenance/"}
 
-            src_skill = src_root / "SKILL.md"
-            if src_skill.exists():
-                shutil.copy2(src_skill, CENTRAL_DIR / "SKILL.md")
+            # Build new _maintenance in a temp dir, then rename atomically
+            new_maint_tmp = CENTRAL_DIR / "_maintenance.new"
+            if new_maint_tmp.exists():
+                shutil.rmtree(new_maint_tmp)
+            shutil.copytree(src_maint, new_maint_tmp)
 
+            # Carry user runtime files INTO the new tree so they survive the
+            # rename rotation below (the tarball does not contain them).
             if custom_backup is not None:
-                CUSTOM_TARGETS_FILE.write_text(custom_backup, encoding="utf-8")
+                (new_maint_tmp / "custom-targets.txt").write_text(custom_backup, encoding="utf-8")
+            if disabled_backup is not None:
+                (new_maint_tmp / "disabled-targets.txt").write_text(disabled_backup, encoding="utf-8")
+            # Preserve the auth token (copy2 keeps the 0600 mode) so existing
+            # browser sessions stay valid if the service restarts post-update.
+            if TOKEN_FILE.exists():
+                try:
+                    shutil.copy2(TOKEN_FILE, new_maint_tmp / TOKEN_FILE.name)
+                except OSError:
+                    pass
 
-            for script in ("deploy.sh", "watch.sh", "unwatch.sh"):
-                s = CENTRAL_DIR / "_maintenance" / script
-                if s.exists():
-                    s.chmod(0o755)
+            # Copy README_SYSTEM.md / SKILL.md into the new tree if needed
+            src_readme = src_root / "README_SYSTEM.md"
+            if src_readme.exists():
+                shutil.copy2(src_readme, CENTRAL_DIR / "README_SYSTEM.md")
+            else:
+                src_old = src_root / "SKILL.md"
+                if src_old.exists():
+                    shutil.copy2(src_old, CENTRAL_DIR / "README_SYSTEM.md")
+
+            # Snapshot existing backup (so we can revert even the backup on failure)
+            if backup_maint.exists():
+                if backup_maint_new.exists():
+                    shutil.rmtree(backup_maint_new)
+                shutil.copytree(backup_maint, backup_maint_new)
+
+            try:
+                # Rotate: current -> .bak, new -> current  (two renames, fast)
+                if dest_maint.exists():
+                    if backup_maint.exists():
+                        shutil.rmtree(backup_maint)
+                    dest_maint.rename(backup_maint)
+
+                new_maint_tmp.rename(dest_maint)
+
+                # Clean up the interim backup snapshot
+                if backup_maint_new.exists():
+                    shutil.rmtree(backup_maint_new)
+
+                # Ensure shell scripts are executable
+                for script in ("deploy.sh", "watch.sh", "unwatch.sh"):
+                    s = dest_maint / script
+                    if s.exists():
+                        s.chmod(0o755)
+
+            except Exception:
+                # Rollback: restore from backup_maint_new if available
+                try:
+                    if new_maint_tmp.exists():
+                        shutil.rmtree(new_maint_tmp)
+                    if backup_maint_new.exists():
+                        if backup_maint.exists():
+                            shutil.rmtree(backup_maint)
+                        backup_maint_new.rename(backup_maint)
+                    if not dest_maint.exists() and backup_maint.exists():
+                        shutil.copytree(backup_maint, dest_maint)
+                except Exception:
+                    pass
+                raise
 
         run_deploy("--sync")
 
@@ -651,6 +953,62 @@ def do_self_update() -> dict:
         return {"success": False, "message": f"Update failed: {e}"}
 
 
+def do_rollback() -> dict:
+    backup_maint = CENTRAL_DIR / "_maintenance.bak"
+    dest_maint = CENTRAL_DIR / "_maintenance"
+    if not backup_maint.exists():
+        return {"success": False, "message": "No backup found. Nothing to roll back."}
+    try:
+        # Preserve the user's CURRENT runtime files across the rollback
+        custom_backup = None
+        if CUSTOM_TARGETS_FILE.exists():
+            custom_backup = CUSTOM_TARGETS_FILE.read_text(encoding="utf-8")
+        disabled_backup = None
+        if DISABLED_TARGETS_FILE.exists():
+            disabled_backup = DISABLED_TARGETS_FILE.read_text(encoding="utf-8")
+
+        # Atomic rollback: copy backup to a temp name, then rotate via rename
+        rollback_tmp = CENTRAL_DIR / "_maintenance.rollback"
+        if rollback_tmp.exists():
+            shutil.rmtree(rollback_tmp)
+        shutil.copytree(backup_maint, rollback_tmp)
+
+        # Carry runtime files into the tree that will become _maintenance
+        if custom_backup is not None:
+            (rollback_tmp / "custom-targets.txt").write_text(custom_backup, encoding="utf-8")
+        if disabled_backup is not None:
+            (rollback_tmp / "disabled-targets.txt").write_text(disabled_backup, encoding="utf-8")
+        if TOKEN_FILE.exists():
+            try:
+                shutil.copy2(TOKEN_FILE, rollback_tmp / TOKEN_FILE.name)
+            except OSError:
+                pass
+
+        if dest_maint.exists():
+            dest_maint.rename(CENTRAL_DIR / "_maintenance.prev")
+        rollback_tmp.rename(dest_maint)
+        # Remove the transient .prev directory
+        prev = CENTRAL_DIR / "_maintenance.prev"
+        if prev.exists():
+            shutil.rmtree(prev)
+
+        for script in ("deploy.sh", "watch.sh", "unwatch.sh"):
+            s = dest_maint / script
+            if s.exists():
+                s.chmod(0o755)
+
+        run_deploy("--sync")
+        # Remove backup so a second rollback doesn’t restore stale state
+        try:
+            shutil.rmtree(backup_maint)
+        except OSError:
+            pass
+        version = get_version()
+        return {"success": True, "message": f"Rolled back to {version}. All agents re-synced.", "version": version}
+    except Exception as e:
+        return {"success": False, "message": f"Rollback failed: {e}"}
+
+
 # ──────────────────────────────────────────────────────────────
 # HTTP handler
 # ──────────────────────────────────────────────────────────────
@@ -658,6 +1016,11 @@ def do_self_update() -> dict:
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # quiet
+
+    def _is_host_allowed(self) -> bool:
+        host = self.headers.get("Host", "")
+        allowed = {f"localhost:{PORT}", f"127.0.0.1:{PORT}"}
+        return host in allowed
 
     def _cors_origin(self):
         origin = self.headers.get("Origin", "")
@@ -708,10 +1071,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def _body(self) -> dict:
-        length = int(self.headers.get("Content-Length", 0))
+    def _body(self) -> dict | None:
+        """Parse the JSON request body.
+
+        Returns:
+            dict  – on success
+            None  – when the body is too large (caller must send 413 and return)
+            {}    – on missing / empty / malformed body (safe to proceed)
+        """
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (ValueError, TypeError):
+            return {}
         if not length:
             return {}
+        if length > 10 * 1024 * 1024:  # 10 MB cap
+            return None  # Signal to caller: send 413
         try:
             return json.loads(self.rfile.read(length))
         except (json.JSONDecodeError, ValueError):
@@ -728,6 +1103,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._json({"success": False, "message": "Forbidden"}, status=403)
 
     def do_OPTIONS(self):
+        if not self._is_host_allowed():
+            self.send_response(400)
+            self.end_headers()
+            return
         cors_origin = self._cors_origin()
         if not cors_origin:
             self.send_response(403)
@@ -740,6 +1119,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if not self._is_host_allowed():
+            self.send_response(400)
+            self.end_headers()
+            return
         path = urllib.parse.urlparse(self.path).path
 
         if path in ("/", "/index.html"):
@@ -760,6 +1143,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "agents_total":  len(agents),
                 "agents_mapped": sum(1 for a in agents if a["mapped"]),
                 "version":       get_version(),
+                "has_backup":    (CENTRAL_DIR / "_maintenance.bak").is_dir(),
             })
 
         elif path == "/api/skills":
@@ -776,11 +1160,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        if not self._is_host_allowed():
+            self.send_response(400)
+            self.end_headers()
+            return
         if not self._is_post_allowed():
             self._reject_forbidden()
             return
         path = urllib.parse.urlparse(self.path).path
         body = self._body()
+        if body is None:  # body too large
+            self.send_response(413)  # Request Entity Too Large
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
 
         routes = {
             "/api/sync":                 lambda: run_deploy("--sync"),
@@ -795,6 +1188,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "/api/skills/import":        lambda: import_skill_folder(body.get("name", ""), body.get("files", [])),
             "/api/skills/delete":        lambda: delete_skill(body.get("name", "")),
             "/api/update":               lambda: do_self_update(),
+            "/api/rollback":             lambda: do_rollback(),
         }
 
         handler = routes.get(path)

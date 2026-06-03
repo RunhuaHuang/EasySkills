@@ -1,49 +1,95 @@
+# EasySkills — System & Operations Reference
+
+> **Version:** 1.3.0 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
+
+EasySkills is a cross-platform automated skills manager for macOS, Linux, and
+Windows. It creates one centralized skills directory (`~/EasySkills`), registers
+a background file watcher, and maps your custom skill folders — via native
+symlinks (macOS/Linux) or directory junctions (Windows) — into every installed
+agent's skills directory.
+
+This document is operational reference material for the installed system. It is
+**not** an agent skill and is not mapped into any agent's skills directory;
+EasySkills installs as a standalone tool (CLI + local WebUI), not as a skill.
+
+> 🌐 **WebUI Dashboard:** EasySkills ships with a visual manager running locally
+> on port **6633** — [http://127.0.0.1:6633](http://127.0.0.1:6633). Import/delete
+> skills, connect/disconnect agents, register custom paths, sync, prune broken
+> links, and check for updates, all from one page.
+
 ---
-name: EasySkills
-description: Cross-platform automated skills manager. Automatically detects macOS/Windows, creates a centralized skills directory, registers background file watchers, and maps your custom skills dynamically to all installed agents.
-homepage: https://github.com/RunhuaHuang/EasySkills
-version: 1.2.1
-metadata: {"clawdbot":{"emoji":"🚀","requires":{"bins":["bash","powershell"]}}}
----
 
-# EasySkills - Automated Skills Mapping and Syncing
+## Installation
 
-Use this skill when the user asks you to:
-- "Initialize EasySkills" / "运行 EasySkills 初始化"
-- "Setup custom skills central repository" / "配置自定义技能中央目录"
-- "Map my skills to all agent clients" / "映射我的技能到所有 Agent 客户端"
-- "Configure background auto-watching for skills" / "配置技能后台全自动同步"
+**One-line install (recommended):**
 
----
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+```
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+```
 
-## 🤖 Interactive Prompt & Workflow / Agent 交互流程指令
+**Double-click install:** clone or download the repo, then double-click
+`install_mac.command` (macOS) or `install_windows.bat` (Windows).
 
-As an Agent running this skill, you **MUST** strictly follow this interactive conversation flow:
+The installer creates `~/EasySkills`, detects supported agents, maps shared
+skills, starts the background watcher, and launches the WebUI. User config
+(`custom-targets.txt`, `disabled-targets.txt`) and the WebUI token are preserved
+across upgrades.
 
-### 1. Execute Base Installation / 执行基础安装
-Run the corresponding command for the detected OS (macOS or Windows).
+### Windows Defender note
 
-### 1.5 (Windows Only) Add Windows Defender Exclusion / 添加 Windows Defender 白名单
-On Windows, **immediately after** the base installation completes, run the following command to add a Defender exclusion. This triggers a standard UAC prompt — the user only needs to click "Yes":
+If Windows Defender flags `~/EasySkills`, add an exclusion (a standard UAC prompt
+appears — click "Yes"):
+
 ```powershell
 Start-Process powershell -Verb RunAs -Wait -ArgumentList "-NoProfile -Command `"Add-MpPreference -ExclusionPath '$env:USERPROFILE\EasySkills'; Write-Host 'Windows Defender exclusion added successfully.'; Start-Sleep -Seconds 2`""
 ```
-If the command succeeds, inform the user that the exclusion has been added. If it fails (e.g. user declined UAC), inform them they can add it manually later via Windows Security settings and proceed normally.
 
-### 2. Proactive Inquiry / 主动询问自定义路径
-After the script successfully completes, you **MUST** ask the user:
-> 💬 *“EasySkills setup completed successfully! Do you have any other AI agents (such as custom setups) that you would like to configure? If so, please provide the folder path to their skills directory.”*
-> 
-> 💬 *“EasySkills 基础配置已完成！请问您是否还有其他小众或自定义的 AI Agent 客户端需要配置？如果有的话，请直接将它的 skills 文件夹路径发送给我，我来为您完成增量映射。”*
-
-### 3. Dynamic Custom Execution / 动态跟进执行
-If the user provides a custom path, run the installer command again, passing the custom path as an argument.
+You can also add the exclusion manually later via Windows Security settings.
 
 ---
 
-## 📁 Pre-configured Default Paths / 预设默认路径集
+## Operating the installed system
 
-Here are the default paths mapped by the installation scripts for popular local coding agents. If the user tells you that a path is different on their machine, **always respect the user's input and run the script with their custom path**.
+`watch.sh` / `watch.ps1` internally run the initial sync and then register the
+background watcher — running the watch script alone handles everything. Run the
+commands below from the `~/EasySkills` root directory.
+
+### macOS / Linux
+
+```bash
+bash ./_maintenance/watch.sh                       # install watcher + initial sync
+bash ./_maintenance/watch.sh "/path/to/agent/skills"  # also map a custom path
+bash ./_maintenance/deploy.sh --status             # health check
+bash ./_maintenance/deploy.sh --webui              # open the WebUI manager
+```
+
+### Windows
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\_maintenance\watch.ps1
+powershell -ExecutionPolicy Bypass -File .\_maintenance\watch.ps1 -CustomPath "C:\path\to\agent\skills"
+powershell -ExecutionPolicy Bypass -File .\_maintenance\deploy.ps1 -Status
+powershell -ExecutionPolicy Bypass -File .\_maintenance\deploy.ps1 -WebUI
+```
+
+### Adding custom agent paths
+
+If an agent lives in a non-standard location, register its skills folder via the
+WebUI **Agents** tab, or with `deploy.sh --add` / `deploy.ps1 -Add`. Custom paths
+persist in `_maintenance/custom-targets.txt`. The agent target list itself is
+defined in `_maintenance/agents.json` (the single source of truth).
+
+---
+
+## Pre-configured Default Paths
+
+The installer maps shared skills into these popular local coding agents whenever
+their directory exists. Agents not installed on the machine are skipped.
 
 ### 1. Antigravity CLI (formerly Gemini CLI)
 - **macOS**: `~/.gemini/config/skills`
@@ -189,45 +235,14 @@ Here are the default paths mapped by the installation scripts for popular local 
 - **macOS**: `~/.config/devin/skills`
 - **Windows**: `%USERPROFILE%\.config\devin\skills`
 
----
+### 36. WorkBuddy
+- **macOS**: `~/.workbuddy/skills`
+- **Windows**: `%USERPROFILE%\.workbuddy\skills`
 
-## 🛠️ Execution Plan for Agents / Agent 执行指南
+### 37. QClaw
+- **macOS**: `~/.qclaw/skills`
+- **Windows**: `%USERPROFILE%\.qclaw\skills`
 
-> `watch.sh` internally calls `deploy.sh` for the initial sync, then registers the background watcher.
-> You only need to run `watch.sh` — it handles everything.
-
-### 🍎 For macOS:
-```bash
-# Run from the directory containing this SKILL.md:
-bash ./_maintenance/watch.sh
-```
-To append custom paths:
-```bash
-bash ./_maintenance/watch.sh "/Users/username/custom-agent/skills"
-```
-To check health:
-```bash
-bash ./_maintenance/deploy.sh --status
-```
-To open the WebUI manager:
-```bash
-bash ./_maintenance/deploy.sh --webui
-```
-
-### 🪟 For Windows:
-```powershell
-# Run from the directory containing this SKILL.md:
-powershell -ExecutionPolicy Bypass -File .\_maintenance\watch.ps1
-```
-To append custom paths:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\_maintenance\watch.ps1 -CustomPath "C:\custom-agent\skills"
-```
-To check health:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\_maintenance\deploy.ps1 -Status
-```
-To open the WebUI manager:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\_maintenance\deploy.ps1 -WebUI
-```
+### 38. CodeWhale
+- **macOS**: `~/.codewhale/skills`
+- **Windows**: `%USERPROFILE%\.codewhale\skills`

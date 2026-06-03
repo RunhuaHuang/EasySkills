@@ -35,10 +35,22 @@ if /i "%CURRENT_DIR_STRIP%" neq "%PERM_DIR%" (
     )
   )
 
+  :: Preserve per-machine runtime files (unmapped targets + WebUI token).
+  :: Use fixed %TEMP% paths (set outside this block) to avoid the parenthesized
+  :: block's parse-time %VAR% expansion trap.
+  if exist "%PERM_DIR%\_maintenance\disabled-targets.txt" copy /Y "%PERM_DIR%\_maintenance\disabled-targets.txt" "%TEMP%\easyskills-disabled.bak" > nul
+  if exist "%PERM_DIR%\_maintenance\.easyskills-token" copy /Y "%PERM_DIR%\_maintenance\.easyskills-token" "%TEMP%\easyskills-token.bak" > nul
+
   :: --- Clean install of _maintenance\ ---
   if exist "%PERM_DIR%\_maintenance" rd /S /Q "%PERM_DIR%\_maintenance"
   xcopy /E /I /Y "%CURRENT_DIR%_maintenance" "%PERM_DIR%\_maintenance" > nul
-  copy /Y "%CURRENT_DIR%SKILL.md" "%PERM_DIR%\SKILL.md" > nul
+  copy /Y "%CURRENT_DIR%README_SYSTEM.md" "%PERM_DIR%\README_SYSTEM.md" > nul
+  if exist "%PERM_DIR%\SKILL.md" del /F /Q "%PERM_DIR%\SKILL.md"
+
+  :: Restore preserved runtime files
+  if exist "%TEMP%\easyskills-disabled.bak" copy /Y "%TEMP%\easyskills-disabled.bak" "%PERM_DIR%\_maintenance\disabled-targets.txt" > nul
+  if exist "%TEMP%\easyskills-token.bak" copy /Y "%TEMP%\easyskills-token.bak" "%PERM_DIR%\_maintenance\.easyskills-token" > nul
+  del /F /Q "%TEMP%\easyskills-disabled.bak" "%TEMP%\easyskills-token.bak" 2>nul
 
   :: Initialize custom-targets.txt at root if not present
   if not exist "%PERM_DIR%\custom-targets.txt" (

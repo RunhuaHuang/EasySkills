@@ -4,13 +4,13 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#安装方式)
-[![Agents](https://img.shields.io/badge/支持Agent-35+-orange.svg)](#支持的-agent-列表)
-[![Version](https://img.shields.io/badge/版本-1.2.2-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Agents](https://img.shields.io/badge/支持Agent-38+-orange.svg)](#支持的-agent-列表)
+[![Version](https://img.shields.io/badge/版本-1.3.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **一个技能库，所有 Agent，始终同步。**
 
 只需将技能文件夹放入 `~/EasySkills` 一次，
-它就会通过原生链接，自动出现在 Claude Code、Codex、Cursor、Gemini、Copilot、Windsurf、Trae 等 35+ Agent 的技能目录中。
+它就会通过原生链接，自动出现在 Claude Code、Codex、Cursor、Gemini、Copilot、Windsurf、Trae 等 38+ Agent 的技能目录中。
 
 本地优先 &bull; 空闲零 CPU &bull; 自带 WebUI
 
@@ -48,7 +48,6 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 安装器会创建 `~/EasySkills`，自动检测已安装的 Agent，映射共享技能，启动后台监听，并拉起本地 WebUI。
 
 > **其他方式：** 克隆仓库后双击 `install_mac.command`（macOS）或 `install_windows.bat`（Windows）。
-> 或直接对 Agent 说：*"帮我初始化 EasySkills。"*
 
 ---
 
@@ -68,7 +67,7 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 │ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
 │ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
 │ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
-│ ... 35+ 个目标，全部同步，始终一致         │
+│ ... 38+ 个目标，全部同步，始终一致         │
 └─────────────────────────────────────────────┘
 ```
 
@@ -105,11 +104,11 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 | | 特性 | 说明 |
 |:---:|:---|:---|
 | **1** | **技能库导入/删除** | 通过 WebUI 导入技能文件夹；删除时弹窗确认 |
-| **2** | **Agent 自动检测** | 自动识别 35+ 主流 Agent，只为真实存在的路径建立连接 |
+| **2** | **Agent 自动检测** | 自动识别 38+ 主流 Agent，只为真实存在的路径建立连接 |
 | **3** | **实时映射** | 监听服务在几秒内同步技能增删 |
 | **4** | **非侵入式** | 共享技能与 Agent 专属技能并列存在——原有 skills 不受影响 |
 | **5** | **Windows 免提权** | 使用 NTFS 目录联结，无需管理员权限或开发者模式 |
-| **6** | **静默监听** | macOS: `launchd` + `WatchPaths` &bull; Windows: 计划任务 + 隐藏 `FileSystemWatcher` |
+| **6** | **静默监听** | macOS: `launchd` + `WatchPaths` &bull; Linux: `systemd` path unit &bull; Windows: 计划任务 + 隐藏 `FileSystemWatcher` |
 | **7** | **本地优先安全** | 跳过已有真实目录，使用文件锁，仅监听 `127.0.0.1` |
 | **8** | **并发安全** | macOS PID 锁 / Windows 命名互斥锁，防止同步重入 |
 
@@ -137,22 +136,13 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [选项]
 | `--cleanup` | 清除所有 EasySkills 软链接 |
 | `--help` | 显示帮助 |
 
-### 自然语言管理
-
-EasySkills 加载为技能后，直接对 AI 助手说：
-
-| 任务 | 提示词 |
-|---|---|
-| 初始化 | *"运行 EasySkills，帮我初始化技能同步系统"* |
-| 添加自定义路径 | *"帮我把技能映射到 `/path/to/agent/skills`"* |
-| 查看映射状态 | *"列出 EasySkills 当前所有映射"* |
-| 移除路径 | *"从 EasySkills 移除 `/path/to/agent/skills`"* |
+> **提示：** 也可以在 WebUI 的「智能体」页可视化完成添加 / 移除自定义路径，无需记忆命令。
 
 ---
 
 ## 支持的 Agent 列表
 
-开箱即用支持 35+ 个 Agent 目标路径，可随时通过命令行、WebUI 或对话添加自定义路径。
+开箱即用支持 38+ 个 Agent 目标路径，可随时通过命令行、WebUI 或对话添加自定义路径。
 
 <details>
 <summary><b>查看完整列表</b></summary>
@@ -195,6 +185,9 @@ EasySkills 加载为技能后，直接对 AI 助手说：
 | 33 | **iFlow CLI** | `~/.iflow/skills` | `%USERPROFILE%\.iflow\skills` |
 | 34 | **Droid** | `~/.factory/skills` | `%USERPROFILE%\.factory\skills` |
 | 35 | **Devin for Terminal** | `~/.config/devin/skills` | `%USERPROFILE%\.config\devin\skills` |
+| 36 | **WorkBuddy** | `~/.workbuddy/skills` | `%USERPROFILE%\.workbuddy\skills` |
+| 37 | **QClaw** | `~/.qclaw/skills` | `%USERPROFILE%\.qclaw\skills` |
+| 38 | **CodeWhale** | `~/.codewhale/skills` | `%USERPROFILE%\.codewhale\skills` |
 
 > Trae 和 Trae CN 同时映射到 `~/Library/Application Support/Trae[-CN]/skills`（macOS）和 `%APPDATA%\Trae[-CN]\skills`（Windows）。
 
@@ -214,10 +207,11 @@ EasySkills 加载为技能后，直接对 AI 助手说：
 
 添加新 Agent 支持：
 
-1. 在 `_maintenance/deploy.sh` 和 `_maintenance/deploy.ps1` 的 `TARGETS` 数组中添加路径
-2. 在两个文件的 `get_agent_name` / `Get-AgentName` 函数中添加名称映射
-3. 更新 `README.md`、`README_EN.md` 和 `SKILL.md` 中的 Agent 表格
-4. 提交 Pull Request
+1. 在 `_maintenance/agents.json` 中添加条目（single source of truth）
+2. 在 `deploy.sh` 和 `deploy.ps1` 的硬编码回退数组中添加对应路径
+3. 更新 `README.md`、`README_EN.md` 和 `README_SYSTEM.md` 中的 Agent 表格
+4. 运行测试：`python3 -m unittest _maintenance/tests/test_security_contracts.py`
+5. 提交 Pull Request
 
 ---
 

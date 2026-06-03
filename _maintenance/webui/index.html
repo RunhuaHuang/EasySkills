@@ -1972,7 +1972,7 @@
             <div class="guide-section-block">
                 <h3><i class="fa-solid fa-folder-tree"></i> <span class="t-guide-structure-title">Installed Directory Structure</span></h3>
                 <pre><code>~/EasySkills/
-&#x251C;&#x2500;&#x2500; SKILL.md                   # AI Agent skill interface
+&#x251C;&#x2500;&#x2500; README_SYSTEM.md           # System documentation
 &#x251C;&#x2500;&#x2500; _maintenance/              # Core engine (excluded from mapping)
 &#x2502;   &#x251C;&#x2500;&#x2500; macOS/                 # Double-click launchers
 &#x2502;   &#x2502;   &#x251C;&#x2500;&#x2500; Start &#x2014; &#x542F;&#x52A8;.command
@@ -2065,6 +2065,9 @@
                         </button>
                         <button class="btn btn-primary" id="btn-update-now" onclick="performUpdate(this)" style="width: 100%; justify-content: center; display: none;">
                             <i class="fa-solid fa-download"></i> <span class="t-update-now">Update Now</span>
+                        </button>
+                        <button class="btn btn-outline" id="btn-rollback" onclick="performRollback(this)" style="width: 100%; justify-content: center; display: none;">
+                            <i class="fa-solid fa-rotate-left"></i> <span class="t-rollback">Rollback Last Update</span>
                         </button>
                     </div>
                 </div>
@@ -2236,6 +2239,9 @@
                 't-latest-version': 'Latest Release:',
                 't-check-updates': 'Check for Updates',
                 't-update-now': 'Update Now',
+                't-rollback': 'Rollback Last Update',
+                't-no-skills': 'No skills detected in the central skill library.',
+                't-no-agents': 'No Target Agent environment folders registered.',
                 't-one-click-title': 'One-Click Upgrade script Command',
                 't-webui-access-title': 'Dashboard Access',
                 't-webui-access-desc': 'We strongly recommend bookmarking this URL in your browser. The EasySkills local WebUI runs on port 6633 offline.',
@@ -2262,12 +2268,6 @@
                 't-guide-qs2-desc': 'Go to Skills, click Import Skill, choose a folder that contains SKILL.md, and EasySkills copies it into the central skill library.',
                 't-guide-qs3-title': 'Connect missing agents',
                 't-guide-qs3-desc': 'Go to Agents. If an agent is not listed, paste its skills-folder absolute path and register it as a custom channel.',
-                't-guide-install-title': 'Installation Methods',
-                't-guide-install-a-title': 'Method A: One-Line Install (Recommended)',
-                't-guide-install-b-title': 'Method B: Double-Click',
-                't-guide-install-b-desc': 'Clone or download the repo, then double-click install_mac.command (macOS) or install_windows.bat (Windows).',
-                't-guide-install-c-title': 'Method C: Let Your AI Agent Do It',
-                't-guide-install-c-desc': 'Just tell your agent: "Help me initialize EasySkills". It reads the SKILL.md, runs the script, and asks about custom paths.',
                 't-guide-cli-title': 'Advanced CLI fallback',
                 't-guide-cli-desc': 'Most users should use the WebUI. When you do need the terminal, copy the full command for your platform:',
                 't-guide-cli-platform': 'Platform',
@@ -2311,21 +2311,7 @@
                 't-guide-agent-step3-desc': 'Use Disconnect or Deregister for channels you no longer want EasySkills to maintain.',
                 't-guide-custom-title': 'Custom Path Overrides',
                 't-guide-custom-desc': 'Override any agent\'s default skills path via _maintenance/custom-targets.txt using the AgentName=/new/path syntax. Useful when an agent is installed in a non-standard location.',
-                't-guide-custom-alt': 'You can also add custom paths via the CLI (deploy.sh --add /path), the Agents tab in this WebUI, or by asking your AI agent.',
-                't-guide-chat-title': 'Agent Chat Commands',
-                't-guide-chat-desc': 'Once EasySkills is loaded as a skill, you can manage everything through natural language:',
-                't-guide-chat-task-h': 'Task',
-                't-guide-chat-prompt-h': 'Prompt',
-                't-guide-chat-init': 'Initialize',
-                't-guide-chat-init-prompt': '"Run EasySkills and set up my skills sync"',
-                't-guide-chat-addpath': 'Add custom path',
-                't-guide-chat-addpath-prompt': '"Map EasySkills to /path/to/agent/skills"',
-                't-guide-chat-view': 'View mappings',
-                't-guide-chat-view-prompt': '"Show all active EasySkills mappings"',
-                't-guide-chat-remove': 'Remove a path',
-                't-guide-chat-remove-prompt': '"Remove /path/to/agent/skills from EasySkills"',
-                't-guide-chat-openui': 'Open WebUI',
-                't-guide-chat-openui-prompt': '"Open the EasySkills WebUI dashboard"',
+                't-guide-custom-alt': 'You can also add custom paths via the CLI (deploy.sh --add /path) or the Agents tab in this WebUI.',
                 't-guide-structure-title': 'Installed Directory Structure',
                 't-guide-structure-desc': 'The root directory is kept clean. README, LICENSE, and install scripts exist only in the Git repository for GitHub display.',
                 't-guide-notes-title': 'Notes',
@@ -2384,6 +2370,9 @@
                 't-latest-version': '最新发行版:',
                 't-check-updates': '检查最新版本',
                 't-update-now': '立即更新',
+                't-rollback': '回滚上次更新',
+                't-no-skills': '中央技能库中暂无技能。',
+                't-no-agents': '暂无已注册的目标 Agent 环境。',
                 't-one-click-title': '一键升级命令指令',
                 't-webui-access-title': '控制台快捷访问',
                 't-webui-access-desc': '强烈建议将此网址添加至浏览器收藏夹。EasySkills 本地 WebUI 运行于 6633 端口，无需联网即可离线运行。',
@@ -2410,12 +2399,6 @@
                 't-guide-qs2-desc': '进入技能库，点击导入技能，选择包含 SKILL.md 的文件夹，EasySkills 会把它复制到中央技能库。',
                 't-guide-qs3-title': '连接缺失的 Agent',
                 't-guide-qs3-desc': '进入智能体页。如果某个 Agent 不在列表中，粘贴它的 skills 文件夹绝对路径并注册为自定义 Agent。',
-                't-guide-install-title': '安装方式',
-                't-guide-install-a-title': '方案 A：一行命令安装（推荐）',
-                't-guide-install-b-title': '方案 B：双击安装',
-                't-guide-install-b-desc': '克隆或下载仓库，然后双击 install_mac.command（macOS）或 install_windows.bat（Windows）。',
-                't-guide-install-c-title': '方案 C：让 AI Agent 自动安装',
-                't-guide-install-c-desc': '直接对你的 Agent 说："帮我运行 EasySkills 初始化"。Agent 会读取 SKILL.md，执行安装脚本，并主动询问自定义路径。',
                 't-guide-cli-title': '高级命令行备用方式',
                 't-guide-cli-desc': '大多数用户直接使用 WebUI 即可。确实需要终端时，请按你的平台复制完整命令：',
                 't-guide-cli-platform': '平台',
@@ -2459,21 +2442,7 @@
                 't-guide-agent-step3-desc': '对不再希望 EasySkills 维护的 Agent，使用断开或注销操作。',
                 't-guide-custom-title': '自定义路径覆盖',
                 't-guide-custom-desc': '通过 _maintenance/custom-targets.txt 中的 Agent名称=/新/路径 语法，可覆盖任何默认 Agent 的技能目录位置。',
-                't-guide-custom-alt': '也可以通过命令行（deploy.sh --add /路径）、本面板的智能体标签页、或直接对 AI 对话来添加自定义路径。',
-                't-guide-chat-title': '自然语言管理',
-                't-guide-chat-desc': 'EasySkills 加载为技能后，直接对你的 AI 助手说：',
-                't-guide-chat-task-h': '任务',
-                't-guide-chat-prompt-h': '提示词',
-                't-guide-chat-init': '初始化',
-                't-guide-chat-init-prompt': '"运行 EasySkills，帮我初始化技能同步系统"',
-                't-guide-chat-addpath': '添加自定义路径',
-                't-guide-chat-addpath-prompt': '"帮我把技能映射到 /path/to/agent/skills"',
-                't-guide-chat-view': '查看映射状态',
-                't-guide-chat-view-prompt': '"列出 EasySkills 当前所有映射"',
-                't-guide-chat-remove': '移除路径',
-                't-guide-chat-remove-prompt': '"从 EasySkills 移除 /path/to/agent/skills"',
-                't-guide-chat-openui': '打开 WebUI',
-                't-guide-chat-openui-prompt': '"打开 EasySkills 管理面板"',
+                't-guide-custom-alt': '也可以通过命令行（deploy.sh --add /路径）或本面板的智能体标签页来添加自定义路径。',
                 't-guide-structure-title': '安装目录结构',
                 't-guide-structure-desc': '根目录保持整洁。README、LICENSE、安装脚本仅存在于 Git 仓库中供 GitHub 展示。',
                 't-guide-notes-title': '注意事项',
@@ -2933,7 +2902,7 @@
                 return data;
             } catch (err) {
                 console.error(err);
-                if (payload) showToast('Network offline or backend dead', 'error');
+                if (payload) showToast(currentLang === 'en' ? 'Network offline or backend dead' : '网络离线或后端不可用', 'error');
                 return null;
             } finally {
                 if (btnElement) {
@@ -2947,7 +2916,7 @@
 
         // --- Dynamic Interface Data Refresher ---
         async function refreshAll() {
-            const activeNav = document.querySelector('.nav-item.active').getAttribute('data-target');
+            const activeNav = document.querySelector('.nav-item.active')?.getAttribute('data-target');
             
             if (activeNav === 'dashboard') {
                 const status = await apiCall('/api/status');
@@ -2976,13 +2945,22 @@
                         // Store for update check comparison
                         window._esCurrentVersion = versionStr;
                     }
+
+                    // Show rollback button if a backup exists from a previous update
+                    const rollbackBtn = document.getElementById('btn-rollback');
+                    if (rollbackBtn) {
+                        rollbackBtn.style.display = status.has_backup ? 'flex' : 'none';
+                    }
                     
                     const watcherDiv = document.getElementById('stat-watcher');
                     if (status.watcher.running) {
+                        const pidText = status.watcher.pid
+                            ? escapeHtml(String(status.watcher.pid))
+                            : (currentLang === 'en' ? 'on-demand (launchd/systemd)' : '路径触发 (launchd/systemd)');
                         watcherDiv.innerHTML = `
                             <div style="display: flex; flex-direction: column; gap: var(--space-xs);">
                                 <span class="status-badge running"><i class="fa-solid fa-circle"></i> ${dict[currentLang]['t-running']}</span>
-                                <div style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); margin-top: 4px; padding-left: 2px;">PID: ${status.watcher.pid || (currentLang === 'en' ? 'on-demand (launchd)' : '路径触发 (launchd)')}</div>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); margin-top: 4px; padding-left: 2px;">PID: ${pidText}</div>
                             </div>
                         `;
                     } else {
@@ -3125,7 +3103,7 @@
                 grid.innerHTML = `
                     <div style="grid-column: 1/-1; text-align: center; padding: var(--space-xl) 0; color: var(--text-muted); font-family: var(--font-display);">
                         <i class="fa-solid fa-folder-open" style="font-size: 2.5rem; margin-bottom: var(--space-md); opacity: 0.4; display: block;"></i>
-                        No skills detected in the central skill library.
+                        ${dict[currentLang]['t-no-skills'] || 'No skills detected in the central skill library.'}
                     </div>
                 `;
                 return;
@@ -3198,7 +3176,7 @@
                 grid.innerHTML = `
                     <div style="grid-column: 1/-1; text-align: center; padding: var(--space-xl) 0; color: var(--text-muted); font-family: var(--font-display);">
                         <i class="fa-solid fa-robot" style="font-size: 2.5rem; margin-bottom: var(--space-md); opacity: 0.4; display: block;"></i>
-                        No Target Agent environment folders registered.
+                        ${dict[currentLang]['t-no-agents'] || 'No Target Agent environment folders registered.'}
                     </div>
                 `;
                 return;
@@ -3494,14 +3472,12 @@
                 btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #fff; font-size: 1.15rem; margin-right: 6px;"></i> <span>${loadText}</span>`;
             }
             try {
-                const res = await fetch('/api/update', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-EasySkills-Token': easySkillsToken
-                    },
-                    body: '{}'
-                });
+                let headers = { 'Content-Type': 'application/json', 'X-EasySkills-Token': easySkillsToken };
+                let res = await fetch('/api/update', { method: 'POST', headers, body: '{}' });
+                if (res.status === 403 && await refreshEasySkillsToken()) {
+                    headers['X-EasySkills-Token'] = easySkillsToken;
+                    res = await fetch('/api/update', { method: 'POST', headers, body: '{}' });
+                }
                 const data = await res.json();
                 if (data.success) {
                     showToast(currentLang === 'en' ? 'Update complete! Reloading...' : '更新完成！正在刷新...', 'success');
@@ -3521,6 +3497,43 @@
                     btn.disabled = false;
                     btn.classList.remove('btn-loading');
                     btn.innerHTML = `<i class="fa-solid fa-download"></i> <span class="t-update-now">${currentLang === 'en' ? 'Update Now' : '立即更新'}</span>`;
+                }
+            }
+        }
+
+        async function performRollback(btn) {
+            if (btn) {
+                btn.disabled = true;
+                btn.classList.add('btn-loading');
+                const loadText = currentLang === 'en' ? 'Rolling back...' : '正在回滚...';
+                btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="font-size: 1.15rem; margin-right: 6px;"></i> <span>${loadText}</span>`;
+            }
+            try {
+                let headers = { 'Content-Type': 'application/json', 'X-EasySkills-Token': easySkillsToken };
+                let res = await fetch('/api/rollback', { method: 'POST', headers, body: '{}' });
+                if (res.status === 403 && await refreshEasySkillsToken()) {
+                    headers['X-EasySkills-Token'] = easySkillsToken;
+                    res = await fetch('/api/rollback', { method: 'POST', headers, body: '{}' });
+                }
+                const data = await res.json();
+                if (data.success) {
+                    showToast(currentLang === 'en' ? 'Rollback complete! Reloading...' : '回滚完成！正在刷新...', 'success');
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showToast(data.message || (currentLang === 'en' ? 'Rollback failed' : '回滚失败'), 'error');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.classList.remove('btn-loading');
+                        btn.innerHTML = `<i class="fa-solid fa-rotate-left"></i> <span class="t-rollback">${currentLang === 'en' ? 'Rollback Last Update' : '回滚上次更新'}</span>`;
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+                showToast(currentLang === 'en' ? 'Rollback request failed' : '回滚请求失败', 'error');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.classList.remove('btn-loading');
+                    btn.innerHTML = `<i class="fa-solid fa-rotate-left"></i> <span class="t-rollback">${currentLang === 'en' ? 'Rollback Last Update' : '回滚上次更新'}</span>`;
                 }
             }
         }

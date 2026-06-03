@@ -45,6 +45,13 @@ CUSTOM_FILE="$PERM_DIR/_maintenance/custom-targets.txt"
 if [ -f "$CUSTOM_FILE" ]; then
   CUSTOM_BACKUP=$(cat "$CUSTOM_FILE")
 fi
+# Preserve other per-machine runtime files (unmapped targets + WebUI token)
+DISABLED_FILE="$PERM_DIR/_maintenance/disabled-targets.txt"
+TOKEN_FILE="$PERM_DIR/_maintenance/.easyskills-token"
+PRESERVE_DIR="$TMP_DIR/preserve"
+mkdir -p "$PRESERVE_DIR"
+[ -f "$DISABLED_FILE" ] && cp "$DISABLED_FILE" "$PRESERVE_DIR/disabled-targets.txt"
+[ -f "$TOKEN_FILE" ] && cp "$TOKEN_FILE" "$PRESERVE_DIR/.easyskills-token"
 # Also migrate from legacy root location (older installs)
 LEGACY_ROOT_CT="$PERM_DIR/custom-targets.txt"
 if [ -f "$LEGACY_ROOT_CT" ]; then
@@ -59,11 +66,21 @@ fi
 # Clean install of _maintenance/
 rm -rf "$PERM_DIR/_maintenance"
 cp -R "$SRC_DIR/_maintenance" "$PERM_DIR/_maintenance"
-cp "$SRC_DIR/SKILL.md" "$PERM_DIR/SKILL.md"
+cp "$SRC_DIR/README_SYSTEM.md" "$PERM_DIR/README_SYSTEM.md"
+# Remove legacy SKILL.md left by older installations to avoid ambiguity
+rm -f "$PERM_DIR/SKILL.md"
 
 # Restore user custom-targets.txt
 if [ -n "$CUSTOM_BACKUP" ]; then
   echo "$CUSTOM_BACKUP" > "$CUSTOM_FILE"
+fi
+# Restore other preserved runtime files
+if [ -f "$PRESERVE_DIR/disabled-targets.txt" ]; then
+  cp "$PRESERVE_DIR/disabled-targets.txt" "$DISABLED_FILE"
+fi
+if [ -f "$PRESERVE_DIR/.easyskills-token" ]; then
+  cp "$PRESERVE_DIR/.easyskills-token" "$TOKEN_FILE"
+  chmod 600 "$TOKEN_FILE"
 fi
 
 # Version reporting

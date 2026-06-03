@@ -12,9 +12,46 @@ Param(
 $ErrorActionPreference = 'Continue'
 
 $Port = 6633
-$WebUIToken = [Guid]::NewGuid().ToString("N")
 $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $CentralDir = Split-Path -Path $ScriptDir -Parent
+
+# Keep this long-running process's working directory OUTSIDE _maintenance so a
+# self-update / rollback can rename that directory without a sharing violation.
+try { [System.IO.Directory]::SetCurrentDirectory($CentralDir) } catch {}
+
+# ---- Persistent token (survives restarts) ----
+# Stored under ScriptDir (not bare home) so it stays with the installation
+$TokenFile = Join-Path $ScriptDir ".easyskills-token"
+function Initialize-WebUIToken {
+    $EnvToken = $env:EASYSKILLS_WEBUI_TOKEN
+    if ($EnvToken) { return $EnvToken }
+    if (Test-Path $TokenFile) {
+        $Saved = (Get-Content $TokenFile -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
+        if ($Saved -and $Saved.Length -ge 16) { return $Saved }
+    }
+    $New = [Guid]::NewGuid().ToString("N") + [Guid]::NewGuid().ToString("N").Substring(0, 16)
+    try {
+        # Atomic create: throws if file already exists
+        $Fs = [System.IO.File]::Open($TokenFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        $Writer = [System.IO.StreamWriter]::new($Fs)
+        $Writer.Write($New)
+        $Writer.Close()
+        $Fs.Close()
+    } catch [System.IO.IOException] {
+        # File already exists — another process won the race. Read their token with retries.
+        for ($i = 0; $i -lt 3; $i++) {
+            $Saved = (Get-Content $TokenFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+            if ($Saved) { $Saved = $Saved.Trim() }
+            if ($Saved -and $Saved.Length -ge 16) { return $Saved }
+            Start-Sleep -Milliseconds 50
+        }
+        throw "Token file exists but could not be read after 3 retries."
+    } catch {
+        Write-Warning "Could not persist WebUI token: $_"
+    }
+    return $New
+}
+$WebUIToken = Initialize-WebUIToken
 
 $WebUILogDir  = Join-Path $ScriptDir "logs"
 $WebUILogFile = Join-Path $WebUILogDir "webui.log"
@@ -42,53 +79,150 @@ if ((Test-Path $HomeCentralDir) -and -not (Test-Path $RepoGitDir)) {
 }
 
 $CustomTargetsFile = Join-Path -Path $ScriptDir -ChildPath "custom-targets.txt"
+$DisabledTargetsFile = Join-Path -Path $ScriptDir -ChildPath "disabled-targets.txt"
+
+function Add-DisabledTarget([string]$Path) {
+    if (-not $Path) { return }
+    $Path = $Path.Trim()
+    try { $AbsPath = [System.IO.Path]::GetFullPath($Path) } catch { $AbsPath = $Path }
+
+    $Lines = @()
+    if (Test-Path $DisabledTargetsFile) {
+        $Lines = @(Get-Content $DisabledTargetsFile -Encoding UTF8 -ErrorAction SilentlyContinue)
+    }
+
+    $Exists = $false
+    foreach ($Line in $Lines) {
+        if (-not $Line -or $Line.Trim().StartsWith("#")) { continue }
+        try { $LineAbs = [System.IO.Path]::GetFullPath($Line.Trim()) } catch { $LineAbs = $Line.Trim() }
+        if ($LineAbs -eq $AbsPath) {
+            $Exists = $true
+            break
+        }
+    }
+
+    if (-not $Exists) {
+        $Lines += $AbsPath
+        try {
+            $Lines -join "`n" | Set-Content -Path $DisabledTargetsFile -Encoding UTF8 -Force
+        } catch {}
+    }
+}
+
+function Remove-DisabledTarget([string]$Path) {
+    if (-not $Path) { return }
+    $Path = $Path.Trim()
+    try { $AbsPath = [System.IO.Path]::GetFullPath($Path) } catch { $AbsPath = $Path }
+
+    if (-not (Test-Path $DisabledTargetsFile)) { return }
+    $Lines = @(Get-Content $DisabledTargetsFile -Encoding UTF8 -ErrorAction SilentlyContinue)
+    $NewLines = @()
+    $Updated = $false
+    foreach ($Line in $Lines) {
+        if (-not $Line -or $Line.Trim().StartsWith("#")) {
+            $NewLines += $Line
+            continue
+        }
+        try { $LineAbs = [System.IO.Path]::GetFullPath($Line.Trim()) } catch { $LineAbs = $Line.Trim() }
+        if ($LineAbs -eq $AbsPath) {
+            $Updated = $true
+        } else {
+            $NewLines += $Line
+        }
+    }
+
+    if ($Updated) {
+        try {
+            $NewLines -join "`n" | Set-Content -Path $DisabledTargetsFile -Encoding UTF8 -Force
+        } catch {}
+    }
+}
+
+function Get-DisabledTargets {
+    $Set = @{}
+    if (Test-Path $DisabledTargetsFile) {
+        $Lines = Get-Content $DisabledTargetsFile -Encoding UTF8 -ErrorAction SilentlyContinue
+        foreach ($Line in $Lines) {
+            $Stripped = $Line.Trim()
+            if ($Stripped -and -not $Stripped.StartsWith("#")) {
+                try { $Norm = [System.IO.Path]::GetFullPath($Stripped) } catch { $Norm = $Stripped }
+                $Set[$Norm] = $true
+            }
+        }
+    }
+    return $Set
+}
 $WebUIDir = Join-Path -Path $ScriptDir -ChildPath "webui"
 if (-not (Test-Path $WebUIDir)) {
     $WebUIDir = Join-Path -Path (Split-Path -Path $MyInvocation.MyCommand.Definition -Parent) -ChildPath "webui"
 }
 
-$DefaultAgents = @(
-    @{ Name="Antigravity CLI"; Path="$Home\.gemini\config\skills" },
-    @{ Name="Antigravity IDE"; Path="$Home\.gemini\antigravity\skills" },
-    @{ Name="Codex"; Path="$Home\.codex\skills" },
-    @{ Name="Claude Code"; Path="$Home\.claude\skills" },
-    @{ Name="GitHub Copilot"; Path="$Home\.copilot\skills" },
-    @{ Name="Pi"; Path="$Home\.pi\agent\skills" },
-    @{ Name="OpenCode"; Path="$Home\.config\opencode\skills" },
-    @{ Name="Kimi Code"; Path="$Home\.kimi\skills" },
-    @{ Name="Trae (Global)"; Path="$Home\.trae\skills" },
-    @{ Name="Trae (Global, App)"; Path="$env:APPDATA\Trae\skills" },
-    @{ Name="Trae CN"; Path="$Home\.trae-cn\skills" },
-    @{ Name="Trae CN (App)"; Path="$env:APPDATA\Trae-CN\skills" },
-    @{ Name="OpenClaw"; Path="$Home\.openclaw\skills" },
-    @{ Name="Hermes Agent"; Path="$Home\.hermes\skills" },
-    @{ Name="Proma"; Path="$Home\.proma\default-skills" },
-    @{ Name="Cursor"; Path="$Home\.cursor\skills" },
-    @{ Name="Kiro Agent"; Path="$Home\.kiro\skills" },
-    @{ Name="Junie (JetBrains)"; Path="$Home\.junie\skills" },
-    @{ Name="Cline"; Path="$Home\.cline\skills" },
-    @{ Name="Roo Code"; Path="$Home\.roo\skills" },
-    @{ Name="Warp"; Path="$Home\.warp\skills" },
-    @{ Name="Windsurf"; Path="$Home\.codeium\windsurf\skills" },
-    @{ Name="Firebender"; Path="$Home\.firebender\skills" },
-    @{ Name="Augment"; Path="$Home\.augment\skills" },
-    @{ Name="Continue"; Path="$Home\.continue\skills" },
-    @{ Name="Goose"; Path="$Home\.config\goose\skills" },
-    @{ Name="Agents (Standard)"; Path="$Home\.agents\skills" },
-    @{ Name="Run"; Path="$Home\.run\global-skills\skills" },
-    @{ Name="Qoder"; Path="$Home\.qoder\skills" },
-    @{ Name="Qwen Code"; Path="$Home\.qwen\skills" },
-    @{ Name="CodeBuddy"; Path="$Home\.codebuddy\skills" },
-    @{ Name="Amp"; Path="$Home\.config\agents\skills" },
-    @{ Name="OpenHands"; Path="$Home\.openhands\skills" },
-    @{ Name="Kilo Code"; Path="$Home\.kilocode\skills" },
-    @{ Name="Zencoder"; Path="$Home\.zencoder\skills" },
-    @{ Name="iFlow CLI"; Path="$Home\.iflow\skills" },
-    @{ Name="Droid"; Path="$Home\.factory\skills" },
-    @{ Name="Devin for Terminal"; Path="$Home\.config\devin\skills" }
-)
+# ---- Load agents from agents.json (single source of truth) ----
+$AgentsJsonFile = Join-Path $ScriptDir "agents.json"
+function Load-DefaultAgents {
+    if (Test-Path $AgentsJsonFile) {
+        try {
+            $Data = Get-Content $AgentsJsonFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $List = [System.Collections.ArrayList]::new()
+            foreach ($Agent in $Data.agents) {
+                $WinPath = $Agent.win_path -replace '%USERPROFILE%', $Home
+                if ($WinPath) { [void]$List.Add(@{ Name=$Agent.name; Path=$WinPath }) }
+                if ($Agent.win_extra_path) {
+                    $ExtraPath = $Agent.win_extra_path -replace '%APPDATA%', $env:APPDATA
+                    if ($ExtraPath) { [void]$List.Add(@{ Name=$Agent.name; Path=$ExtraPath }) }
+                }
+            }
+            if ($List.Count -gt 0) { return @($List) }
+        } catch {}
+    }
+    # Fallback: hardcoded defaults (kept in sync with agents.json)
+    return @(
+        @{ Name="Antigravity CLI"; Path="$Home\.gemini\config\skills" },
+        @{ Name="Antigravity IDE"; Path="$Home\.gemini\antigravity\skills" },
+        @{ Name="Codex"; Path="$Home\.codex\skills" },
+        @{ Name="Claude Code"; Path="$Home\.claude\skills" },
+        @{ Name="GitHub Copilot"; Path="$Home\.copilot\skills" },
+        @{ Name="Pi"; Path="$Home\.pi\agent\skills" },
+        @{ Name="OpenCode"; Path="$Home\.config\opencode\skills" },
+        @{ Name="Kimi Code"; Path="$Home\.kimi\skills" },
+        @{ Name="Trae (Global)"; Path="$Home\.trae\skills" },
+        @{ Name="Trae (Global)"; Path="$env:APPDATA\Trae\skills" },
+        @{ Name="Trae CN"; Path="$Home\.trae-cn\skills" },
+        @{ Name="Trae CN"; Path="$env:APPDATA\Trae-CN\skills" },
+        @{ Name="OpenClaw"; Path="$Home\.openclaw\skills" },
+        @{ Name="Hermes Agent"; Path="$Home\.hermes\skills" },
+        @{ Name="Proma"; Path="$Home\.proma\default-skills" },
+        @{ Name="Cursor"; Path="$Home\.cursor\skills" },
+        @{ Name="Kiro Agent"; Path="$Home\.kiro\skills" },
+        @{ Name="Junie (JetBrains)"; Path="$Home\.junie\skills" },
+        @{ Name="Cline"; Path="$Home\.cline\skills" },
+        @{ Name="Roo Code"; Path="$Home\.roo\skills" },
+        @{ Name="Run"; Path="$Home\.run\global-skills\skills" },
+        @{ Name="Warp"; Path="$Home\.warp\skills" },
+        @{ Name="Windsurf"; Path="$Home\.codeium\windsurf\skills" },
+        @{ Name="Firebender"; Path="$Home\.firebender\skills" },
+        @{ Name="Augment"; Path="$Home\.augment\skills" },
+        @{ Name="Continue"; Path="$Home\.continue\skills" },
+        @{ Name="Goose"; Path="$Home\.config\goose\skills" },
+        @{ Name="Agents (Standard)"; Path="$Home\.agents\skills" },
+        @{ Name="Qoder"; Path="$Home\.qoder\skills" },
+        @{ Name="Qwen Code"; Path="$Home\.qwen\skills" },
+        @{ Name="CodeBuddy"; Path="$Home\.codebuddy\skills" },
+        @{ Name="Amp"; Path="$Home\.config\agents\skills" },
+        @{ Name="OpenHands"; Path="$Home\.openhands\skills" },
+        @{ Name="Kilo Code"; Path="$Home\.kilocode\skills" },
+        @{ Name="Zencoder"; Path="$Home\.zencoder\skills" },
+        @{ Name="iFlow CLI"; Path="$Home\.iflow\skills" },
+        @{ Name="Droid"; Path="$Home\.factory\skills" },
+        @{ Name="Devin for Terminal"; Path="$Home\.config\devin\skills" },
+        @{ Name="WorkBuddy"; Path="$Home\.workbuddy\skills" },
+        @{ Name="QClaw"; Path="$Home\.qclaw\skills" },
+        @{ Name="CodeWhale"; Path="$Home\.codewhale\skills" }
+    )
+}
+$DefaultAgents = Load-DefaultAgents
 
-$ExcludeNames = @("_maintenance", ".git", "node_modules", "dist")
+$ExcludeNames = @("_maintenance", ".git", "node_modules", "dist", "docs")
 $GitHubRepo = "RunhuaHuang/EasySkills"
 $GitHubApiLatestRelease = "https://api.github.com/repos/$GitHubRepo/releases/latest"
 $GitHubLatestRelease = "https://github.com/$GitHubRepo/releases/latest"
@@ -181,7 +315,11 @@ function Get-AgentRoot([string]$Target) {
         return Join-Path $env:APPDATA $AppName
     } elseif ($Target -like "$Home\*") {
         $Rel = $Target.Substring($Home.Length + 1)
-        $First = $Rel.Split('\')[0]
+        $Parts = $Rel.Split('\')
+        $First = $Parts[0]
+        if ($First -eq ".config" -and $Parts.Length -gt 1) {
+            return Join-Path $Home (Join-Path ".config" $Parts[1])
+        }
         return Join-Path $Home $First
     } else {
         return (Split-Path $Target -Parent)
@@ -241,19 +379,44 @@ function Get-AgentNameFromPath([string]$PathStr) {
     if ($PathStr -like "*\.iflow\*") { return "iFlow CLI" }
     if ($PathStr -like "*\.factory\*") { return "Droid" }
     if ($PathStr -like "*\.config\devin\*") { return "Devin for Terminal" }
+    if ($PathStr -like "*\.workbuddy\*") { return "WorkBuddy" }
+    if ($PathStr -like "*\.qclaw\*") { return "QClaw" }
+    if ($PathStr -like "*\.codewhale\*") { return "CodeWhale" }
     if ($PathStr -like "*\.agents\*") { return "Agents (Standard)" }
     if ($PathStr -like "*\.run\*") { return "Run" }
     return "Custom Agent"
 }
 
-function Is-Mapped([string]$Target) {
-    $TestPath = Join-Path $Target "EasySkills"
-    if (Test-Path $TestPath) {
-        $Item = Get-Item $TestPath -ErrorAction SilentlyContinue
-        if ($Item -and $Item.Attributes -match "ReparsePoint") {
-            return $true
+function Is-Mapped([string]$TargetPath, $DisabledSet, [bool]$HasSkills) {
+    try { $NormPath = [System.IO.Path]::GetFullPath($TargetPath) } catch { $NormPath = $TargetPath }
+    if ($DisabledSet.ContainsKey($NormPath)) { return $false }
+
+    if (-not (Test-Path $TargetPath -PathType Container)) { return $false }
+    if (-not $HasSkills) { return $true }
+
+    $CentralResolved = (Resolve-Path -LiteralPath $CentralDir).ProviderPath
+    try {
+        $Items = Get-ChildItem -Path $TargetPath -Force
+        foreach ($Item in $Items) {
+            if ($Item.Attributes -match "ReparsePoint") {
+                $LinkTarget = $Item.Target
+                $ResolvedTarget = $null
+                if ($LinkTarget) {
+                    try {
+                        $ResolvedTarget = (Resolve-Path -LiteralPath $LinkTarget).ProviderPath
+                    } catch {
+                        try { $ResolvedTarget = [System.IO.Path]::GetFullPath($LinkTarget) } catch {}
+                    }
+                }
+                if ($ResolvedTarget) {
+                    $ParentResolved = Split-Path -Path $ResolvedTarget -Parent
+                    if ($ParentResolved -eq $CentralResolved) {
+                        return $true
+                    }
+                }
+            }
         }
-    }
+    } catch {}
     return $false
 }
 
@@ -276,7 +439,7 @@ function Get-SkillsData {
         foreach ($Item in $Items) {
             $Name = $Item.Name
             if ($Name.StartsWith("_") -or $Name.StartsWith(".") -or $ExcludeNames -contains $Name) { continue }
-            $HasMd = Test-Path (Join-Path $Item.FullName "SKILL.md")
+            $HasMd = (Test-Path (Join-Path $Item.FullName "SKILL.md")) -or (Test-Path (Join-Path $Item.FullName "README_SYSTEM.md"))
             $Skills += @{
                 name = $Name
                 path = $Item.FullName
@@ -290,6 +453,8 @@ function Get-SkillsData {
 function Get-AgentsData {
     $Agents = @()
     $Seen = @{}
+    $DisabledSet = Get-DisabledTargets
+    $HasSkills = @(Get-SkillsData).Count -gt 0
 
     $CustomTargets = Get-CustomTargets
     $CustomOverrides = @{}
@@ -321,13 +486,12 @@ function Get-AgentsData {
 
         $Root = Get-AgentRoot $Path
         $Active = Test-Path $Root
-        $Mapped = if (Test-Path $Path) { Is-Mapped $Path } else { $false }
 
         $Agents += @{
             name = $Def.Name
             path = $Path
             active = $Active
-            mapped = $Mapped
+            mapped = if ($Active) { Is-Mapped $Path $DisabledSet $HasSkills } else { $false }
             custom = $CustomOverrides.ContainsKey($Def.Name)
         }
     }
@@ -339,13 +503,12 @@ function Get-AgentsData {
 
         $Root = Get-AgentRoot $Ct.Path
         $Active = Test-Path $Root
-        $Mapped = if (Test-Path $Ct.Path) { Is-Mapped $Ct.Path } else { $false }
 
         $Agents += @{
             name = $Ct.Name
             path = $Ct.Path
             active = $Active
-            mapped = $Mapped
+            mapped = if ($Active) { Is-Mapped $Ct.Path $DisabledSet $HasSkills } else { $false }
             custom = $true
         }
     }
@@ -531,6 +694,8 @@ function Update-AgentPath([string]$Name, [string]$OldPath, [string]$NewPath) {
         return @{ success = $false; message = "Failed to write config: $_" }
     }
 
+    Remove-DisabledTarget $OldPath
+    Remove-DisabledTarget $NewPath
     Do-Map $NewPath | Out-Null
     return @{ success = $true; message = "Updated $Name to $NewPath" }
 }
@@ -540,20 +705,12 @@ function Do-Map([string]$TargetPath) {
         return @{ success = $false; message = "Target path cannot be empty" }
     }
     $TargetPath = $TargetPath.Trim()
+    Remove-DisabledTarget $TargetPath
     try {
-        if (-not (Test-Path $TargetPath)) {
+        if (!(Test-Path $TargetPath)) {
             New-Item -ItemType Directory -Path $TargetPath -Force | Out-Null
         }
-        $SelfLink = Join-Path $TargetPath "EasySkills"
-        if (Test-Path $SelfLink) {
-            $Item = Get-Item $SelfLink
-            if ($Item.Attributes -match "ReparsePoint") {
-                Remove-Item $SelfLink -Recurse -Force
-            }
-        }
-        if (-not (Test-Path $SelfLink)) {
-            New-Item -ItemType Junction -Path $SelfLink -Value $CentralDir | Out-Null
-        }
+        # Per-skill links
 
         # Map skills
         $Skills = Get-ChildItem -Path $CentralDir -Directory
@@ -720,6 +877,16 @@ function Run-SelfUpdate {
             $Headers = @{ "Accept" = "application/vnd.github+json"; "User-Agent" = "EasySkills-WebUI" }
             Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath -Headers $Headers -TimeoutSec 60 -UseBasicParsing
 
+            # --- Integrity check: re-download and compare SHA-256 ---
+            $VerifyPath = Join-Path $TmpDir "release_verify.zip"
+            Invoke-WebRequest -Uri $ZipUrl -OutFile $VerifyPath -Headers $Headers -TimeoutSec 60 -UseBasicParsing
+            $Hash1 = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash
+            $Hash2 = (Get-FileHash -Path $VerifyPath -Algorithm SHA256).Hash
+            if ($Hash1 -ne $Hash2) {
+                return @{ success = $false; message = "Integrity check failed: download digest mismatch. Aborting update." }
+            }
+            Remove-Item $VerifyPath -Force
+
             $ExtractDir = Join-Path $TmpDir "extracted"
             Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
 
@@ -728,33 +895,82 @@ function Run-SelfUpdate {
                 return @{ success = $false; message = "Empty archive" }
             }
 
+            # Preserve user runtime files (not shipped in the release zip)
             $CustomBackup = $null
             if (Test-Path $CustomTargetsFile) {
                 $CustomBackup = Get-Content $CustomTargetsFile -Raw -Encoding UTF8
             }
+            $DisabledBackup = $null
+            if (Test-Path $DisabledTargetsFile) {
+                $DisabledBackup = Get-Content $DisabledTargetsFile -Raw -Encoding UTF8
+            }
+
+            # Backup current _maintenance for rollback (atomic via temp rename)
+            $DestMaint = Join-Path $CentralDir "_maintenance"
+            $BackupMaint = Join-Path $CentralDir "_maintenance.bak"
+            $BackupMaintNew = Join-Path $CentralDir "_maintenance.bak.new"
 
             $SrcMaint = Join-Path $SrcRoot.FullName "_maintenance"
-            if (Test-Path $SrcMaint) {
-                $DestMaint = Join-Path $CentralDir "_maintenance"
-                $Items = Get-ChildItem -Path $SrcMaint
-                foreach ($Item in $Items) {
-                    $Dest = Join-Path $DestMaint $Item.Name
-                    if ($Item.PSIsContainer) {
-                        if (Test-Path $Dest) { Remove-Item $Dest -Recurse -Force }
-                        Copy-Item $Item.FullName $Dest -Recurse -Force
-                    } else {
-                        Copy-Item $Item.FullName $Dest -Force
-                    }
+            if (-not (Test-Path $SrcMaint)) {
+                return @{ success = $false; message = "Archive does not contain _maintenance/" }
+            }
+
+            # Build new _maintenance in a temp dir, then rename atomically
+            $NewMaintTmp = Join-Path $CentralDir "_maintenance.new"
+            if (Test-Path $NewMaintTmp) { Remove-Item $NewMaintTmp -Recurse -Force }
+            Copy-Item $SrcMaint $NewMaintTmp -Recurse -Force
+
+            $SrcReadme = Join-Path $SrcRoot.FullName "README_SYSTEM.md"
+            if (Test-Path $SrcReadme) {
+                Copy-Item $SrcReadme (Join-Path $CentralDir "README_SYSTEM.md") -Force
+            } else {
+                $SrcOld = Join-Path $SrcRoot.FullName "SKILL.md"
+                if (Test-Path $SrcOld) {
+                    Copy-Item $SrcOld (Join-Path $CentralDir "README_SYSTEM.md") -Force
                 }
             }
 
-            $SrcSkill = Join-Path $SrcRoot.FullName "SKILL.md"
-            if (Test-Path $SrcSkill) {
-                Copy-Item $SrcSkill (Join-Path $CentralDir "SKILL.md") -Force
+            if (Test-Path $BackupMaint) {
+                if (Test-Path $BackupMaintNew) { Remove-Item $BackupMaintNew -Recurse -Force }
+                Copy-Item $BackupMaint $BackupMaintNew -Recurse -Force
             }
 
-            if ($null -ne $CustomBackup) {
-                $CustomBackup | Set-Content -Path $CustomTargetsFile -Encoding UTF8 -Force
+            try {
+                if ($null -ne $CustomBackup) {
+                    $CustomBackup | Set-Content -Path (Join-Path $NewMaintTmp "custom-targets.txt") -Encoding UTF8 -Force
+                }
+                if ($null -ne $DisabledBackup) {
+                    $DisabledBackup | Set-Content -Path (Join-Path $NewMaintTmp "disabled-targets.txt") -Encoding UTF8 -Force
+                }
+                # Preserve the auth token so existing browser sessions stay valid
+                # if the service restarts after the update.
+                if (Test-Path $TokenFile) {
+                    try { Copy-Item $TokenFile (Join-Path $NewMaintTmp ".easyskills-token") -Force } catch {}
+                }
+
+                # Move our own working directory OUT of _maintenance so the live
+                # server process does not hold the directory we are about to rename.
+                try { [System.IO.Directory]::SetCurrentDirectory($CentralDir) } catch {}
+
+                if (Test-Path $DestMaint) {
+                    if (Test-Path $BackupMaint) { Remove-Item $BackupMaint -Recurse -Force }
+                    Rename-Item -Path $DestMaint -NewName "_maintenance.bak" -Force
+                }
+
+                Rename-Item -Path $NewMaintTmp -NewName "_maintenance" -Force
+
+                if (Test-Path $BackupMaintNew) { Remove-Item $BackupMaintNew -Recurse -Force }
+            } catch {
+                # Rollback: restore from backup snapshot if available
+                if (Test-Path $NewMaintTmp) { Remove-Item $NewMaintTmp -Recurse -Force }
+                if (Test-Path $BackupMaintNew) {
+                    if (Test-Path $BackupMaint) { Remove-Item $BackupMaint -Recurse -Force }
+                    Rename-Item -Path $BackupMaintNew -NewName "_maintenance.bak" -Force
+                }
+                if (-not (Test-Path $DestMaint) -and (Test-Path $BackupMaint)) {
+                    Copy-Item $BackupMaint $DestMaint -Recurse -Force
+                }
+                throw
             }
         } finally {
             Remove-Item $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -769,11 +985,66 @@ function Run-SelfUpdate {
     }
 }
 
+function Do-Rollback {
+    $BackupMaint = Join-Path $CentralDir "_maintenance.bak"
+    $DestMaint = Join-Path $CentralDir "_maintenance"
+    if (-not (Test-Path $BackupMaint)) {
+        return @{ success = $false; message = "No backup found. Nothing to roll back." }
+    }
+    try {
+        # Preserve the user's CURRENT runtime files across the rollback
+        $CustomBackup = $null
+        if (Test-Path $CustomTargetsFile) {
+            $CustomBackup = Get-Content $CustomTargetsFile -Raw -Encoding UTF8
+        }
+        $DisabledBackup = $null
+        if (Test-Path $DisabledTargetsFile) {
+            $DisabledBackup = Get-Content $DisabledTargetsFile -Raw -Encoding UTF8
+        }
+        $RollbackTmp = Join-Path $CentralDir "_maintenance.rollback"
+        if (Test-Path $RollbackTmp) { Remove-Item $RollbackTmp -Recurse -Force }
+
+        if (Test-Path $BackupMaint) {
+            Copy-Item $BackupMaint $RollbackTmp -Recurse -Force
+        }
+
+        if ($null -ne $CustomBackup) {
+            $CustomBackup | Set-Content -Path (Join-Path $RollbackTmp "custom-targets.txt") -Encoding UTF8 -Force
+        }
+        if ($null -ne $DisabledBackup) {
+            $DisabledBackup | Set-Content -Path (Join-Path $RollbackTmp "disabled-targets.txt") -Encoding UTF8 -Force
+        }
+        if (Test-Path $TokenFile) {
+            try { Copy-Item $TokenFile (Join-Path $RollbackTmp ".easyskills-token") -Force } catch {}
+        }
+
+        # Move our own working directory OUT of _maintenance before renaming it
+        try { [System.IO.Directory]::SetCurrentDirectory($CentralDir) } catch {}
+
+        if (Test-Path $DestMaint) {
+            Rename-Item -Path $DestMaint -NewName "_maintenance.prev" -Force
+        }
+        Rename-Item -Path $RollbackTmp -NewName "_maintenance" -Force
+
+        $Prev = Join-Path $CentralDir "_maintenance.prev"
+        if (Test-Path $Prev) { Remove-Item $Prev -Recurse -Force }
+
+        Run-DeployCommand @("-Sync") | Out-Null
+        # Remove backup so a second rollback doesn't restore stale state
+        try { Remove-Item $BackupMaint -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+        $Version = Get-EasySkillsVersion
+        return @{ success = $true; message = "Rolled back to $Version. All agents re-synced."; version = $Version }
+    } catch {
+        return @{ success = $false; message = "Rollback failed: $_" }
+    }
+}
+
 function Do-Unmap([string]$TargetPath) {
     if (-not $TargetPath -or -not $TargetPath.Trim()) {
         return @{ success = $false; message = "Target path cannot be empty" }
     }
     $TargetPath = $TargetPath.Trim()
+    Add-DisabledTarget $TargetPath
     try {
         if (-not (Test-Path $TargetPath)) {
             return @{ success = $false; message = "Path does not exist" }
@@ -895,6 +1166,16 @@ function Close-ResponseQuietly($Context) {
 
 function Invoke-WebUIRequest($Context) {
     $Request = $Context.Request
+    
+    # DNS Rebinding Protection: Host header validation
+    $HostHeader = $Request.Headers["Host"]
+    $AllowedHosts = @("localhost:$Port", "127.0.0.1:$Port")
+    if ($HostHeader -notin $AllowedHosts) {
+        $Context.Response.StatusCode = 400
+        $Context.Response.Close()
+        return
+    }
+
     $Method = $Request.HttpMethod
     $UrlPath = $Request.Url.AbsolutePath
 
@@ -930,6 +1211,7 @@ function Invoke-WebUIRequest($Context) {
                 agents_total = $Agents.Count
                 agents_mapped = $MappedCount
                 version = Get-EasySkillsVersion
+                has_backup = (Test-Path (Join-Path $CentralDir "_maintenance.bak") -PathType Container)
             }
             Send-JsonResponse $Context $Data
         } elseif ($UrlPath -eq "/api/skills") {
@@ -949,6 +1231,10 @@ function Invoke-WebUIRequest($Context) {
         }
         $BodyData = @{}
         if ($Request.HasEntityBody) {
+            if ($Request.ContentLength64 -gt 10485760) {  # 10 MB limit
+                Send-JsonResponse $Context @{ success = $false; message = "Request Entity Too Large" } 413
+                return
+            }
             $Reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
             try {
                 $Json = $Reader.ReadToEnd()
@@ -997,6 +1283,8 @@ function Invoke-WebUIRequest($Context) {
             Send-JsonResponse $Context (Delete-Skill $BodyData["name"])
         } elseif ($UrlPath -eq "/api/update") {
             Send-JsonResponse $Context (Run-SelfUpdate)
+        } elseif ($UrlPath -eq "/api/rollback") {
+            Send-JsonResponse $Context (Do-Rollback)
         } else {
             $Context.Response.StatusCode = 404
             $Context.Response.Close()

@@ -95,6 +95,14 @@ try {
   if (Test-Path $CustomFile) {
     $CustomBackup = Get-Content $CustomFile -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
   }
+  # Preserve other per-machine runtime files (unmapped targets + WebUI token).
+  # Copy verbatim to a temp dir so the token keeps its exact bytes/encoding.
+  $DisabledFile = Join-Path $MaintDir "disabled-targets.txt"
+  $TokenFile = Join-Path $MaintDir ".easyskills-token"
+  $PreserveDir = Join-Path ([System.IO.Path]::GetTempPath()) ("easyskills-preserve-" + [Guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Path $PreserveDir -Force | Out-Null
+  if (Test-Path $DisabledFile) { Copy-Item $DisabledFile (Join-Path $PreserveDir "disabled-targets.txt") -Force }
+  if (Test-Path $TokenFile) { Copy-Item $TokenFile (Join-Path $PreserveDir ".easyskills-token") -Force }
   # Also migrate from legacy root location (older installs put it at the root)
   $LegacyRootCT = Join-Path $PermDir "custom-targets.txt"
   if (Test-Path $LegacyRootCT) {
@@ -110,12 +118,21 @@ try {
   Stop-StaleEasySkillsProcesses
   if (Test-Path $MaintDir) { Remove-Item $MaintDir -Recurse -Force }
   Copy-Item -Path (Join-Path $SrcDir "_maintenance") -Destination $MaintDir -Recurse
-  Copy-Item -Path (Join-Path $SrcDir "SKILL.md") -Destination (Join-Path $PermDir "SKILL.md") -Force
+  Copy-Item -Path (Join-Path $SrcDir "README_SYSTEM.md") -Destination (Join-Path $PermDir "README_SYSTEM.md") -Force
+  # Remove legacy SKILL.md left by older installations to avoid ambiguity
+  $LegacySkillMd = Join-Path $PermDir "SKILL.md"
+  if (Test-Path $LegacySkillMd) { Remove-Item $LegacySkillMd -Force }
 
   # Restore user custom-targets.txt
   if ($CustomBackup) {
     $CustomBackup | Set-Content -Path $CustomFile -Encoding UTF8 -Force
   }
+  # Restore other preserved runtime files (verbatim)
+  $PreservedDisabled = Join-Path $PreserveDir "disabled-targets.txt"
+  if (Test-Path $PreservedDisabled) { Copy-Item $PreservedDisabled $DisabledFile -Force }
+  $PreservedToken = Join-Path $PreserveDir ".easyskills-token"
+  if (Test-Path $PreservedToken) { Copy-Item $PreservedToken $TokenFile -Force }
+  Remove-Item $PreserveDir -Recurse -Force -ErrorAction SilentlyContinue
 
   # Version reporting
   $NewVersion = "unknown"

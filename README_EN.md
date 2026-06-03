@@ -4,13 +4,13 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#installation)
-[![Agents](https://img.shields.io/badge/Supported%20Agents-35+-orange.svg)](#supported-agents)
-[![Version](https://img.shields.io/badge/Version-1.2.2-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Agents](https://img.shields.io/badge/Supported%20Agents-38+-orange.svg)](#supported-agents)
+[![Version](https://img.shields.io/badge/Version-1.3.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **One skill library. Every agent. Always in sync.**
 
 Drop a skill folder once into `~/EasySkills`.
-It appears in Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 35+ more agent targets — instantly, through native links.
+It appears in Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 38+ more agent targets — instantly, through native links.
 
 Local-first &bull; Zero idle CPU &bull; WebUI included
 
@@ -48,7 +48,6 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 The installer creates `~/EasySkills`, detects supported agents, maps shared skills, starts the watcher, and launches the WebUI.
 
 > **Alternative:** Clone this repo and double-click `install_mac.command` (macOS) or `install_windows.bat` (Windows).
-> Or just tell your agent: *"Help me initialize EasySkills."*
 
 ---
 
@@ -68,7 +67,7 @@ The installer creates `~/EasySkills`, detects supported agents, maps shared skil
 │ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
 │ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
 │ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
-│ ... 35+ targets, all in sync, all the time  │
+│ ... 38+ targets, all in sync, all the time  │
 └─────────────────────────────────────────────┘
 ```
 
@@ -105,11 +104,11 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 | | Feature | Details |
 |:---:|:---|:---|
 | **1** | **Skill library import/delete** | Import skill folders through the WebUI; delete with confirmation dialog. Manage linked agents visually |
-| **2** | **Agent auto-discovery** | Detects 35+ mainstream agents and only links paths that actually exist |
+| **2** | **Agent auto-discovery** | Detects 38+ mainstream agents and only links paths that actually exist |
 | **3** | **Live mapping** | Watcher syncs skill additions/removals within seconds |
 | **4** | **Non-invasive** | Shared skills sit beside agent-specific skills — private skills keep working |
 | **5** | **Zero-privilege Windows** | NTFS directory junctions — no admin mode or Developer Mode needed |
-| **6** | **Silent watcher** | `launchd` + `WatchPaths` (macOS) &bull; Scheduled Task + hidden `FileSystemWatcher` (Windows) |
+| **6** | **Silent watcher** | `launchd` + `WatchPaths` (macOS) &bull; `systemd` path unit (Linux) &bull; Scheduled Task + hidden `FileSystemWatcher` (Windows) |
 | **7** | **Local-first safety** | Skips existing real folders, uses file locks, listens on `127.0.0.1` only |
 | **8** | **Concurrency protection** | PID lock (macOS) / named mutex (Windows) prevents overlapping syncs |
 
@@ -137,22 +136,13 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
 | `--cleanup` | Remove all EasySkills symlinks |
 | `--help` | Show help |
 
-### Agent Chat Commands
-
-Once EasySkills is loaded as a skill, manage everything through natural language:
-
-| Task | Prompt |
-|---|---|
-| Initialize | *"Run EasySkills and set up my skills sync"* |
-| Add custom path | *"Map EasySkills to `/path/to/agent/skills`"* |
-| View mappings | *"Show all active EasySkills mappings"* |
-| Remove a path | *"Remove `/path/to/agent/skills` from EasySkills"* |
+> **Tip:** You can also add / remove custom paths visually from the **Agents** tab in the WebUI — no commands to memorize.
 
 ---
 
 ## Supported Agents
 
-35+ agent targets are pre-configured. Custom paths can be added at any time via CLI, WebUI, or chat.
+38+ agent targets are pre-configured. Custom paths can be added at any time via CLI, WebUI, or chat.
 
 <details>
 <summary><b>View full agent list</b></summary>
@@ -195,6 +185,9 @@ Once EasySkills is loaded as a skill, manage everything through natural language
 | 33 | **iFlow CLI** | `~/.iflow/skills` | `%USERPROFILE%\.iflow\skills` |
 | 34 | **Droid** | `~/.factory/skills` | `%USERPROFILE%\.factory\skills` |
 | 35 | **Devin for Terminal** | `~/.config/devin/skills` | `%USERPROFILE%\.config\devin\skills` |
+| 36 | **WorkBuddy** | `~/.workbuddy/skills` | `%USERPROFILE%\.workbuddy\skills` |
+| 37 | **QClaw** | `~/.qclaw/skills` | `%USERPROFILE%\.qclaw\skills` |
+| 38 | **CodeWhale** | `~/.codewhale/skills` | `%USERPROFILE%\.codewhale\skills` |
 
 > Trae and Trae CN also map to `~/Library/Application Support/Trae[-CN]/skills` (macOS) and `%APPDATA%\Trae[-CN]\skills` (Windows).
 
@@ -214,10 +207,11 @@ Once EasySkills is loaded as a skill, manage everything through natural language
 
 To add support for a new agent:
 
-1. Add the default skills path to `TARGETS` in `_maintenance/deploy.sh` and `_maintenance/deploy.ps1`
-2. Add the name mapping in `get_agent_name` / `Get-AgentName` in both files
-3. Update the agent tables in `README.md`, `README_EN.md`, and `SKILL.md`
-4. Submit a pull request
+1. Add an entry in `_maintenance/agents.json` (single source of truth)
+2. Add the corresponding path to the hardcoded fallback arrays in `deploy.sh` and `deploy.ps1`
+3. Update the agent tables in `README.md`, `README_EN.md`, and `README_SYSTEM.md`
+4. Run tests: `python3 -m unittest _maintenance/tests/test_security_contracts.py`
+5. Submit a pull request
 
 ---
 

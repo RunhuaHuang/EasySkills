@@ -3,7 +3,7 @@
 # ==============================================================================
 # Script: install_mac.command (macOS)
 # Description: Self-relocating double-clickable installer for macOS.
-#              Copies only _maintenance + SKILL.md to ~/EasySkills.
+#              Copies only _maintenance + README_SYSTEM.md to ~/EasySkills.
 #              Preserves user custom-targets.txt across upgrades.
 # ==============================================================================
 
@@ -39,10 +39,24 @@ if [ "$CURRENT_DIR" != "$PERM_DIR" ]; then
     fi
   fi
 
+  # Preserve per-machine runtime files (unmapped targets + WebUI token)
+  PRESERVE_DIR=$(mktemp -d)
+  [ -f "$PERM_DIR/_maintenance/disabled-targets.txt" ] && cp "$PERM_DIR/_maintenance/disabled-targets.txt" "$PRESERVE_DIR/disabled-targets.txt"
+  [ -f "$PERM_DIR/_maintenance/.easyskills-token" ] && cp "$PERM_DIR/_maintenance/.easyskills-token" "$PRESERVE_DIR/.easyskills-token"
+
   # --- Clean install of _maintenance/ ---
   rm -rf "$PERM_DIR/_maintenance"
   cp -R "$CURRENT_DIR/_maintenance" "$PERM_DIR/_maintenance"
-  cp "$CURRENT_DIR/SKILL.md" "$PERM_DIR/SKILL.md"
+  cp "$CURRENT_DIR/README_SYSTEM.md" "$PERM_DIR/README_SYSTEM.md"
+  rm -f "$PERM_DIR/SKILL.md"
+
+  # Restore preserved runtime files
+  [ -f "$PRESERVE_DIR/disabled-targets.txt" ] && cp "$PRESERVE_DIR/disabled-targets.txt" "$PERM_DIR/_maintenance/disabled-targets.txt"
+  if [ -f "$PRESERVE_DIR/.easyskills-token" ]; then
+    cp "$PRESERVE_DIR/.easyskills-token" "$PERM_DIR/_maintenance/.easyskills-token"
+    chmod 600 "$PERM_DIR/_maintenance/.easyskills-token"
+  fi
+  rm -rf "$PRESERVE_DIR"
 
   # Initialize custom-targets.txt at root if not present
   if [ ! -f "$PERM_DIR/custom-targets.txt" ]; then

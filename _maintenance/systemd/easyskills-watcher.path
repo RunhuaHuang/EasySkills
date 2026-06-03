@@ -1,0 +1,8 @@
+[Unit]
+Description=EasySkills Watcher path trigger — monitors ~/EasySkills for changes
+
+[Path]
+PathModified=%h/EasySkills
+
+[Install]
+WantedBy=default.target
