@@ -647,6 +647,11 @@ start_webui() {
   python_bin="$(command -v python3)"
 
   webui_ready() {
+    [ -n "$(own_webui_pid)" ] || return 1
+    port_ready
+  }
+
+  port_ready() {
     if command -v nc >/dev/null 2>&1; then
       nc -z -w1 127.0.0.1 6633 >/dev/null 2>&1
     else
@@ -674,6 +679,50 @@ PY
     return 1
   }
 
+  own_webui_pid() {
+    pgrep -f "$SCRIPT_DIR/webui.py" 2>/dev/null | head -1
+  }
+
+  stop_own_webui() {
+    local pid
+    if command -v lsof &>/dev/null; then
+      for pid in $(lsof -tiTCP:6633 -sTCP:LISTEN 2>/dev/null); do
+        local cmdline
+        cmdline=$(ps -p "$pid" -o command= 2>/dev/null || true)
+        if [[ "$cmdline" == *"$SCRIPT_DIR/webui.py"* ]]; then
+          kill "$pid" 2>/dev/null || true
+        fi
+      done
+    fi
+    for pid in $(pgrep -f "$SCRIPT_DIR/webui.py" 2>/dev/null || true); do
+      kill "$pid" 2>/dev/null || true
+    done
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      [ -z "$(own_webui_pid)" ] && ! port_ready && break
+      sleep 0.2
+    done
+  }
+
+  launch_webui_detached() {
+    "$python_bin" - "$python_bin" "$SCRIPT_DIR/webui.py" <<'PY' >/dev/null 2>&1
+import os
+import subprocess
+import sys
+
+python_bin, webui_script = sys.argv[1], sys.argv[2]
+env = os.environ.copy()
+env["EASYSKILLS_NO_BROWSER"] = "1"
+subprocess.Popen(
+    [python_bin, webui_script],
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    start_new_session=True,
+    env=env,
+)
+PY
+  }
+
   open_webui_once() {
     echo "程序正在启动挂载中，完成后浏览器 WebUI 会自动打开。"
     echo "Starting and mounting WebUI; the browser will open automatically when ready."
@@ -688,45 +737,27 @@ PY
     fi
   }
 
-  # Preferred path on macOS: run the supervisor under launchd with KeepAlive so
-  # a crashed backend is automatically revived (mirrors webui-service.ps1 on
-  # Windows). Falls back to the direct launch below if the supervisor script or
-  # launchctl is unavailable.
+  # Preferred path on macOS: launch webui.py as a fully detached session.
+  # We deliberately avoid `launchctl submit` for the WebUI backend here: on
+  # some macOS configurations a submitted Python backend stays alive but never
+  # begins serving port 6633, which is exactly the post-install blank/failing
+  # browser tab we need to avoid. A tiny Python launcher with start_new_session
+  # avoids shell/terminal cleanup killing the backend after the installer exits.
   local supervisor="$SCRIPT_DIR/webui-service.sh"
-  if [ "$(uname -s)" = "Darwin" ] && command -v launchctl &>/dev/null && [ -f "$supervisor" ]; then
-    local webui_label="com.easyskills.webui"
-    launchctl remove "$webui_label" 2>/dev/null || true
-    # Submit the supervisor (not webui.py directly) so it owns restart logic.
-    if launchctl submit -l "$webui_label" -- /bin/bash "$supervisor" 2>/dev/null; then
-      open_webui_once
-      echo "WebUI launching on http://127.0.0.1:6633 (supervised — auto-restarts on crash)"
-      return 0
-    fi
-  fi
-
-  # Fallback 1 (macOS without supervisor script, or launchctl failure): the
-  # legacy direct launch. No crash recovery, but works everywhere.
-  if [ "$(uname -s)" = "Darwin" ] && command -v launchctl &>/dev/null; then
+  if [ "$(uname -s)" = "Darwin" ]; then
+    launchctl remove "com.easyskills.webui" 2>/dev/null || true
     local webui_label="com.easyskills.webui.manual"
     launchctl remove "$webui_label" 2>/dev/null || true
-    if command -v lsof &>/dev/null; then
-      local pid
-      for pid in $(lsof -tiTCP:6633 -sTCP:LISTEN 2>/dev/null); do
-        local cmdline
-        cmdline=$(ps -p "$pid" -o command= 2>/dev/null || true)
-        if [[ "$cmdline" == *"$SCRIPT_DIR/webui.py"* ]]; then
-          kill "$pid" 2>/dev/null || true
-        fi
-      done
-    fi
-    if launchctl submit -l "$webui_label" -- /usr/bin/env EASYSKILLS_NO_BROWSER=1 "$python_bin" "$SCRIPT_DIR/webui.py" 2>/dev/null; then
-      open_webui_once
+    stop_own_webui
+    launch_webui_detached
+    if open_webui_once; then
       echo "WebUI launching on http://127.0.0.1:6633"
       return 0
     fi
+    stop_own_webui
   fi
 
-  # Fallback 2 (Linux / no launchd): run the supervisor directly if present,
+  # Fallback (Linux / no launchd / launchctl failure): run the supervisor directly if present,
   # otherwise start webui.py bare.
   if [ -f "$supervisor" ]; then
     if command -v setsid &>/dev/null; then
@@ -734,15 +765,25 @@ PY
     else
       nohup /bin/bash "$supervisor" >/dev/null 2>&1 &
     fi
-    open_webui_once
+    if open_webui_once; then
+      echo "WebUI launching on http://127.0.0.1:6633"
+      return 0
+    fi
   elif command -v setsid &>/dev/null; then
     EASYSKILLS_NO_BROWSER=1 setsid "$python_bin" "$SCRIPT_DIR/webui.py" >/dev/null 2>&1 &
-    open_webui_once
+    if open_webui_once; then
+      echo "WebUI launching on http://127.0.0.1:6633"
+      return 0
+    fi
   else
     EASYSKILLS_NO_BROWSER=1 "$python_bin" "$SCRIPT_DIR/webui.py" >/dev/null 2>&1 &
-    open_webui_once
+    if open_webui_once; then
+      echo "WebUI launching on http://127.0.0.1:6633"
+      return 0
+    fi
   fi
-  echo "WebUI launching on http://127.0.0.1:6633"
+  echo "Error: WebUI did not become ready on http://127.0.0.1:6633." >&2
+  return 1
 }
 
 # Parse command line options

@@ -624,7 +624,7 @@ class SecurityContractsTest(unittest.TestCase):
         for rel in ("_maintenance/deploy.sh", "_maintenance/macOS/Start — 启动.command"):
             src = read(rel)
             self.assertIn("com.easyskills.webui.manual", src, rel)
-            self.assertIn("launchctl submit", src, rel)
+            self.assertIn("start_new_session=True", src, rel)
             self.assertIn("command -v python3", src, rel)
             self.assertIn("http://127.0.0.1:6633", src, rel)
             self.assertNotIn("nohup python3", src, rel)

@@ -24,9 +24,33 @@ fi
 PYTHON_BIN="$(command -v python3)"
 WEBUI_LABEL="com.easyskills.webui.manual"
 launchctl remove "$WEBUI_LABEL" 2>/dev/null || true
-launchctl submit -l "$WEBUI_LABEL" -- /usr/bin/env EASYSKILLS_NO_BROWSER=1 "$PYTHON_BIN" "$(pwd)/webui.py" 2>/dev/null || {
-  EASYSKILLS_NO_BROWSER=1 "$PYTHON_BIN" "$(pwd)/webui.py" >/dev/null 2>&1 &
-}
-sleep 2
+pkill -f "$(pwd)/webui.py" 2>/dev/null || true
+
+"$PYTHON_BIN" - "$PYTHON_BIN" "$(pwd)/webui.py" <<'PY' >/dev/null 2>&1
+import os
+import subprocess
+import sys
+
+python_bin, webui_script = sys.argv[1], sys.argv[2]
+env = os.environ.copy()
+# Equivalent to launching with EASYSKILLS_NO_BROWSER=1.
+env["EASYSKILLS_NO_BROWSER"]="1"
+subprocess.Popen(
+    [python_bin, webui_script],
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    start_new_session=True,
+    env=env,
+)
+PY
+
+for _ in $(seq 1 40); do
+  if command -v nc >/dev/null 2>&1 && nc -z -w1 127.0.0.1 6633 >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.5
+done
+
 open "http://127.0.0.1:6633"
 echo "EasySkills WebUI is launching in the background."
