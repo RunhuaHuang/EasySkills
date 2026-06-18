@@ -6,11 +6,28 @@
 #        or: bash _maintenance/deploy.sh --webui
 # ==============================================================================
 
+# --- Python version guard -----------------------------------------------------
+# MUST run before any code uses `X | None` type syntax (PEP 604, Python 3.10+).
+# On older interpreters (e.g. a stale /usr/bin/python3 under launchd) this gives
+# a clear, actionable error instead of a confusing parse-time TypeError that
+# would make the supervisor restart-loop the backend forever.
+import sys as _sys
+if _sys.version_info < (3, 10):
+    _sys.stderr.write(
+        "EasySkills WebUI requires Python 3.10 or newer, but "
+        f"Python {_sys.version.split()[0]} was found at "
+        f"{_sys.executable}.\n"
+        "Install a recent Python 3 (e.g. via https://www.python.org/downloads/ "
+        "or Homebrew: `brew install python`) and ensure it is on PATH.\n"
+    )
+    _sys.exit(1)
+
 import hashlib
 import http.server
 import socketserver
 import base64
 import binascii
+import functools
 import hmac
 import json
 import os
@@ -20,6 +37,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import threading
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -128,6 +146,9 @@ AGENTS_JSON_FILE = SCRIPT_DIR / "agents.json"
 WEBUI_DIR = SCRIPT_DIR / "webui"
 if not WEBUI_DIR.exists():
     WEBUI_DIR = Path(__file__).parent.resolve() / "webui"
+# WebUI listen port — SINGLE SOURCE OF TRUTH. Mirror any change in webui.ps1
+# ($Port) and webui-service.ps1 ($Port); display strings referencing 6633 in the
+# installers/scripts also need updating.
 PORT = 6633
 ALLOWED_ORIGINS = {f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"}
 WATCHER_LAUNCHD_LABEL = "com.easyskills.watcher"
@@ -213,6 +234,7 @@ def _load_default_agents() -> list[tuple[str, Path]]:
         ("Pi",                             Path.home() / ".pi/agent/skills"),
         ("OpenCode",                       Path.home() / ".config/opencode/skills"),
         ("Kimi Code",                      Path.home() / ".kimi/skills"),
+        ("ZCode",                          Path.home() / ".zcode/skills"),
         ("Trae (Global)",                  Path.home() / ".trae/skills"),
         ("Trae (Global)",                  Path.home() / "Library/Application Support/Trae/skills"),
         ("Trae CN",                        Path.home() / ".trae-cn/skills"),
@@ -262,6 +284,7 @@ _AGENT_PREFIX_MAP: list[tuple[str, str]] = [
     (".pi/",                "Pi"),
     (".config/opencode/",   "OpenCode"),
     (".kimi/",              "Kimi Code"),
+    (".zcode/",             "ZCode"),
     (".trae-cn/",           "Trae CN"),
     (".trae/",              "Trae (Global)"),
     (".openclaw/",          "OpenClaw"),
@@ -301,6 +324,40 @@ GITHUB_REPO = "RunhuaHuang/EasySkills"
 GITHUB_API_LATEST_RELEASE = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_LATEST_RELEASE = f"https://github.com/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASE_TAG_PREFIX = f"https://github.com/{GITHUB_REPO}/releases/tag/"
+
+# Hosts permitted when fetching release artifacts during self-update. A tampered
+# GitHub API response could otherwise point urlretrieve() at an arbitrary server.
+# GitHub's Releases API normally returns api.github.com tarball URLs which then
+# redirect to codeload.github.com; all listed hosts are GitHub-owned delivery
+# endpoints.
+_GITHUB_TARBALL_HOSTS = {"api.github.com", "github.com", "codeload.github.com", "objects.githubusercontent.com"}
+
+def _is_github_download_url(url: str) -> bool:
+    """True only for https URLs whose host is a known GitHub delivery host."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and (parsed.hostname or "") in _GITHUB_TARBALL_HOSTS
+
+# Serializes all WebUI write operations within this process (the deploy.sh
+# mkdir-lock is a separate cross-process lock; this guards against concurrent
+# ThreadingMixIn requests racing on CENTRAL_DIR mutations).
+_webui_write_lock = threading.RLock()
+
+
+def _writes_locked(func):
+    """Decorator: hold the process-wide write lock for the duration of *func*.
+
+    Prevents concurrent ThreadingMixIn requests from racing on CENTRAL_DIR /
+    config mutations (e.g. do_map iterating while delete_skill rmtree's a dir).
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        with _webui_write_lock:
+            return func(*args, **kwargs)
+
+    return wrapper
 
 
 # ──────────────────────────────────────────────────────────────
@@ -607,6 +664,7 @@ def _safe_relative_path(path: str) -> Path | None:
     return rel
 
 
+@_writes_locked
 def import_skill_folder(name: str, files: list[dict]) -> dict:
     valid, clean_name = _validate_skill_name(name)
     if not valid:
@@ -659,6 +717,7 @@ def import_skill_folder(name: str, files: list[dict]) -> dict:
     return {"success": True, "message": msg, "skill": clean_name}
 
 
+@_writes_locked
 def delete_skill(name: str) -> dict:
     valid, clean_name = _validate_skill_name(name)
     if not valid:
@@ -685,6 +744,7 @@ def delete_skill(name: str) -> dict:
     return {"success": True, "message": msg, "skill": clean_name}
 
 
+@_writes_locked
 def do_map(target_path: str) -> dict:
     if not target_path or not target_path.strip():
         return {"success": False, "message": "Target path cannot be empty"}
@@ -709,6 +769,7 @@ def do_map(target_path: str) -> dict:
         return {"success": False, "message": str(e)}
 
 
+@_writes_locked
 def do_unmap(target_path: str) -> dict:
     if not target_path or not target_path.strip():
         return {"success": False, "message": "Target path cannot be empty"}
@@ -748,6 +809,7 @@ def do_unmap(target_path: str) -> dict:
     return {"success": True, "message": msg, "removed": removed}
 
 
+@_writes_locked
 def update_agent_path(name: str, old_path: str, new_path: str) -> dict:
     if not new_path:
         return {"success": False, "message": "New path cannot be empty"}
@@ -813,6 +875,42 @@ def _sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
+def _safe_extract_tar(tf: tarfile.TarFile, dest: str) -> None:
+    """Extract *tf* into *dest* rejecting unsafe members.
+
+    Guards against path traversal (absolute paths, ``..``) and links pointing
+    outside *dest* — the vulnerabilities that bare ``extractall`` exposes on
+    Python < 3.12 (where the ``filter="data`` argument is unavailable). Used for
+    the self-update tarball so a crafted release cannot write outside the
+    temporary directory.
+    """
+    dest_real = os.path.realpath(dest)
+    for member in tf.getmembers():
+        if not (member.isfile() or member.isdir() or member.issym() or member.islnk()):
+            raise ValueError(f"Refusing to extract unsupported tar member type: {member.name!r}")
+        target = os.path.realpath(os.path.join(dest, member.name))
+        # Reject absolute members, and any member whose resolved path escapes
+        # dest (covers "../" traversal). The explicit grouping avoids the
+        # `and`-binds-tighter-than-`or` precedence trap.
+        escapes_dest = (
+            target != dest_real
+            and os.path.commonpath([target, dest_real]) != dest_real
+        )
+        if os.path.isabs(member.name) or escapes_dest:
+            raise ValueError(f"Refusing to extract unsafe path: {member.name!r}")
+        # Reject symlinks/hardlinks whose link target escapes dest.
+        if member.issym() or member.islnk():
+            link_real = os.path.realpath(os.path.join(os.path.dirname(target), member.linkname))
+            link_escapes = (
+                link_real != dest_real
+                and os.path.commonpath([link_real, dest_real]) != dest_real
+            )
+            if link_escapes:
+                raise ValueError(f"Refusing to extract unsafe link: {member.name!r}")
+        tf.extract(member, dest)
+
+
+@_writes_locked
 def do_self_update() -> dict:
     try:
         release = get_latest_release()
@@ -825,6 +923,13 @@ def do_self_update() -> dict:
         tarball_url = release.get("tarball_url", "")
         if not tarball_url:
             return {"success": False, "message": "No tarball URL in release"}
+        # Defense against a tampered API response redirecting the update to an
+        # arbitrary host. Only known GitHub delivery hosts are allowed.
+        if not _is_github_download_url(tarball_url):
+            return {
+                "success": False,
+                "message": f"Update rejected: tarball URL host is not a trusted GitHub host ({tarball_url}).",
+            }
 
         with tempfile.TemporaryDirectory() as tmp:
             archive_path = os.path.join(tmp, "release.tar.gz")
@@ -845,10 +950,10 @@ def do_self_update() -> dict:
             os.unlink(verify_path)
 
             with tarfile.open(archive_path, "r:gz") as tf:
-                try:
-                    tf.extractall(tmp, filter="data")
-                except TypeError:
-                    tf.extractall(tmp)
+                # Safe extraction rejects absolute paths, ../ traversal, and
+                # links escaping the dest dir — works on all Python versions
+                # (the filter="data" arg is 3.12+ only).
+                _safe_extract_tar(tf, tmp)
 
             extracted = [d for d in os.listdir(tmp) if os.path.isdir(os.path.join(tmp, d))]
             if not extracted:
@@ -946,13 +1051,18 @@ def do_self_update() -> dict:
         new_version = get_version()
         return {
             "success": True,
-            "message": f"Updated to {new_version}. All agents re-synced.",
+            "message": f"Updated to {new_version}. All agents re-synced. The UI will reload to pick up the new version.",
             "version": new_version,
+            # Signal the frontend to reload: the running Python process still
+            # holds the pre-update code, so a page reload (or a supervisor
+            # restart) is needed to serve the new logic.
+            "_restart": True,
         }
     except Exception as e:
         return {"success": False, "message": f"Update failed: {e}"}
 
 
+@_writes_locked
 def do_rollback() -> dict:
     backup_maint = CENTRAL_DIR / "_maintenance.bak"
     dest_maint = CENTRAL_DIR / "_maintenance"
@@ -1004,7 +1114,14 @@ def do_rollback() -> dict:
         except OSError:
             pass
         version = get_version()
-        return {"success": True, "message": f"Rolled back to {version}. All agents re-synced.", "version": version}
+        return {
+            "success": True,
+            "message": f"Rolled back to {version}. All agents re-synced. The UI will reload to pick up the rolled-back version.",
+            "version": version,
+            # Same rationale as do_self_update: the running process holds the
+            # pre-rollback code until a reload/supervisor restart.
+            "_restart": True,
+        }
     except Exception as e:
         return {"success": False, "message": f"Rollback failed: {e}"}
 
@@ -1014,6 +1131,11 @@ def do_rollback() -> dict:
 # ──────────────────────────────────────────────────────────────
 
 class Handler(http.server.BaseHTTPRequestHandler):
+    # Per-connection socket timeout: a slow/idle client (or a slowloris-style
+    # drip) gets dropped after this many seconds rather than pinning a server
+    # thread indefinitely. Local-only tool, so a generous value is fine.
+    timeout = 60
+
     def log_message(self, fmt, *args):
         pass  # quiet
 
@@ -1231,6 +1353,10 @@ def main():
     class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         allow_reuse_address = True
         daemon_threads = True
+        # Cap the backlog of not-yet-accepted connections. Combined with the
+        # per-handler timeout above, this bounds resource use under a burst of
+        # connections (local-only, so a modest cap is plenty).
+        request_queue_size = 16
 
     try:
         with ThreadedServer(("127.0.0.1", PORT), Handler) as httpd:

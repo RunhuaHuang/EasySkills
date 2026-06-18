@@ -11,6 +11,7 @@ Param(
 
 $ErrorActionPreference = 'Continue'
 
+# Port must match webui.py:PORT (the single source of truth for the server).
 $Port = 6633
 $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $CentralDir = Split-Path -Path $ScriptDir -Parent
@@ -185,6 +186,7 @@ function Load-DefaultAgents {
         @{ Name="Pi"; Path="$Home\.pi\agent\skills" },
         @{ Name="OpenCode"; Path="$Home\.config\opencode\skills" },
         @{ Name="Kimi Code"; Path="$Home\.kimi\skills" },
+        @{ Name="ZCode"; Path="$Home\.zcode\skills" },
         @{ Name="Trae (Global)"; Path="$Home\.trae\skills" },
         @{ Name="Trae (Global)"; Path="$env:APPDATA\Trae\skills" },
         @{ Name="Trae CN"; Path="$Home\.trae-cn\skills" },
@@ -353,6 +355,7 @@ function Get-AgentNameFromPath([string]$PathStr) {
     if ($PathStr -like "*\.pi\*") { return "Pi" }
     if ($PathStr -like "*\.config\opencode\*") { return "OpenCode" }
     if ($PathStr -like "*\.kimi\*") { return "Kimi Code" }
+    if ($PathStr -like "*\.zcode\*") { return "ZCode" }
     if ($PathStr -like "*\.trae-cn\*" -or $PathStr -like "*\Trae-CN\*") { return "Trae CN" }
     if ($PathStr -like "*\.trae\*" -or $PathStr -like "*\Trae\*") { return "Trae (Global)" }
     if ($PathStr -like "*\.openclaw\*") { return "OpenClaw" }

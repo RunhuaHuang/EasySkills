@@ -78,13 +78,27 @@ function Register-EasySkillsTask {
     $Action = New-ScheduledTaskAction -Execute $WscriptExe -Argument $Argument -WorkingDirectory $ScriptDir
 
     $UserId = "$env:USERDOMAIN\$env:USERNAME"
-    $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $UserId
+    # Triggers: launch at logon, AND every 10 minutes as a self-healing backstop.
+    # The action launches the supervisor (webui-service.ps1 / watcher-service.ps1),
+    # which run an internal while($true) loop and exit only on crash. Because the
+    # wscript launcher exits immediately (non-blocking), Task Scheduler cannot
+    # reliably detect a crashed supervisor to fire RestartCount — so the periodic
+    # trigger is what actually revives a dead service. The supervisor's own
+    # session mutex (Local\EasySkills*Service_v2) prevents duplicate instances.
+    $Triggers = @()
+    $Triggers += New-ScheduledTaskTrigger -AtLogOn -User $UserId
+    try {
+        $Triggers += New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) `
+            -RepetitionInterval (New-TimeSpan -Minutes 10) `
+            -RepetitionDuration ([TimeSpan]::MaxValue)
+    } catch {
+        # Older PowerShell / older Task Scheduler: fall back to logon-only.
+    }
 
-    # ExecutionTimeLimit 0 == unlimited. RestartCount/Interval = Task Scheduler
-    # auto-relaunches if the action terminates abnormally. Keeping RestartCount
-    # at a conservative value (3) — the service has its own internal supervisor
-    # loop and this is just a backstop; very high values look like malware
-    # persistence to AV heuristics.
+    # ExecutionTimeLimit 0 == unlimited. RestartCount is kept as a best-effort
+    # backstop (it rarely fires given the non-blocking launcher, hence the
+    # periodic trigger above), but a conservative value avoids looking like
+    # malware persistence to AV heuristics.
     $Settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
@@ -106,7 +120,7 @@ function Register-EasySkillsTask {
     # LogonType only needs to be the simplest one that works without admin.
     $Principal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask -TaskName $Name `
-        -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal `
+        -Action $Action -Trigger $Triggers -Settings $Settings -Principal $Principal `
         -Description $Description -Force | Out-Null
 }
 

@@ -51,6 +51,84 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 
 ---
 
+## 部署、开启、关闭、重启与更新
+
+### 部署方式
+
+| 场景 | 命令 / 操作 |
+|---|---|
+| macOS / Linux 远程安装 | `curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh \| bash` |
+| Windows 远程安装 | `irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 \| iex` |
+| 离线 / 本地安装 | 克隆或下载仓库后，双击 `install_mac.command` / `install_windows.bat` |
+
+部署完成后会安装后台监听服务，并启动本地 WebUI：`http://127.0.0.1:6633`。
+
+### 开启 / 打开 WebUI
+
+```bash
+# macOS / Linux
+bash ~/EasySkills/_maintenance/deploy.sh --webui
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
+```
+
+### 关闭
+
+如果只是不用控制台，直接关闭浏览器标签页即可；后台同步仍会继续运行。
+
+如果要停止后台监听与 WebUI 服务：
+
+```bash
+# macOS / Linux：停止后台监听
+bash ~/EasySkills/_maintenance/deploy.sh --unwatch
+
+# macOS：如需同时停止 WebUI 后端
+launchctl remove com.easyskills.webui 2>/dev/null || true
+launchctl remove com.easyskills.webui.manual 2>/dev/null || true
+pkill -f '[E]asySkills/_maintenance/webui.py' 2>/dev/null || true
+pkill -f '[E]asySkills/_maintenance/webui-service.sh' 2>/dev/null || true
+```
+
+```powershell
+# Windows：停止后台监听与 WebUI 计划任务
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Unwatch
+```
+
+### 重启
+
+```bash
+# macOS / Linux
+bash ~/EasySkills/_maintenance/deploy.sh --unwatch
+bash ~/EasySkills/_maintenance/deploy.sh --watch
+bash ~/EasySkills/_maintenance/deploy.sh --webui
+```
+
+```powershell
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Unwatch
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Watch
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
+```
+
+### 更新方式
+
+推荐使用 WebUI 的「检查更新 / 立即更新」按钮。更新会保留自定义 Agent 路径、已断开的目标、WebUI token，并保留上一版 `_maintenance.bak` 供回滚。
+
+也可以重新执行安装命令覆盖升级：
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+```
+
+```powershell
+# Windows PowerShell
+irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+```
+
+---
+
 ## 工作原理
 
 ```
@@ -159,35 +237,36 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [选项]
 | 7 | **Trae (Global)** | `~/.trae/skills` | `%USERPROFILE%\.trae\skills` |
 | 8 | **Trae CN** | `~/.trae-cn/skills` | `%USERPROFILE%\.trae-cn\skills` |
 | 9 | **Kimi Code (Moonshot)** | `~/.kimi/skills` | `%USERPROFILE%\.kimi\skills` |
-| 10 | **OpenClaw** | `~/.openclaw/skills` | `%USERPROFILE%\.openclaw\skills` |
-| 11 | **Hermes Agent** | `~/.hermes/skills` | `%USERPROFILE%\.hermes\skills` |
-| 12 | **Proma** | `~/.proma/default-skills` | `%USERPROFILE%\.proma\default-skills` |
-| 13 | **Cursor** | `~/.cursor/skills` | `%USERPROFILE%\.cursor\skills` |
-| 14 | **Kiro Agent (AWS)** | `~/.kiro/skills` | `%USERPROFILE%\.kiro\skills` |
-| 15 | **Junie (JetBrains)** | `~/.junie/skills` | `%USERPROFILE%\.junie\skills` |
-| 16 | **Cline** | `~/.cline/skills` | `%USERPROFILE%\.cline\skills` |
-| 17 | **Roo Code** | `~/.roo/skills` | `%USERPROFILE%\.roo\skills` |
-| 18 | **Warp** | `~/.warp/skills` | `%USERPROFILE%\.warp\skills` |
-| 19 | **Windsurf** | `~/.codeium/windsurf/skills` | `%USERPROFILE%\.codeium\windsurf\skills` |
-| 20 | **Firebender** | `~/.firebender/skills` | `%USERPROFILE%\.firebender\skills` |
-| 21 | **Augment** | `~/.augment/skills` | `%USERPROFILE%\.augment\skills` |
-| 22 | **Continue** | `~/.continue/skills` | `%USERPROFILE%\.continue\skills` |
-| 23 | **Goose (Block/AAIF)** | `~/.config/goose/skills` | `%USERPROFILE%\.config\goose\skills` |
-| 24 | **Agents (Standard)** | `~/.agents/skills` | `%USERPROFILE%\.agents\skills` |
-| 25 | **Run** | `~/.run/global-skills/skills` | `%USERPROFILE%\.run\global-skills\skills` |
-| 26 | **Qoder** | `~/.qoder/skills` | `%USERPROFILE%\.qoder\skills` |
-| 27 | **Qwen Code** | `~/.qwen/skills` | `%USERPROFILE%\.qwen\skills` |
-| 28 | **CodeBuddy** | `~/.codebuddy/skills` | `%USERPROFILE%\.codebuddy\skills` |
-| 29 | **Amp** | `~/.config/agents/skills` | `%USERPROFILE%\.config\agents\skills` |
-| 30 | **OpenHands** | `~/.openhands/skills` | `%USERPROFILE%\.openhands\skills` |
-| 31 | **Kilo Code** | `~/.kilocode/skills` | `%USERPROFILE%\.kilocode\skills` |
-| 32 | **Zencoder** | `~/.zencoder/skills` | `%USERPROFILE%\.zencoder\skills` |
-| 33 | **iFlow CLI** | `~/.iflow/skills` | `%USERPROFILE%\.iflow\skills` |
-| 34 | **Droid** | `~/.factory/skills` | `%USERPROFILE%\.factory\skills` |
-| 35 | **Devin for Terminal** | `~/.config/devin/skills` | `%USERPROFILE%\.config\devin\skills` |
-| 36 | **WorkBuddy** | `~/.workbuddy/skills` | `%USERPROFILE%\.workbuddy\skills` |
-| 37 | **QClaw** | `~/.qclaw/skills` | `%USERPROFILE%\.qclaw\skills` |
-| 38 | **CodeWhale** | `~/.codewhale/skills` | `%USERPROFILE%\.codewhale\skills` |
+| 10 | **ZCode** | `~/.zcode/skills` | `%USERPROFILE%\.zcode\skills` |
+| 11 | **OpenClaw** | `~/.openclaw/skills` | `%USERPROFILE%\.openclaw\skills` |
+| 12 | **Hermes Agent** | `~/.hermes/skills` | `%USERPROFILE%\.hermes\skills` |
+| 13 | **Proma** | `~/.proma/default-skills` | `%USERPROFILE%\.proma\default-skills` |
+| 14 | **Cursor** | `~/.cursor/skills` | `%USERPROFILE%\.cursor\skills` |
+| 15 | **Kiro Agent (AWS)** | `~/.kiro/skills` | `%USERPROFILE%\.kiro\skills` |
+| 16 | **Junie (JetBrains)** | `~/.junie/skills` | `%USERPROFILE%\.junie\skills` |
+| 17 | **Cline** | `~/.cline/skills` | `%USERPROFILE%\.cline\skills` |
+| 18 | **Roo Code** | `~/.roo/skills` | `%USERPROFILE%\.roo\skills` |
+| 19 | **Warp** | `~/.warp/skills` | `%USERPROFILE%\.warp\skills` |
+| 20 | **Windsurf** | `~/.codeium/windsurf/skills` | `%USERPROFILE%\.codeium\windsurf\skills` |
+| 21 | **Firebender** | `~/.firebender/skills` | `%USERPROFILE%\.firebender\skills` |
+| 22 | **Augment** | `~/.augment/skills` | `%USERPROFILE%\.augment\skills` |
+| 23 | **Continue** | `~/.continue/skills` | `%USERPROFILE%\.continue\skills` |
+| 24 | **Goose (Block/AAIF)** | `~/.config/goose/skills` | `%USERPROFILE%\.config\goose\skills` |
+| 25 | **Agents (Standard)** | `~/.agents/skills` | `%USERPROFILE%\.agents\skills` |
+| 26 | **Run** | `~/.run/global-skills/skills` | `%USERPROFILE%\.run\global-skills\skills` |
+| 27 | **Qoder** | `~/.qoder/skills` | `%USERPROFILE%\.qoder\skills` |
+| 28 | **Qwen Code** | `~/.qwen/skills` | `%USERPROFILE%\.qwen\skills` |
+| 29 | **CodeBuddy** | `~/.codebuddy/skills` | `%USERPROFILE%\.codebuddy\skills` |
+| 30 | **Amp** | `~/.config/agents/skills` | `%USERPROFILE%\.config\agents\skills` |
+| 31 | **OpenHands** | `~/.openhands/skills` | `%USERPROFILE%\.openhands\skills` |
+| 32 | **Kilo Code** | `~/.kilocode/skills` | `%USERPROFILE%\.kilocode\skills` |
+| 33 | **Zencoder** | `~/.zencoder/skills` | `%USERPROFILE%\.zencoder\skills` |
+| 34 | **iFlow CLI** | `~/.iflow/skills` | `%USERPROFILE%\.iflow\skills` |
+| 35 | **Droid** | `~/.factory/skills` | `%USERPROFILE%\.factory\skills` |
+| 36 | **Devin for Terminal** | `~/.config/devin/skills` | `%USERPROFILE%\.config\devin\skills` |
+| 37 | **WorkBuddy** | `~/.workbuddy/skills` | `%USERPROFILE%\.workbuddy\skills` |
+| 38 | **QClaw** | `~/.qclaw/skills` | `%USERPROFILE%\.qclaw\skills` |
+| 39 | **CodeWhale** | `~/.codewhale/skills` | `%USERPROFILE%\.codewhale\skills` |
 
 > Trae 和 Trae CN 同时映射到 `~/Library/Application Support/Trae[-CN]/skills`（macOS）和 `%APPDATA%\Trae[-CN]\skills`（Windows）。
 

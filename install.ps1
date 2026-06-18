@@ -114,11 +114,58 @@ try {
   }
 
   # Clean install of _maintenance/. Kill any prior supervisors first so
-  # they don't hold file handles to the directory we're about to wipe.
+  # they don't hold file handles to the directory we're about to swap.
   Stop-StaleEasySkillsProcesses
-  if (Test-Path $MaintDir) { Remove-Item $MaintDir -Recurse -Force }
-  Copy-Item -Path (Join-Path $SrcDir "_maintenance") -Destination $MaintDir -Recurse
-  Copy-Item -Path (Join-Path $SrcDir "README_SYSTEM.md") -Destination (Join-Path $PermDir "README_SYSTEM.md") -Force
+
+  # Validate the downloaded source before touching the existing install — a
+  # failed download/extract must NOT brick a working install.
+  $SrcMaint = Join-Path $SrcDir "_maintenance"
+  $SrcDeploy = Join-Path $SrcMaint "deploy.ps1"
+  $SrcReadme = Join-Path $SrcDir "README_SYSTEM.md"
+  if (-not (Test-Path $SrcMaint) -or -not (Test-Path $SrcDeploy) -or -not (Test-Path $SrcReadme)) {
+    throw "Downloaded source _maintenance/ is missing or incomplete (network/GitHub failure?). Existing install left untouched."
+  }
+
+  # Atomic install: copy into a sibling temp dir, verify, then swap via rename.
+  # Avoids the previous "Remove-Item then Copy-Item" footgun where a failed
+  # copy left no _maintenance at all.
+  $NewMaint = Join-Path $PermDir "_maintenance.new"
+  if (Test-Path $NewMaint) { Remove-Item $NewMaint -Recurse -Force }
+  Copy-Item -Path $SrcMaint -Destination $NewMaint -Recurse
+  $NewDeploy = Join-Path $NewMaint "deploy.ps1"
+  if (-not (Test-Path $NewDeploy)) {
+    if (Test-Path $NewMaint) { Remove-Item $NewMaint -Recurse -Force }
+    throw "Copy of _maintenance/ failed (disk full? permissions?). Existing install left untouched."
+  }
+  # Swap with rollback: current -> .bak, new -> current. Avoid a window where a
+  # failed rename leaves no usable _maintenance at all.
+  $BackupMaint = Join-Path $PermDir "_maintenance.bak"
+  $PrevBackup = Join-Path $PermDir "_maintenance.bak.prev"
+  if (Test-Path $PrevBackup) { Remove-Item $PrevBackup -Recurse -Force }
+  try {
+    if (Test-Path $MaintDir) {
+      if (Test-Path $BackupMaint) {
+        Rename-Item -Path $BackupMaint -NewName "_maintenance.bak.prev" -Force
+      }
+      Rename-Item -Path $MaintDir -NewName "_maintenance.bak" -Force
+    }
+    Rename-Item -Path $NewMaint -NewName "_maintenance" -Force
+    if (Test-Path $PrevBackup) { Remove-Item $PrevBackup -Recurse -Force }
+  } catch {
+    if (Test-Path $NewMaint) { Remove-Item $NewMaint -Recurse -Force -ErrorAction SilentlyContinue }
+    if ((-not (Test-Path $MaintDir)) -and (Test-Path $BackupMaint)) {
+      Rename-Item -Path $BackupMaint -NewName "_maintenance" -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path $PrevBackup) {
+      if (-not (Test-Path $BackupMaint)) {
+        Rename-Item -Path $PrevBackup -NewName "_maintenance.bak" -Force -ErrorAction SilentlyContinue
+      } else {
+        Remove-Item $PrevBackup -Recurse -Force -ErrorAction SilentlyContinue
+      }
+    }
+    throw "Install swap failed; previous _maintenance was restored where possible. $($_.Exception.Message)"
+  }
+  Copy-Item -Path $SrcReadme -Destination (Join-Path $PermDir "README_SYSTEM.md") -Force
   # Remove legacy SKILL.md left by older installations to avoid ambiguity
   $LegacySkillMd = Join-Path $PermDir "SKILL.md"
   if (Test-Path $LegacySkillMd) { Remove-Item $LegacySkillMd -Force }

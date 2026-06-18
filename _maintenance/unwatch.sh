@@ -31,6 +31,25 @@ if [ "$OS" = "Darwin" ]; then
     }
     rm -f "$PLIST_PATH"
     echo "Unloaded watcher service and deleted launchd plist."
+
+    # bootout stops FUTURE scheduling but does not kill a deploy.sh child that
+    # launchd already spawned. Wait briefly for any in-flight sync to finish,
+    # matching the Windows unwatch.ps1 behavior. Match precisely on the EasySkills
+    # deploy.sh path to avoid killing unrelated processes named deploy.sh.
+    CENTRAL_DIR="$HOME/EasySkills"
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      pids=$(pgrep -f "bash .*[E]asySkills/_maintenance/deploy\.sh" 2>/dev/null || true)
+      [ -z "$pids" ] && break
+      sleep 0.3
+    done
+    # If still running after ~3s, terminate it so the caller can safely remove
+    # the install directory without a half-written sync.
+    pids=$(pgrep -f "bash .*[E]asySkills/_maintenance/deploy\.sh" 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+      echo "Terminating in-flight EasySkills sync (PID: $(echo $pids | tr '\n' ' '))..."
+      echo "$pids" | while read -r p; do kill "$p" 2>/dev/null || true; done
+      sleep 0.5
+    fi
   else
     echo "No launchd watcher found."
   fi

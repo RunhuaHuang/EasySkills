@@ -116,6 +116,7 @@ function Load-Agents {
       "$Home\.pi\agent\skills",
       "$Home\.config\opencode\skills",
       "$Home\.kimi\skills",
+      "$Home\.zcode\skills",
       "$Home\.trae\skills",
       "$env:APPDATA\Trae\skills",
       "$Home\.trae-cn\skills",
@@ -308,6 +309,7 @@ function Get-AgentName ([string]$Path) {
     ".pi\*"                    { return "Pi" }
     ".config\opencode\*"       { return "OpenCode" }
     ".kimi\*"                  { return "Kimi Code" }
+    ".zcode\*"                 { return "ZCode" }
     ".trae-cn\*"               { return "Trae CN" }
     ".trae\*"                  { return "Trae (Global)" }
     ".openclaw\*"              { return "OpenClaw" }

@@ -12,7 +12,7 @@ $ScriptDir   = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $WebUIScript = Join-Path $ScriptDir "webui.ps1"
 $LogDir      = Join-Path $ScriptDir "logs"
 $LogFile     = Join-Path $LogDir   "webui-service.log"
-$Port        = 6633
+$Port        = 6633  # must match webui.py:PORT (single source of truth)
 $MutexName   = "Local\EasySkillsWebUIService_v2"
 
 if (-not (Test-Path $LogDir)) {
@@ -61,10 +61,16 @@ function Test-WebUIPort {
 function Get-StaleWebUIProcesses {
     Param([int]$ExcludePid = -1)
     try {
-        $Filter = "Name = 'powershell.exe' AND CommandLine LIKE '%webui.ps1%'"
+        # Match on the full EasySkills webui.ps1 path, not a bare 'webui.ps1'
+        # substring, so an unrelated script of the same name is not reaped.
+        $WebUIGlob = '*' + $WebUIScript + '*'
+        $Filter = "Name = 'powershell.exe'"
         $Procs  = Get-CimInstance Win32_Process -Filter $Filter -ErrorAction SilentlyContinue
         if (-not $Procs) { return @() }
-        return @($Procs | Where-Object { $_.ProcessId -ne $ExcludePid -and $_.ProcessId -ne $PID })
+        return @($Procs | Where-Object {
+            $_.ProcessId -ne $ExcludePid -and $_.ProcessId -ne $PID -and
+            $_.CommandLine -like $WebUIGlob
+        })
     } catch {
         return @()
     }

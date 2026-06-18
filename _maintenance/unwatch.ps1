@@ -45,13 +45,25 @@ foreach ($ShortcutPath in $ShortcutPaths) {
 }
 
 # 3. Terminate any currently-running background processes
+# Resolve our own location so we can match EasySkills processes by their full
+# script path instead of a bare 'webui.ps1' substring (which would also kill an
+# unrelated script of the same name elsewhere on the system).
+$ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 try {
-    $Filter = if ($KeepWebUI) {
-        "Name = 'powershell.exe' AND CommandLine LIKE '%watcher-service.ps1%'"
-    } else {
-        "Name = 'powershell.exe' AND (CommandLine LIKE '%watcher-service.ps1%' OR CommandLine LIKE '%webui-service.ps1%' OR CommandLine LIKE '%webui.ps1%')"
-    }
-    $Processes = Get-CimInstance Win32_Process -Filter $Filter -ErrorAction SilentlyContinue
+    # watcher-service.ps1 / webui-service.ps1 names are EasySkills-specific enough;
+    # the generic webui.ps1 is narrowed to our install path. When -KeepWebUI is
+    # set, only reap the watcher (leave WebUI running).
+    $WebUIGlob = '*' + $ScriptDir + '\webui.ps1*'
+    $Processes = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.CommandLine -and $_.ProcessId -ne $PID -and (
+                $_.CommandLine -like '*watcher-service.ps1*' -or
+                (-not $KeepWebUI -and (
+                    $_.CommandLine -like '*webui-service.ps1*' -or
+                    $_.CommandLine -like $WebUIGlob
+                ))
+            )
+        }
     $KilledPids = @()
     if ($Processes) {
         foreach ($Proc in $Processes) {

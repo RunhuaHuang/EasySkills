@@ -131,118 +131,122 @@ their directory exists. Agents not installed on the machine are skipped.
 - **macOS**: `~/.kimi/skills`
 - **Windows**: `%USERPROFILE%\.kimi\skills`
 
-### 10. OpenClaw
+### 10. ZCode
+- **macOS**: `~/.zcode/skills`
+- **Windows**: `%USERPROFILE%\.zcode\skills`
+
+### 11. OpenClaw
 - **macOS**: `~/.openclaw/skills`
 - **Windows**: `%USERPROFILE%\.openclaw\skills`
 
-### 11. Hermes Agent
+### 12. Hermes Agent
 - **macOS**: `~/.hermes/skills`
 - **Windows**: `%USERPROFILE%\.hermes\skills`
 
-### 12. Proma
+### 13. Proma
 - **macOS**: `~/.proma/default-skills`
 - **Windows**: `%USERPROFILE%\.proma\default-skills`
 
-### 13. Cursor
+### 14. Cursor
 - **macOS**: `~/.cursor/skills`
 - **Windows**: `%USERPROFILE%\.cursor\skills`
 
-### 14. Kiro Agent (AWS)
+### 15. Kiro Agent (AWS)
 - **macOS**: `~/.kiro/skills`
 - **Windows**: `%USERPROFILE%\.kiro\skills`
 
-### 15. Junie (JetBrains)
+### 16. Junie (JetBrains)
 - **macOS**: `~/.junie/skills`
 - **Windows**: `%USERPROFILE%\.junie\skills`
 
-### 16. Cline
+### 17. Cline
 - **macOS**: `~/.cline/skills`
 - **Windows**: `%USERPROFILE%\.cline\skills`
 
-### 17. Roo Code
+### 18. Roo Code
 - **macOS**: `~/.roo/skills`
 - **Windows**: `%USERPROFILE%\.roo\skills`
 
-### 18. Warp
+### 19. Warp
 - **macOS**: `~/.warp/skills`
 - **Windows**: `%USERPROFILE%\.warp\skills`
 
-### 19. Windsurf
+### 20. Windsurf
 - **macOS**: `~/.codeium/windsurf/skills`
 - **Windows**: `%USERPROFILE%\.codeium\windsurf\skills`
 
-### 20. Firebender
+### 21. Firebender
 - **macOS**: `~/.firebender/skills`
 - **Windows**: `%USERPROFILE%\.firebender\skills`
 
-### 21. Augment
+### 22. Augment
 - **macOS**: `~/.augment/skills`
 - **Windows**: `%USERPROFILE%\.augment\skills`
 
-### 22. Continue
+### 23. Continue
 - **macOS**: `~/.continue/skills`
 - **Windows**: `%USERPROFILE%\.continue\skills`
 
-### 23. Goose (Block/AAIF)
+### 24. Goose (Block/AAIF)
 - **macOS**: `~/.config/goose/skills`
 - **Windows**: `%USERPROFILE%\.config\goose\skills`
 
-### 24. Agents (Cross-tool Standard)
+### 25. Agents (Cross-tool Standard)
 - **macOS**: `~/.agents/skills`
 - **Windows**: `%USERPROFILE%\.agents\skills`
 
-### 25. Run
+### 26. Run
 - **macOS**: `~/.run/global-skills/skills`
 - **Windows**: `%USERPROFILE%\.run\global-skills\skills`
 
-### 26. Qoder
+### 27. Qoder
 - **macOS**: `~/.qoder/skills`
 - **Windows**: `%USERPROFILE%\.qoder\skills`
 
-### 27. Qwen Code
+### 28. Qwen Code
 - **macOS**: `~/.qwen/skills`
 - **Windows**: `%USERPROFILE%\.qwen\skills`
 
-### 28. CodeBuddy
+### 29. CodeBuddy
 - **macOS**: `~/.codebuddy/skills`
 - **Windows**: `%USERPROFILE%\.codebuddy\skills`
 
-### 29. Amp
+### 30. Amp
 - **macOS**: `~/.config/agents/skills`
 - **Windows**: `%USERPROFILE%\.config\agents\skills`
 
-### 30. OpenHands
+### 31. OpenHands
 - **macOS**: `~/.openhands/skills`
 - **Windows**: `%USERPROFILE%\.openhands\skills`
 
-### 31. Kilo Code
+### 32. Kilo Code
 - **macOS**: `~/.kilocode/skills`
 - **Windows**: `%USERPROFILE%\.kilocode\skills`
 
-### 32. Zencoder
+### 33. Zencoder
 - **macOS**: `~/.zencoder/skills`
 - **Windows**: `%USERPROFILE%\.zencoder\skills`
 
-### 33. iFlow CLI
+### 34. iFlow CLI
 - **macOS**: `~/.iflow/skills`
 - **Windows**: `%USERPROFILE%\.iflow\skills`
 
-### 34. Droid
+### 35. Droid
 - **macOS**: `~/.factory/skills`
 - **Windows**: `%USERPROFILE%\.factory\skills`
 
-### 35. Devin for Terminal
+### 36. Devin for Terminal
 - **macOS**: `~/.config/devin/skills`
 - **Windows**: `%USERPROFILE%\.config\devin\skills`
 
-### 36. WorkBuddy
+### 37. WorkBuddy
 - **macOS**: `~/.workbuddy/skills`
 - **Windows**: `%USERPROFILE%\.workbuddy\skills`
 
-### 37. QClaw
+### 38. QClaw
 - **macOS**: `~/.qclaw/skills`
 - **Windows**: `%USERPROFILE%\.qclaw\skills`
 
-### 38. CodeWhale
+### 39. CodeWhale
 - **macOS**: `~/.codewhale/skills`
 - **Windows**: `%USERPROFILE%\.codewhale\skills`

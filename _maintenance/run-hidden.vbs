@@ -13,7 +13,6 @@
 '   inherits SW_HIDE and runs invisibly for the rest of its lifetime.
 ' ==============================================================================
 Option Explicit
-On Error Resume Next
 
 If WScript.Arguments.Count < 1 Then WScript.Quit 1
 
@@ -21,9 +20,22 @@ Dim sh, target, cmd
 Set sh = CreateObject("WScript.Shell")
 target = WScript.Arguments(0)
 
+' Validate the target exists before spawning — a typo'd/broken path used to be
+' silently swallowed by a global "On Error Resume Next", making launch failures
+' invisible to both the user and Task Scheduler.
+If Not CreateObject("Scripting.FileSystemObject").FileExists(target) Then
+    WScript.Quit 2
+End If
+
 cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ & target & """"
 
 ' Window style 0 = SW_HIDE. False = don't wait — we exit immediately so the
 ' Scheduled Task action completes quickly; the PowerShell child keeps running
-' under the same security context with no visible window.
+' under the same security context with no visible window. This non-blocking
+' design means Task Scheduler cannot detect a later child crash via the action
+' exit code; self-healing relies on the periodic trigger + the supervisor's own
+' loop (see register-tasks.ps1).
+On Error Resume Next
 sh.Run cmd, 0, False
+If Err.Number <> 0 Then WScript.Quit Err.Number
+On Error GoTo 0

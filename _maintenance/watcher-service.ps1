@@ -50,12 +50,20 @@ try {
     Write-WatcherLog "Initial sync failed: $($_.Exception.Message)"
 }
 
-# Initialize FileSystemWatcher
-$Watcher = New-Object System.IO.FileSystemWatcher
-$Watcher.Path = $CentralDir
-$Watcher.IncludeSubdirectories = $false
-$Watcher.EnableRaisingEvents = $true
+# FileSystemWatcher is created via a function so it can be torn down and rebuilt
+# after an InternalBufferOverflowException (a common occurrence during bulk
+# operations like git checkout). Reusing a watcher that overflowed silently
+# drops subsequent events, so we dispose + recreate it.
+function New-Watcher {
+    $w = New-Object System.IO.FileSystemWatcher
+    $w.Path = $CentralDir
+    $w.IncludeSubdirectories = $false
+    $w.InternalBufferSize = 65536  # 64 KiB; max that doesn't hit the 64 KiB ceiling issue
+    $w.EnableRaisingEvents = $true
+    return $w
+}
 
+$Watcher = New-Watcher
 Write-Host "[*] Starting background watcher on $CentralDir..."
 
 try {
@@ -67,7 +75,17 @@ try {
             $Change = $Watcher.WaitForChanged([System.IO.WatcherChangeTypes]::All, $WaitTimeout)
 
             if (($Change.TimedOut -eq $false) -or ($PromaPollingEnabled -and $Change.TimedOut)) {
-                Start-Sleep -Milliseconds 500
+                # Debounce: drain any further changes that arrived while we were
+                # busy, then run a single sync covering the whole burst. The old
+                # 500ms sleep fired one deploy per event; this coalesces them.
+                # Cap the drain iterations so a non-stop change stream can't
+                # starve the deploy indefinitely.
+                $DrainIterations = 0
+                while ($DrainIterations -lt 20) {
+                    $More = $Watcher.WaitForChanged([System.IO.WatcherChangeTypes]::All, 500)
+                    if ($More.TimedOut) { break }
+                    $DrainIterations++
+                }
                 try {
                     & "$ScriptDir\deploy.ps1"
                 } catch {
@@ -75,11 +93,16 @@ try {
                 }
             }
         } catch {
-            Write-WatcherLog "Watcher error: $($_.Exception.Message). Restarting in 5s..."
+            # Buffer overflow or other watcher error: rebuild the watcher so we
+            # don't silently miss events on a poisoned instance.
+            Write-WatcherLog "Watcher error: $($_.Exception.Message). Rebuilding watcher in 5s..."
+            try { $Watcher.Dispose() } catch {}
             Start-Sleep -Seconds 5
+            $Watcher = New-Watcher
         }
     }
 } finally {
+    try { $Watcher.Dispose() } catch {}
     try { $Mutex.ReleaseMutex() } catch {}
     try { $Mutex.Dispose() } catch {}
     Write-WatcherLog "Watcher exiting."

@@ -11,6 +11,20 @@ CENTRAL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CUSTOM_TARGETS_FILE="$SCRIPT_DIR/custom-targets.txt"
 LOCK_FILE="$SCRIPT_DIR/.deploy.lock"
 
+# When invoked under launchd/systemd the PATH is minimal and /usr/bin/python3
+# may be a stale system Python that can't run webui.py (uses `X | None` syntax,
+# needs 3.10+). Prepend common modern-interpreter locations so Homebrew's et al.
+# python3 wins. Affects start_webui's fallback path and the supervisor it spawns.
+# Preserve priority order even if some paths already exist later in PATH.
+_PATH_PREFIX=""
+for _p in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin" "$HOME/.pyenv/shims"; do
+  [ -d "$_p" ] || continue
+  _PATH_PREFIX="${_PATH_PREFIX}${_PATH_PREFIX:+:}$_p"
+done
+PATH="${_PATH_PREFIX}${_PATH_PREFIX:+:}${PATH:-}"
+unset _PATH_PREFIX
+export PATH
+
 # --- One-time migration: move custom-targets.txt from legacy root location ---
 LEGACY_ROOT_TARGETS="$CENTRAL_DIR/custom-targets.txt"
 if [ -f "$LEGACY_ROOT_TARGETS" ]; then
@@ -89,6 +103,7 @@ except Exception:
     "$HOME/.pi/agent/skills"
     "$HOME/.config/opencode/skills"
     "$HOME/.kimi/skills"
+    "$HOME/.zcode/skills"
     "$HOME/.trae/skills"
     "$HOME/Library/Application Support/Trae/skills"
     "$HOME/.trae-cn/skills"
@@ -143,11 +158,15 @@ get_agent_name_from_json() {
 }
 
 # ---- Concurrency lock (mkdir-based, atomic) ----
+# NOTE: the EXIT trap references LOCK_FILE (a module-level var that survives the
+# function return), NOT the local lock_dir — a single-quoted trap evaluates its
+# body at trigger time, by which point a local var is out of scope and would
+# expand to empty, leaking the lock dir.
 acquire_lock() {
   local lock_dir="${LOCK_FILE}.d"
   if mkdir "$lock_dir" 2>/dev/null; then
     echo $$ > "$lock_dir/pid"
-    trap 'rm -rf "$lock_dir"' EXIT
+    trap 'rm -rf "${LOCK_FILE}.d"' EXIT
     return
   fi
   # Lock exists — check if holder is still alive
@@ -165,14 +184,39 @@ acquire_lock() {
     echo "Another deploy is already running (PID: $old_pid), skipping."
     exit 0
   fi
-  # Stale lock — remove and retry
-  rm -rf "$lock_dir"
-  if ! mkdir "$lock_dir" 2>/dev/null; then
-    echo "Error: Could not acquire lock."
-    exit 1
+  # Stale lock (holder is dead). Reclaim it without the TOCTOU window of
+  # "rm -rf whole dir then mkdir" — another process could have legitimately
+  # taken the lock between our kill -0 check and the rm. Instead: atomically
+  # rename the stale dir to a unique name (only the current owner can win this
+  # race since a live owner's dir is in use), then mkdir. Retry a few times in
+  # case two reclaimers race each other.
+  local reclaimed=false
+  for i in 1 2 3; do
+    # mv is atomic on the same filesystem; if it succeeds we own the stale dir.
+    if mv "$lock_dir" "${lock_dir}.stale.$$" 2>/dev/null; then
+      rm -rf "${lock_dir}.stale.$$"
+      reclaimed=true
+      break
+    fi
+    # mv failed: either another reclaimer moved it, or a live owner appeared.
+    if mkdir "$lock_dir" 2>/dev/null; then
+      echo $$ > "$lock_dir/pid"
+      trap 'rm -rf "${LOCK_FILE}.d"' EXIT
+      return
+    fi
+    sleep 0.1
+  done
+  if [ "$reclaimed" = true ]; then
+    if ! mkdir "$lock_dir" 2>/dev/null; then
+      echo "Error: Could not acquire lock after reclaiming stale lock."
+      exit 1
+    fi
+    echo $$ > "$lock_dir/pid"
+    trap 'rm -rf "${LOCK_FILE}.d"' EXIT
+    return
   fi
-  echo $$ > "$lock_dir/pid"
-  trap 'rm -rf "$lock_dir"' EXIT
+  echo "Error: Could not acquire lock."
+  exit 1
 }
 
 # Derive the agent's root config directory from a target skills path.
@@ -294,6 +338,7 @@ get_agent_name() {
     .pi/*)                 echo "Pi" ;;
     .config/opencode/*)    echo "OpenCode" ;;
     .kimi/*)               echo "Kimi Code" ;;
+    .zcode/*)              echo "ZCode" ;;
     .trae-cn/*)            echo "Trae CN" ;;
     .trae/*)               echo "Trae (Global)" ;;
     .openclaw/*)           echo "OpenClaw" ;;
@@ -601,6 +646,32 @@ start_webui() {
   local python_bin
   python_bin="$(command -v python3)"
 
+  open_webui_once() {
+    if [ "$(uname -s)" = "Darwin" ] && command -v open &>/dev/null; then
+      open "http://127.0.0.1:6633" >/dev/null 2>&1 || true
+    elif [ "$(uname -s)" = "Linux" ] && command -v xdg-open &>/dev/null; then
+      xdg-open "http://127.0.0.1:6633" >/dev/null 2>&1 || true
+    fi
+  }
+
+  # Preferred path on macOS: run the supervisor under launchd with KeepAlive so
+  # a crashed backend is automatically revived (mirrors webui-service.ps1 on
+  # Windows). Falls back to the direct launch below if the supervisor script or
+  # launchctl is unavailable.
+  local supervisor="$SCRIPT_DIR/webui-service.sh"
+  if [ "$(uname -s)" = "Darwin" ] && command -v launchctl &>/dev/null && [ -f "$supervisor" ]; then
+    local webui_label="com.easyskills.webui"
+    launchctl remove "$webui_label" 2>/dev/null || true
+    # Submit the supervisor (not webui.py directly) so it owns restart logic.
+    if launchctl submit -l "$webui_label" -- /bin/bash "$supervisor" 2>/dev/null; then
+      open_webui_once
+      echo "WebUI launching on http://127.0.0.1:6633 (supervised — auto-restarts on crash)"
+      return 0
+    fi
+  fi
+
+  # Fallback 1 (macOS without supervisor script, or launchctl failure): the
+  # legacy direct launch. No crash recovery, but works everywhere.
   if [ "$(uname -s)" = "Darwin" ] && command -v launchctl &>/dev/null; then
     local webui_label="com.easyskills.webui.manual"
     launchctl remove "$webui_label" 2>/dev/null || true
@@ -620,7 +691,16 @@ start_webui() {
     fi
   fi
 
-  if command -v setsid &>/dev/null; then
+  # Fallback 2 (Linux / no launchd): run the supervisor directly if present,
+  # otherwise start webui.py bare.
+  if [ -f "$supervisor" ]; then
+    if command -v setsid &>/dev/null; then
+      setsid /bin/bash "$supervisor" >/dev/null 2>&1 &
+    else
+      nohup /bin/bash "$supervisor" >/dev/null 2>&1 &
+    fi
+    open_webui_once
+  elif command -v setsid &>/dev/null; then
     setsid "$python_bin" "$SCRIPT_DIR/webui.py" >/dev/null 2>&1 &
   else
     "$python_bin" "$SCRIPT_DIR/webui.py" >/dev/null 2>&1 &

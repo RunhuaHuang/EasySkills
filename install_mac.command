@@ -7,6 +7,10 @@
 #              Preserves user custom-targets.txt across upgrades.
 # ==============================================================================
 
+# Fail fast on errors and unset variables — previously errors were silently
+# swallowed (a failed cp left a broken install with no message).
+set -eu
+
 cd "$(dirname "$0")"
 CURRENT_DIR="$(pwd)"
 PERM_DIR="$HOME/EasySkills"
@@ -44,9 +48,50 @@ if [ "$CURRENT_DIR" != "$PERM_DIR" ]; then
   [ -f "$PERM_DIR/_maintenance/disabled-targets.txt" ] && cp "$PERM_DIR/_maintenance/disabled-targets.txt" "$PRESERVE_DIR/disabled-targets.txt"
   [ -f "$PERM_DIR/_maintenance/.easyskills-token" ] && cp "$PERM_DIR/_maintenance/.easyskills-token" "$PRESERVE_DIR/.easyskills-token"
 
-  # --- Clean install of _maintenance/ ---
-  rm -rf "$PERM_DIR/_maintenance"
-  cp -R "$CURRENT_DIR/_maintenance" "$PERM_DIR/_maintenance"
+  # --- Atomic install of _maintenance/ ---
+  # Validate source first: never destroy the existing install if the source
+  # tree is missing/incomplete.
+  if [ ! -d "$CURRENT_DIR/_maintenance" ] || [ ! -f "$CURRENT_DIR/_maintenance/deploy.sh" ] || [ ! -f "$CURRENT_DIR/README_SYSTEM.md" ]; then
+    echo "Error: source _maintenance/ missing or incomplete. Aborting; existing install untouched." >&2
+    exit 1
+  fi
+  # Build into a sibling temp dir, verify, then swap via atomic rename — avoids
+  # the "rm -rf then cp" footgun where a failed cp bricks the install.
+  NEW_MAINT="$PERM_DIR/_maintenance.new"
+  rm -rf "$NEW_MAINT"
+  cp -R "$CURRENT_DIR/_maintenance" "$NEW_MAINT"
+  if [ ! -f "$NEW_MAINT/deploy.sh" ]; then
+    echo "Error: copy of _maintenance/ failed. Aborting; existing install untouched." >&2
+    rm -rf "$NEW_MAINT"
+    exit 1
+  fi
+  # Swap with rollback: current -> .bak, new -> current. Avoid a window where a
+  # failed mv leaves no usable _maintenance at all.
+  OLD_MAINT="$PERM_DIR/_maintenance"
+  BACKUP_MAINT="$PERM_DIR/_maintenance.bak"
+  PREV_BACKUP="$PERM_DIR/_maintenance.bak.prev"
+  rm -rf "$PREV_BACKUP"
+  if [ -d "$OLD_MAINT" ]; then
+    [ -d "$BACKUP_MAINT" ] && mv "$BACKUP_MAINT" "$PREV_BACKUP"
+    if ! mv "$OLD_MAINT" "$BACKUP_MAINT"; then
+      echo "Error: could not rotate existing _maintenance. Existing install untouched." >&2
+      [ -d "$PREV_BACKUP" ] && mv "$PREV_BACKUP" "$BACKUP_MAINT"
+      rm -rf "$NEW_MAINT"
+      exit 1
+    fi
+  fi
+  if ! mv "$NEW_MAINT" "$OLD_MAINT"; then
+    echo "Error: install swap failed; rolling back previous _maintenance." >&2
+    rm -rf "$NEW_MAINT"
+    if [ ! -d "$OLD_MAINT" ] && [ -d "$BACKUP_MAINT" ]; then
+      mv "$BACKUP_MAINT" "$OLD_MAINT" || true
+    fi
+    if [ -d "$PREV_BACKUP" ]; then
+      [ ! -d "$BACKUP_MAINT" ] && mv "$PREV_BACKUP" "$BACKUP_MAINT" || rm -rf "$PREV_BACKUP"
+    fi
+    exit 1
+  fi
+  rm -rf "$PREV_BACKUP"
   cp "$CURRENT_DIR/README_SYSTEM.md" "$PERM_DIR/README_SYSTEM.md"
   rm -f "$PERM_DIR/SKILL.md"
 

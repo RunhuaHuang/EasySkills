@@ -14,6 +14,7 @@ echo =============================================
 set "PERM_DIR=%USERPROFILE%\EasySkills"
 set "CURRENT_DIR=%~dp0"
 set "CURRENT_DIR_STRIP=%CURRENT_DIR:~0,-1%"
+set "INSTALL_OK=1"
 
 if /i "%CURRENT_DIR_STRIP%" neq "%PERM_DIR%" (
   echo Deploying to: %PERM_DIR%
@@ -41,9 +42,57 @@ if /i "%CURRENT_DIR_STRIP%" neq "%PERM_DIR%" (
   if exist "%PERM_DIR%\_maintenance\disabled-targets.txt" copy /Y "%PERM_DIR%\_maintenance\disabled-targets.txt" "%TEMP%\easyskills-disabled.bak" > nul
   if exist "%PERM_DIR%\_maintenance\.easyskills-token" copy /Y "%PERM_DIR%\_maintenance\.easyskills-token" "%TEMP%\easyskills-token.bak" > nul
 
-  :: --- Clean install of _maintenance\ ---
-  if exist "%PERM_DIR%\_maintenance" rd /S /Q "%PERM_DIR%\_maintenance"
-  xcopy /E /I /Y "%CURRENT_DIR%_maintenance" "%PERM_DIR%\_maintenance" > nul
+  :: --- Atomic install of _maintenance\ ---
+  :: Validate source first: never destroy the existing install if source is
+  :: missing/incomplete (errors are no longer hidden by > nul).
+  if not exist "%CURRENT_DIR%_maintenance\deploy.ps1" (
+    echo Error: source _maintenance\ missing or incomplete. Aborting; existing install untouched. 1>&2
+    set "INSTALL_OK=0"
+    goto :fail_block
+  )
+  if not exist "%CURRENT_DIR%README_SYSTEM.md" (
+    echo Error: source README_SYSTEM.md missing. Aborting; existing install untouched. 1>&2
+    set "INSTALL_OK=0"
+    goto :fail_block
+  )
+  :: Build into a sibling temp dir, verify, then swap. Avoids the "rd then
+  :: xcopy" footgun where a failed xcopy bricks the install.
+  if exist "%PERM_DIR%\_maintenance.new" rd /S /Q "%PERM_DIR%\_maintenance.new"
+  xcopy /E /I /Y /Q "%CURRENT_DIR%_maintenance" "%PERM_DIR%\_maintenance.new"
+  if not exist "%PERM_DIR%\_maintenance.new\deploy.ps1" (
+    echo Error: copy of _maintenance\ failed. Aborting; existing install untouched. 1>&2
+    if exist "%PERM_DIR%\_maintenance.new" rd /S /Q "%PERM_DIR%\_maintenance.new"
+    set "INSTALL_OK=0"
+    goto :fail_block
+  )
+  if exist "%PERM_DIR%\_maintenance.bak.prev" rd /S /Q "%PERM_DIR%\_maintenance.bak.prev"
+  if exist "%PERM_DIR%\_maintenance" (
+    if exist "%PERM_DIR%\_maintenance.bak" ren "%PERM_DIR%\_maintenance.bak" _maintenance.bak.prev
+    ren "%PERM_DIR%\_maintenance" _maintenance.bak
+    if errorlevel 1 (
+      echo Error: could not rotate existing _maintenance. Existing install untouched. 1>&2
+      if exist "%PERM_DIR%\_maintenance.bak.prev" ren "%PERM_DIR%\_maintenance.bak.prev" _maintenance.bak
+      if exist "%PERM_DIR%\_maintenance.new" rd /S /Q "%PERM_DIR%\_maintenance.new"
+      set "INSTALL_OK=0"
+      goto :fail_block
+    )
+  )
+  ren "%PERM_DIR%\_maintenance.new" _maintenance
+  if errorlevel 1 (
+    echo Error: install swap failed; rolling back previous _maintenance. 1>&2
+    if exist "%PERM_DIR%\_maintenance.new" rd /S /Q "%PERM_DIR%\_maintenance.new"
+    if not exist "%PERM_DIR%\_maintenance" if exist "%PERM_DIR%\_maintenance.bak" ren "%PERM_DIR%\_maintenance.bak" _maintenance
+    if exist "%PERM_DIR%\_maintenance.bak.prev" (
+      if not exist "%PERM_DIR%\_maintenance.bak" (
+        ren "%PERM_DIR%\_maintenance.bak.prev" _maintenance.bak
+      ) else (
+        rd /S /Q "%PERM_DIR%\_maintenance.bak.prev"
+      )
+    )
+    set "INSTALL_OK=0"
+    goto :fail_block
+  )
+  if exist "%PERM_DIR%\_maintenance.bak.prev" rd /S /Q "%PERM_DIR%\_maintenance.bak.prev"
   copy /Y "%CURRENT_DIR%README_SYSTEM.md" "%PERM_DIR%\README_SYSTEM.md" > nul
   if exist "%PERM_DIR%\SKILL.md" del /F /Q "%PERM_DIR%\SKILL.md"
 
@@ -71,12 +120,18 @@ if /i "%CURRENT_DIR_STRIP%" neq "%PERM_DIR%" (
   )
 )
 
-:: Run watch.ps1 — registers Scheduled Tasks for both Watcher and WebUI,
-:: starts them detached, and they survive this window closing.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PERM_DIR%\_maintenance\watch.ps1"
+:: Validation failures jump here, skipping the service launch below.
+:fail_block
 
-:: Open the WebUI once the port is up.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "for ($i=0;$i -lt 20;$i++) { $c=New-Object System.Net.Sockets.TcpClient; try { $a=$c.BeginConnect('127.0.0.1',6633,$null,$null); if ($a.AsyncWaitHandle.WaitOne(500,$false)) { try { $c.EndConnect($a); Start-Process 'http://localhost:6633'; break } catch {} } } catch {} finally { try { $c.Close() } catch {} }; Start-Sleep -Milliseconds 500 }"
+:: Run watch.ps1 — registers Scheduled Tasks for both Watcher and WebUI,
+:: starts them detached, and they survive this window closing. Only run if the
+:: install actually produced a deploy.ps1 (guards against the fail_block path).
+if "%INSTALL_OK%"=="1" if exist "%PERM_DIR%\_maintenance\watch.ps1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%PERM_DIR%\_maintenance\watch.ps1"
+
+  :: Open the WebUI once the port is up.
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "for ($i=0;$i -lt 20;$i++) { $c=New-Object System.Net.Sockets.TcpClient; try { $a=$c.BeginConnect('127.0.0.1',6633,$null,$null); if ($a.AsyncWaitHandle.WaitOne(500,$false)) { try { $c.EndConnect($a); Start-Process 'http://localhost:6633'; break } catch {} } } catch {} finally { try { $c.Close() } catch {} }; Start-Sleep -Milliseconds 500 }"
+)
 
 echo =============================================
 echo.

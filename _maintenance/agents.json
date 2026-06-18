@@ -43,6 +43,11 @@
       "win_path": "%USERPROFILE%\\.kimi\\skills"
     },
     {
+      "name": "ZCode",
+      "mac_path": "~/.zcode/skills",
+      "win_path": "%USERPROFILE%\\.zcode\\skills"
+    },
+    {
       "name": "Trae (Global)",
       "mac_path": "~/.trae/skills",
       "win_path": "%USERPROFILE%\\.trae\\skills",

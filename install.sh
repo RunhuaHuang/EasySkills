@@ -63,9 +63,55 @@ $LEGACY_LINES"
   rm -f "$LEGACY_ROOT_CT"
 fi
 
-# Clean install of _maintenance/
-rm -rf "$PERM_DIR/_maintenance"
-cp -R "$SRC_DIR/_maintenance" "$PERM_DIR/_maintenance"
+# Validate the download before touching anything — a failed clone/extract must
+# NOT destroy the existing install. SRC_DIR/_maintenance must exist & be non-empty.
+if [ ! -d "$SRC_DIR/_maintenance" ] || [ -z "$(ls -A "$SRC_DIR/_maintenance" 2>/dev/null)" ] || [ ! -f "$SRC_DIR/README_SYSTEM.md" ]; then
+  echo "Error: downloaded source is incomplete or missing (network/GitHub failure?)." >&2
+  echo "       Existing installation at $PERM_DIR was left untouched." >&2
+  exit 1
+fi
+
+# Atomic install: build the new _maintenance in a sibling temp dir, verify, then
+# swap via rename. A transient copy failure no longer bricks the install (the
+# previous "rm -rf then cp" wiped the working copy before validating the copy).
+NEW_MAINT="$PERM_DIR/_maintenance.new"
+rm -rf "$NEW_MAINT"
+cp -R "$SRC_DIR/_maintenance" "$NEW_MAINT"
+# Verify the copy actually produced a usable tree before swapping.
+if [ ! -f "$NEW_MAINT/deploy.sh" ]; then
+  echo "Error: copy of _maintenance failed (disk full? permissions?)." >&2
+  rm -rf "$NEW_MAINT"
+  echo "       Existing installation at $PERM_DIR was left untouched." >&2
+  exit 1
+fi
+
+# Swap with rollback: current -> .bak, new -> current. Avoid a window where a
+# failed mv leaves no usable _maintenance at all.
+OLD_MAINT="$PERM_DIR/_maintenance"
+BACKUP_MAINT="$PERM_DIR/_maintenance.bak"
+PREV_BACKUP="$PERM_DIR/_maintenance.bak.prev"
+rm -rf "$PREV_BACKUP"
+if [ -d "$OLD_MAINT" ]; then
+  [ -d "$BACKUP_MAINT" ] && mv "$BACKUP_MAINT" "$PREV_BACKUP"
+  if ! mv "$OLD_MAINT" "$BACKUP_MAINT"; then
+    echo "Error: could not rotate existing _maintenance. Existing install left untouched." >&2
+    [ -d "$PREV_BACKUP" ] && mv "$PREV_BACKUP" "$BACKUP_MAINT"
+    rm -rf "$NEW_MAINT"
+    exit 1
+  fi
+fi
+if ! mv "$NEW_MAINT" "$OLD_MAINT"; then
+  echo "Error: install swap failed; rolling back previous _maintenance." >&2
+  rm -rf "$NEW_MAINT"
+  if [ ! -d "$OLD_MAINT" ] && [ -d "$BACKUP_MAINT" ]; then
+    mv "$BACKUP_MAINT" "$OLD_MAINT" || true
+  fi
+  if [ -d "$PREV_BACKUP" ]; then
+    [ ! -d "$BACKUP_MAINT" ] && mv "$PREV_BACKUP" "$BACKUP_MAINT" || rm -rf "$PREV_BACKUP"
+  fi
+  exit 1
+fi
+rm -rf "$PREV_BACKUP"
 cp "$SRC_DIR/README_SYSTEM.md" "$PERM_DIR/README_SYSTEM.md"
 # Remove legacy SKILL.md left by older installations to avoid ambiguity
 rm -f "$PERM_DIR/SKILL.md"
