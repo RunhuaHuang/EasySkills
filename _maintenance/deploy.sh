@@ -646,7 +646,39 @@ start_webui() {
   local python_bin
   python_bin="$(command -v python3)"
 
+  webui_ready() {
+    if command -v nc >/dev/null 2>&1; then
+      nc -z -w1 127.0.0.1 6633 >/dev/null 2>&1
+    else
+      "$python_bin" - <<'PY' >/dev/null 2>&1
+import socket, sys
+s = socket.socket()
+s.settimeout(1)
+try:
+    s.connect(("127.0.0.1", 6633))
+    sys.exit(0)
+except OSError:
+    sys.exit(1)
+finally:
+    s.close()
+PY
+    fi
+  }
+
+  wait_for_webui() {
+    local _i
+    for _i in $(seq 1 40); do
+      webui_ready && return 0
+      sleep 0.5
+    done
+    return 1
+  }
+
   open_webui_once() {
+    if ! wait_for_webui; then
+      echo "WebUI is still starting; open http://127.0.0.1:6633 in a few seconds."
+      return 1
+    fi
     if [ "$(uname -s)" = "Darwin" ] && command -v open &>/dev/null; then
       open "http://127.0.0.1:6633" >/dev/null 2>&1 || true
     elif [ "$(uname -s)" = "Linux" ] && command -v xdg-open &>/dev/null; then
@@ -685,7 +717,8 @@ start_webui() {
         fi
       done
     fi
-    if launchctl submit -l "$webui_label" -- "$python_bin" "$SCRIPT_DIR/webui.py" 2>/dev/null; then
+    if launchctl submit -l "$webui_label" -- /usr/bin/env EASYSKILLS_NO_BROWSER=1 "$python_bin" "$SCRIPT_DIR/webui.py" 2>/dev/null; then
+      open_webui_once
       echo "WebUI launching on http://127.0.0.1:6633"
       return 0
     fi
@@ -701,9 +734,11 @@ start_webui() {
     fi
     open_webui_once
   elif command -v setsid &>/dev/null; then
-    setsid "$python_bin" "$SCRIPT_DIR/webui.py" >/dev/null 2>&1 &
+    EASYSKILLS_NO_BROWSER=1 setsid "$python_bin" "$SCRIPT_DIR/webui.py" >/dev/null 2>&1 &
+    open_webui_once
   else
-    "$python_bin" "$SCRIPT_DIR/webui.py" >/dev/null 2>&1 &
+    EASYSKILLS_NO_BROWSER=1 "$python_bin" "$SCRIPT_DIR/webui.py" >/dev/null 2>&1 &
+    open_webui_once
   fi
   echo "WebUI launching on http://127.0.0.1:6633"
 }
