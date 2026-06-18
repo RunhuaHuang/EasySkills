@@ -675,6 +675,8 @@ PY
   }
 
   open_webui_once() {
+    echo "程序正在启动挂载中，完成后浏览器 WebUI 会自动打开。"
+    echo "Starting and mounting WebUI; the browser will open automatically when ready."
     if ! wait_for_webui; then
       echo "WebUI is still starting; open http://127.0.0.1:6633 in a few seconds."
       return 1

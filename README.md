@@ -51,19 +51,15 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 
 ---
 
-## 部署、开启、关闭、重启与更新
+## 开启、关闭、重启与更新
 
-### 部署方式
+安装部署请使用上方「快速开始」命令。部署完成后会安装后台监听服务，并自动启动本地 WebUI：`http://127.0.0.1:6633`。终端出现提示：
 
-| 场景 | 命令 / 操作 |
-|---|---|
-| macOS / Linux 远程安装 | `curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh \| bash` |
-| Windows 远程安装 | `irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 \| iex` |
-| 离线 / 本地安装 | 克隆或下载仓库后，双击 `install_mac.command` / `install_windows.bat` |
-
-部署完成后会安装后台监听服务，并启动本地 WebUI：`http://127.0.0.1:6633`。
+> 程序正在启动挂载中，完成后浏览器 WebUI 会自动打开。
 
 ### 开启 / 打开 WebUI
+
+安装完成后 WebUI 会自动打开；以下命令用于之后手动重新打开：
 
 ```bash
 # macOS / Linux

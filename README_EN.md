@@ -51,19 +51,15 @@ The installer creates `~/EasySkills`, detects supported agents, maps shared skil
 
 ---
 
-## Deploy, Open, Stop, Restart, and Update
+## Open, Stop, Restart, and Update
 
-### Deploy
+Use the **Quick Start** commands above to deploy. After deployment, EasySkills installs the background watcher and automatically starts the local WebUI at `http://127.0.0.1:6633`. The terminal will show:
 
-| Scenario | Command / action |
-|---|---|
-| macOS / Linux remote install | `curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh \| bash` |
-| Windows remote install | `irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 \| iex` |
-| Offline / local install | Clone or download the repo, then double-click `install_mac.command` / `install_windows.bat` |
-
-After deployment, EasySkills installs the background watcher and starts the local WebUI at `http://127.0.0.1:6633`.
+> Starting and mounting WebUI; the browser will open automatically when ready.
 
 ### Open the WebUI
+
+The WebUI opens automatically after installation; use these commands later if you need to open it manually:
 
 ```bash
 # macOS / Linux
