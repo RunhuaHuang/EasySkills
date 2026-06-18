@@ -1,6 +1,6 @@
 # EasySkills — System & Operations Reference
 
-> **Version:** 1.3.0 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
+> **Version:** 2.0.0 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
 
 EasySkills is a cross-platform automated skills manager for macOS, Linux, and
 Windows. It creates one centralized skills directory (`~/EasySkills`), registers

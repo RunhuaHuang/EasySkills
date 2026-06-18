@@ -261,11 +261,11 @@ class SecurityContractsTest(unittest.TestCase):
                 self.assertFalse((central / "ImportedSkill").exists())
 
     def test_readme_version_and_agent_count_match_release(self):
-        self.assertIn("Version-1.3.0", read("README_EN.md"))
-        self.assertIn("版本-1.3.0", read("README.md"))
+        self.assertIn("Version-2.0.0", read("README_EN.md"))
+        self.assertIn("版本-2.0.0", read("README.md"))
         self.assertIn("38+ agent targets are pre-configured", read("README_EN.md"))
         self.assertIn("开箱即用支持 38+ 个 Agent", read("README.md"))
-        self.assertEqual("1.3.0", read("_maintenance/.version").strip())
+        self.assertEqual("2.0.0", read("_maintenance/.version").strip())
 
     def test_default_agent_targets_include_requested_agents_and_corrected_paths(self):
         expected_paths = {
