@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import json
 import re
 import tempfile
 import unittest
@@ -33,6 +34,23 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("X-EasySkills-Token", src)
         self.assertIn("def _is_post_allowed", src)
         self.assertIn("self._reject_forbidden()", src)
+
+    def test_api_gets_require_token_and_frontend_sends_it(self):
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        html_src = read("_maintenance/webui/index.html")
+
+        for endpoint in ("/api/status", "/api/skills", "/api/agents", "/api/latest-release"):
+            with self.subTest(endpoint=endpoint):
+                self.assertIn(f'path == "{endpoint}"', py_src)
+                self.assertIn(f'$UrlPath -eq "{endpoint}"', ps_src)
+
+        self.assertGreaterEqual(py_src.count("if not self._is_token_valid():"), 4)
+        self.assertIn("function Test-TokenValid", ps_src)
+        self.assertGreaterEqual(ps_src.count("Test-TokenValid $Request"), 5)
+        self.assertIn("'X-EasySkills-Token': easySkillsToken", html_src)
+        self.assertIn("fetch('/api/latest-release', { headers })", html_src)
+        self.assertNotIn("fetch('/api/latest-release')", html_src)
 
     def test_windows_webui_requires_token_for_posts(self):
         src = read("_maintenance/webui.ps1")
@@ -261,11 +279,13 @@ class SecurityContractsTest(unittest.TestCase):
                 self.assertFalse((central / "ImportedSkill").exists())
 
     def test_readme_version_and_agent_count_match_release(self):
-        self.assertIn("Version-2.0.0", read("README_EN.md"))
-        self.assertIn("版本-2.0.0", read("README.md"))
-        self.assertIn("38+ agent targets are pre-configured", read("README_EN.md"))
-        self.assertIn("开箱即用支持 38+ 个 Agent", read("README.md"))
-        self.assertEqual("2.0.0", read("_maintenance/.version").strip())
+        agent_count = len(json.loads(read("_maintenance/agents.json"))["agents"])
+        self.assertEqual(42, agent_count)
+        self.assertIn("Version-2.0.1", read("README_EN.md"))
+        self.assertIn("版本-2.0.1", read("README.md"))
+        self.assertIn(f"{agent_count}+ agent targets are pre-configured", read("README_EN.md"))
+        self.assertIn(f"开箱即用支持 {agent_count}+ 个 Agent", read("README.md"))
+        self.assertEqual("2.0.1", read("_maintenance/.version").strip())
 
     def test_default_agent_targets_include_requested_agents_and_corrected_paths(self):
         expected_paths = {
@@ -367,6 +387,20 @@ class SecurityContractsTest(unittest.TestCase):
                 "doc_mac": "~/.pi/agent/skills",
                 "doc_win": "%USERPROFILE%\\.pi\\agent\\skills",
             },
+            "QoderWork CN": {
+                "mac": "$HOME/.qoderworkcn/skills",
+                "win": "$Home\\.qoderworkcn\\skills",
+                "py": 'Path.home() / ".qoderworkcn/skills"',
+                "doc_mac": "~/.qoderworkcn/skills",
+                "doc_win": "%USERPROFILE%\\.qoderworkcn\\skills",
+            },
+            "Qoder CN": {
+                "mac": "$HOME/.qoder-cn/skills",
+                "win": "$Home\\.qoder-cn\\skills",
+                "py": 'Path.home() / ".qoder-cn/skills"',
+                "doc_mac": "~/.qoder-cn/skills",
+                "doc_win": "%USERPROFILE%\\.qoder-cn\\skills",
+            },
         }
 
         deploy_sh = read("_maintenance/deploy.sh")
@@ -419,7 +453,7 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("archive/refs/tags", py_src)
         self.assertIn("archive/refs/tags", ps_src)
         self.assertIn("fetchLatestRelease", html_src)
-        self.assertIn("fetch('/api/latest-release')", html_src)
+        self.assertIn("fetch('/api/latest-release', { headers })", html_src)
         self.assertNotIn("fetch('https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest')", html_src)
 
     # -------------------------------------------------------------------------
@@ -744,6 +778,7 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("_maintenance.new", py_src)
         self.assertIn("dest_maint.rename(backup_maint)", py_src)
         self.assertIn("new_maint_tmp.rename(dest_maint)", py_src)
+        self.assertIn("_maintenance.bak/", read(".gitignore"))
 
     def test_rollback_endpoint_exists(self):
         """Both backends must expose /api/rollback."""
@@ -799,6 +834,13 @@ class SecurityContractsTest(unittest.TestCase):
         src = read("_maintenance/unwatch.sh")
         self.assertIn("Linux", src)
         self.assertIn("systemctl", src)
+
+    def test_unwatch_sh_uses_installation_path_for_inflight_deploy(self):
+        src = read("_maintenance/unwatch.sh")
+        self.assertIn('CENTRAL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"', src)
+        self.assertIn("find_inflight_deploy_pids", src)
+        self.assertNotIn("$HOME/EasySkills", src)
+        self.assertNotIn("[E]asySkills/_maintenance/deploy", src)
 
     # -------------------------------------------------------------------------
     # Code-quality contracts added by code review

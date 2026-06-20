@@ -24,6 +24,8 @@ if _sys.version_info < (3, 10):
 
 import hashlib
 import http.server
+import logging
+import signal
 import socketserver
 import base64
 import binascii
@@ -45,9 +47,19 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent.resolve()
 CENTRAL_DIR = SCRIPT_DIR.parent
 
-# Dynamically resolve to official home directory installation if it exists
+# Dynamically resolve to official home directory installation if it exists.
+# An explicit EASYSKILLS_CENTRAL_DIR env var wins over any heuristic so
+# multi-instance setups (repo clone + home install) behave predictably.
 HOME_CENTRAL_DIR = Path.home() / "EasySkills"
-if HOME_CENTRAL_DIR.exists() and HOME_CENTRAL_DIR.is_dir() and not (CENTRAL_DIR / ".git").exists():
+_env_central = os.environ.get("EASYSKILLS_CENTRAL_DIR")
+if _env_central:
+    _env_path = Path(_env_central).expanduser().resolve()
+    if _env_path.is_dir() and (_env_path / "_maintenance").is_dir():
+        CENTRAL_DIR = _env_path
+        SCRIPT_DIR = _env_path / "_maintenance"
+elif (HOME_CENTRAL_DIR.exists() and HOME_CENTRAL_DIR.is_dir()
+      and not (CENTRAL_DIR / ".git").exists()
+      and (HOME_CENTRAL_DIR / "_maintenance" / ".version").exists()):
     CENTRAL_DIR = HOME_CENTRAL_DIR
     SCRIPT_DIR = HOME_CENTRAL_DIR / "_maintenance"
 
@@ -268,9 +280,18 @@ def _load_default_agents() -> list[tuple[str, Path]]:
         ("WorkBuddy",                      Path.home() / ".workbuddy/skills"),
         ("QClaw",                          Path.home() / ".qclaw/skills"),
         ("CodeWhale",                      Path.home() / ".codewhale/skills"),
+        ("QoderWork CN",                   Path.home() / ".qoderworkcn/skills"),
+        ("Qoder CN",                       Path.home() / ".qoder-cn/skills"),
     ]
 
 DEFAULT_AGENTS = _load_default_agents()
+
+# Ensure ~/.qoder-cn/skills exists — unlike other agents whose directories are
+# created by their respective tools, Qoder CN relies on EasySkills to create
+# the path if it does not already exist.
+_qoder_cn_skills = Path.home() / ".qoder-cn" / "skills"
+if not _qoder_cn_skills.exists():
+    _qoder_cn_skills.mkdir(parents=True, exist_ok=True)
 
 EXCLUDE_NAMES = {"_maintenance", ".git", "node_modules", "dist", "docs"}
 
@@ -314,6 +335,8 @@ _AGENT_PREFIX_MAP: list[tuple[str, str]] = [
     (".workbuddy/",         "WorkBuddy"),
     (".qclaw/",             "QClaw"),
     (".codewhale/",         "CodeWhale"),
+    (".qoderworkcn/",       "QoderWork CN"),
+    (".qoder-cn/",          "Qoder CN"),
     (".agents/",            "Agents (Standard)"),
     (".run/",               "Run"),
     ("Trae-CN/",            "Trae CN"),
@@ -735,13 +758,24 @@ def delete_skill(name: str) -> dict:
     except Exception as e:
         return {"success": False, "message": f"Delete failed: {e}"}
 
-    cleanup = run_deploy("--cleanup")
-    sync = run_deploy("--sync")
-    msg = f"Deleted {clean_name}"
-    for result in (cleanup, sync):
-        if result.get("message"):
-            msg += f"\n{result['message']}"
-    return {"success": True, "message": msg, "skill": clean_name}
+    # Remove only the symlinks for this specific skill from all agent targets,
+    # instead of a full cleanup+sync cycle.
+    removed_count = 0
+    central_resolved = str(CENTRAL_DIR.resolve())
+    for agent_dir in _iter_agent_skill_dirs():
+        link = agent_dir / clean_name
+        if link.is_symlink():
+            try:
+                link_target = Path(os.readlink(str(link)))
+                if not link_target.is_absolute():
+                    link_target = link.parent / link_target
+                resolved = str(link_target.resolve())
+                if resolved == central_resolved or resolved.startswith(central_resolved + os.sep):
+                    link.unlink()
+                    removed_count += 1
+            except Exception:
+                pass
+    return {"success": True, "message": f"Deleted {clean_name} (removed {removed_count} symlinks)", "skill": clean_name}
 
 
 @_writes_locked
@@ -1137,7 +1171,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
     timeout = 60
 
     def log_message(self, fmt, *args):
-        pass  # quiet
+        if _debug_enabled:
+            logging.debug("%s - %s", self.client_address[0], fmt % args)
+
+    def _is_token_valid(self) -> bool:
+        """Check the X-EasySkills-Token header (used for both GET and POST API auth)."""
+        token = self.headers.get("X-EasySkills-Token", "")
+        return hmac.compare_digest(token, WEBUI_TOKEN)
 
     def _is_host_allowed(self) -> bool:
         host = self.headers.get("Host", "")
@@ -1218,8 +1258,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin and origin not in ALLOWED_ORIGINS:
             return False
-        token = self.headers.get("X-EasySkills-Token", "")
-        return hmac.compare_digest(token, WEBUI_TOKEN)
+        return self._is_token_valid()
 
     def _reject_forbidden(self):
         self._json({"success": False, "message": "Forbidden"}, status=403)
@@ -1255,6 +1294,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
         elif path == "/api/status":
+            if not self._is_token_valid():
+                self._reject_forbidden()
+                return
             watcher = get_watcher_status()
             agents  = get_visible_agents()
             skills  = get_skills()
@@ -1269,12 +1311,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             })
 
         elif path == "/api/skills":
+            if not self._is_token_valid():
+                self._reject_forbidden()
+                return
             self._json(get_skills())
 
         elif path == "/api/agents":
+            if not self._is_token_valid():
+                self._reject_forbidden()
+                return
             self._json(get_visible_agents())
 
         elif path == "/api/latest-release":
+            if not self._is_token_valid():
+                self._reject_forbidden()
+                return
             self._json(get_latest_release())
 
         else:
@@ -1322,14 +1373,66 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 # ──────────────────────────────────────────────────────────────
+# Debug logging
+# ──────────────────────────────────────────────────────────────
+
+_debug_enabled = os.environ.get("EASYSKILLS_DEBUG", "").lower() in ("1", "true", "yes")
+if _debug_enabled:
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+# ──────────────────────────────────────────────────────────────
+# Per-skill symlink cleanup helper
+# ──────────────────────────────────────────────────────────────
+
+def _iter_agent_skill_dirs():
+    """Yield all existing agent skill directories (for targeted symlink removal).
+
+    Deduplicates paths to avoid redundant syscall overhead when a custom
+    target overlaps with a DEFAULT_AGENTS entry.
+    """
+    seen: set[str] = set()
+    for _, agent_path in DEFAULT_AGENTS:
+        if agent_path.is_dir():
+            key = str(agent_path)
+            if key not in seen:
+                seen.add(key)
+                yield agent_path
+    # Also include custom targets
+    try:
+        if CUSTOM_TARGETS_FILE.exists():
+            for line in CUSTOM_TARGETS_FILE.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    p = line.split("=", 1)[-1].strip() if "=" in line else line
+                    tp = Path(p).expanduser()
+                    if tp.is_dir():
+                        key = str(tp)
+                        if key not in seen:
+                            seen.add(key)
+                            yield tp
+    except OSError:
+        pass
+
+
+# ──────────────────────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────────────────────
 
 def main():
+    if _debug_enabled:
+        logging.debug("Debug mode enabled (EASYSKILLS_DEBUG=1)")
+        logging.debug("CENTRAL_DIR=%s SCRIPT_DIR=%s", CENTRAL_DIR, SCRIPT_DIR)
+
     print(f"\n  🚀 EasySkills WebUI")
     print(f"  ┌──────────────────────────────────────┐")
     print(f"  │   http://127.0.0.1:{PORT}              │")
     print(f"  │   Press Ctrl+C to stop               │")
+    if _debug_enabled:
+        print(f"  │   Debug mode: ON                     │")
     print(f"  └──────────────────────────────────────┘\n")
 
     # Auto-open browser (cross-platform), unless suppressed by caller
@@ -1358,14 +1461,29 @@ def main():
         # connections (local-only, so a modest cap is plenty).
         request_queue_size = 16
 
+    httpd = None
+
+    def _graceful_shutdown(signum, frame):
+        """Handle SIGTERM/SIGINT for graceful shutdown."""
+        if _debug_enabled:
+            logging.debug("Received signal %s, shutting down gracefully...", signum)
+        if httpd is not None:
+            threading.Thread(target=httpd.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, _graceful_shutdown)
+    signal.signal(signal.SIGINT, _graceful_shutdown)
+
     try:
-        with ThreadedServer(("127.0.0.1", PORT), Handler) as httpd:
-            httpd.serve_forever()
+        httpd = ThreadedServer(("127.0.0.1", PORT), Handler)
+        httpd.serve_forever()
+        if _debug_enabled:
+            logging.debug("Server shut down cleanly.")
     except OSError as e:
         print(f"  ❌ Cannot bind to port {PORT}: {e}")
         print(f"     Is another instance already running?")
-    except KeyboardInterrupt:
-        print("\n  Shutting down WebUI...")
+    finally:
+        if httpd is not None:
+            httpd.server_close()
 
 
 if __name__ == "__main__":

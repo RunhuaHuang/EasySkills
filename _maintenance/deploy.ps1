@@ -149,7 +149,9 @@ function Load-Agents {
       "$Home\.config\devin\skills",
       "$Home\.workbuddy\skills",
       "$Home\.qclaw\skills",
-      "$Home\.codewhale\skills"
+      "$Home\.codewhale\skills",
+      "$Home\.qoderworkcn\skills",
+      "$Home\.qoder-cn\skills"
     )
     $script:AgentNameMap = @{}
   }
@@ -339,6 +341,8 @@ function Get-AgentName ([string]$Path) {
     ".workbuddy\*"             { return "WorkBuddy" }
     ".qclaw\*"                 { return "QClaw" }
     ".codewhale\*"             { return "CodeWhale" }
+    ".qoderworkcn\*"           { return "QoderWork CN" }
+    ".qoder-cn\*"              { return "Qoder CN" }
     ".agents\*"                { return "Agents (Standard)" }
     ".run\*"                   { return "Run" }
     "Trae-CN\*"                { return "Trae CN" }
@@ -351,6 +355,13 @@ function Run-Sync {
   Load-CustomTargets
   Load-DisabledTargets
   $script:SuccessfulInjections = @()
+
+  # Ensure ~/.qoder-cn/skills exists — Qoder CN relies on EasySkills to
+  # create the path if it does not already exist.
+  $qoderCnSkills = Join-Path $Home ".qoder-cn\skills"
+  if (-not (Test-Path $qoderCnSkills)) {
+    New-Item -Path $qoderCnSkills -ItemType Directory -Force | Out-Null
+  }
 
   foreach ($Path in $CustomPath) {
     if (Test-Path $Path) { $script:Targets += $Path }

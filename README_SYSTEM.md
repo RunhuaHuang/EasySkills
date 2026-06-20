@@ -1,6 +1,6 @@
 # EasySkills — System & Operations Reference
 
-> **Version:** 2.0.0 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
+> **Version:** 2.0.1 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
 
 EasySkills is a cross-platform automated skills manager for macOS, Linux, and
 Windows. It creates one centralized skills directory (`~/EasySkills`), registers
@@ -95,158 +95,166 @@ their directory exists. Agents not installed on the machine are skipped.
 - **macOS**: `~/.gemini/config/skills`
 - **Windows**: `%USERPROFILE%\.gemini\config\skills`
 
-### 1b. Antigravity IDE
+### 2. Antigravity IDE
 - **macOS**: `~/.gemini/antigravity/skills`
 - **Windows**: `%USERPROFILE%\.gemini\antigravity\skills`
 
-### 2. Codex (OpenAI)
+### 3. Codex (OpenAI)
 - **macOS**: `~/.codex/skills`
 - **Windows**: `%USERPROFILE%\.codex\skills`
 
-### 3. Claude Code (Anthropic CLI)
+### 4. Claude Code (Anthropic CLI)
 - **macOS**: `~/.claude/skills`
 - **Windows**: `%USERPROFILE%\.claude\skills`
 
-### 4. GitHub Copilot
+### 5. GitHub Copilot
 - **macOS**: `~/.copilot/skills`
 - **Windows**: `%USERPROFILE%\.copilot\skills`
 
-### 5. Pi (Personal Assistant Client)
+### 6. Pi (Personal Assistant Client)
 - **macOS**: `~/.pi/agent/skills`
 - **Windows**: `%USERPROFILE%\.pi\agent\skills`
 
-### 6. OpenCode
+### 7. OpenCode
 - **macOS**: `~/.config/opencode/skills`
 - **Windows**: `%USERPROFILE%\.config\opencode\skills`
 
-### 7. Trae (ByteDance Global)
+### 8. Trae (ByteDance Global)
 - **macOS**: `~/.trae/skills` & `~/Library/Application Support/Trae/skills`
 - **Windows**: `%USERPROFILE%\.trae\skills` & `%APPDATA%\Trae\skills`
 
-### 8. Trae CN (ByteDance China)
+### 9. Trae CN (ByteDance China)
 - **macOS**: `~/.trae-cn/skills` & `~/Library/Application Support/Trae-CN/skills`
 - **Windows**: `%USERPROFILE%\.trae-cn\skills` & `%APPDATA%\Trae-CN\skills`
 
-### 9. Kimi Code (Moonshot)
+### 10. Kimi Code (Moonshot)
 - **macOS**: `~/.kimi/skills`
 - **Windows**: `%USERPROFILE%\.kimi\skills`
 
-### 10. ZCode
+### 11. ZCode
 - **macOS**: `~/.zcode/skills`
 - **Windows**: `%USERPROFILE%\.zcode\skills`
 
-### 11. OpenClaw
+### 12. OpenClaw
 - **macOS**: `~/.openclaw/skills`
 - **Windows**: `%USERPROFILE%\.openclaw\skills`
 
-### 12. Hermes Agent
+### 13. Hermes Agent
 - **macOS**: `~/.hermes/skills`
 - **Windows**: `%USERPROFILE%\.hermes\skills`
 
-### 13. Proma
+### 14. Proma
 - **macOS**: `~/.proma/default-skills`
 - **Windows**: `%USERPROFILE%\.proma\default-skills`
 
-### 14. Cursor
+### 15. Cursor
 - **macOS**: `~/.cursor/skills`
 - **Windows**: `%USERPROFILE%\.cursor\skills`
 
-### 15. Kiro Agent (AWS)
+### 16. Kiro Agent (AWS)
 - **macOS**: `~/.kiro/skills`
 - **Windows**: `%USERPROFILE%\.kiro\skills`
 
-### 16. Junie (JetBrains)
+### 17. Junie (JetBrains)
 - **macOS**: `~/.junie/skills`
 - **Windows**: `%USERPROFILE%\.junie\skills`
 
-### 17. Cline
+### 18. Cline
 - **macOS**: `~/.cline/skills`
 - **Windows**: `%USERPROFILE%\.cline\skills`
 
-### 18. Roo Code
+### 19. Roo Code
 - **macOS**: `~/.roo/skills`
 - **Windows**: `%USERPROFILE%\.roo\skills`
 
-### 19. Warp
+### 20. Warp
 - **macOS**: `~/.warp/skills`
 - **Windows**: `%USERPROFILE%\.warp\skills`
 
-### 20. Windsurf
+### 21. Windsurf
 - **macOS**: `~/.codeium/windsurf/skills`
 - **Windows**: `%USERPROFILE%\.codeium\windsurf\skills`
 
-### 21. Firebender
+### 22. Firebender
 - **macOS**: `~/.firebender/skills`
 - **Windows**: `%USERPROFILE%\.firebender\skills`
 
-### 22. Augment
+### 23. Augment
 - **macOS**: `~/.augment/skills`
 - **Windows**: `%USERPROFILE%\.augment\skills`
 
-### 23. Continue
+### 24. Continue
 - **macOS**: `~/.continue/skills`
 - **Windows**: `%USERPROFILE%\.continue\skills`
 
-### 24. Goose (Block/AAIF)
+### 25. Goose (Block/AAIF)
 - **macOS**: `~/.config/goose/skills`
 - **Windows**: `%USERPROFILE%\.config\goose\skills`
 
-### 25. Agents (Cross-tool Standard)
+### 26. Agents (Cross-tool Standard)
 - **macOS**: `~/.agents/skills`
 - **Windows**: `%USERPROFILE%\.agents\skills`
 
-### 26. Run
+### 27. Run
 - **macOS**: `~/.run/global-skills/skills`
 - **Windows**: `%USERPROFILE%\.run\global-skills\skills`
 
-### 27. Qoder
+### 28. Qoder
 - **macOS**: `~/.qoder/skills`
 - **Windows**: `%USERPROFILE%\.qoder\skills`
 
-### 28. Qwen Code
+### 29. Qwen Code
 - **macOS**: `~/.qwen/skills`
 - **Windows**: `%USERPROFILE%\.qwen\skills`
 
-### 29. CodeBuddy
+### 30. CodeBuddy
 - **macOS**: `~/.codebuddy/skills`
 - **Windows**: `%USERPROFILE%\.codebuddy\skills`
 
-### 30. Amp
+### 31. Amp
 - **macOS**: `~/.config/agents/skills`
 - **Windows**: `%USERPROFILE%\.config\agents\skills`
 
-### 31. OpenHands
+### 32. OpenHands
 - **macOS**: `~/.openhands/skills`
 - **Windows**: `%USERPROFILE%\.openhands\skills`
 
-### 32. Kilo Code
+### 33. Kilo Code
 - **macOS**: `~/.kilocode/skills`
 - **Windows**: `%USERPROFILE%\.kilocode\skills`
 
-### 33. Zencoder
+### 34. Zencoder
 - **macOS**: `~/.zencoder/skills`
 - **Windows**: `%USERPROFILE%\.zencoder\skills`
 
-### 34. iFlow CLI
+### 35. iFlow CLI
 - **macOS**: `~/.iflow/skills`
 - **Windows**: `%USERPROFILE%\.iflow\skills`
 
-### 35. Droid
+### 36. Droid
 - **macOS**: `~/.factory/skills`
 - **Windows**: `%USERPROFILE%\.factory\skills`
 
-### 36. Devin for Terminal
+### 37. Devin for Terminal
 - **macOS**: `~/.config/devin/skills`
 - **Windows**: `%USERPROFILE%\.config\devin\skills`
 
-### 37. WorkBuddy
+### 38. WorkBuddy
 - **macOS**: `~/.workbuddy/skills`
 - **Windows**: `%USERPROFILE%\.workbuddy\skills`
 
-### 38. QClaw
+### 39. QClaw
 - **macOS**: `~/.qclaw/skills`
 - **Windows**: `%USERPROFILE%\.qclaw\skills`
 
-### 39. CodeWhale
+### 40. CodeWhale
 - **macOS**: `~/.codewhale/skills`
 - **Windows**: `%USERPROFILE%\.codewhale\skills`
+
+### 41. QoderWork CN
+- **macOS**: `~/.qoderworkcn/skills`
+- **Windows**: `%USERPROFILE%\.qoderworkcn\skills`
+
+### 42. Qoder CN
+- **macOS**: `~/.qoder-cn/skills`
+- **Windows**: `%USERPROFILE%\.qoder-cn\skills`

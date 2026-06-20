@@ -4,13 +4,13 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#installation)
-[![Agents](https://img.shields.io/badge/Supported%20Agents-38+-orange.svg)](#supported-agents)
-[![Version](https://img.shields.io/badge/Version-2.0.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Agents](https://img.shields.io/badge/Supported%20Agents-42+-orange.svg)](#supported-agents)
+[![Version](https://img.shields.io/badge/Version-2.0.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **One skill library. Every agent. Always in sync.**
 
 Drop a skill folder once into `~/EasySkills`.
-It appears in Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 38+ more agent targets — instantly, through native links.
+It appears in Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 42+ more agent targets — instantly, through native links.
 
 Local-first &bull; Zero idle CPU &bull; WebUI included
 
@@ -141,7 +141,7 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 │ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
 │ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
 │ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
-│ ... 38+ targets, all in sync, all the time  │
+│ ... 42+ targets, all in sync, all the time  │
 └─────────────────────────────────────────────┘
 ```
 
@@ -178,7 +178,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 | | Feature | Details |
 |:---:|:---|:---|
 | **1** | **Skill library import/delete** | Import skill folders through the WebUI; delete with confirmation dialog. Manage linked agents visually |
-| **2** | **Agent auto-discovery** | Detects 38+ mainstream agents and only links paths that actually exist |
+| **2** | **Agent auto-discovery** | Detects 42+ mainstream agents and only links paths that actually exist |
 | **3** | **Live mapping** | Watcher syncs skill additions/removals within seconds |
 | **4** | **Non-invasive** | Shared skills sit beside agent-specific skills — private skills keep working |
 | **5** | **Zero-privilege Windows** | NTFS directory junctions — no admin mode or Developer Mode needed |
@@ -216,7 +216,7 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
 
 ## Supported Agents
 
-38+ agent targets are pre-configured. Custom paths can be added at any time via CLI, WebUI, or chat.
+42+ agent targets are pre-configured. Custom paths can be added at any time via CLI, WebUI, or chat.
 
 <details>
 <summary><b>View full agent list</b></summary>
@@ -224,45 +224,47 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
 | # | Agent | macOS Path | Windows Path |
 |:-:|:---|:---|:---|
 | 1 | **Antigravity CLI** | `~/.gemini/config/skills` | `%USERPROFILE%\.gemini\config\skills` |
-| 1b | **Antigravity IDE** | `~/.gemini/antigravity/skills` | `%USERPROFILE%\.gemini\antigravity\skills` |
-| 2 | **Codex (OpenAI)** | `~/.codex/skills` | `%USERPROFILE%\.codex\skills` |
-| 3 | **Claude Code** | `~/.claude/skills` | `%USERPROFILE%\.claude\skills` |
-| 4 | **GitHub Copilot** | `~/.copilot/skills` | `%USERPROFILE%\.copilot\skills` |
-| 5 | **Pi** | `~/.pi/agent/skills` | `%USERPROFILE%\.pi\agent\skills` |
-| 6 | **OpenCode** | `~/.config/opencode/skills` | `%USERPROFILE%\.config\opencode\skills` |
-| 7 | **Trae (Global)** | `~/.trae/skills` | `%USERPROFILE%\.trae\skills` |
-| 8 | **Trae CN** | `~/.trae-cn/skills` | `%USERPROFILE%\.trae-cn\skills` |
-| 9 | **Kimi Code (Moonshot)** | `~/.kimi/skills` | `%USERPROFILE%\.kimi\skills` |
-| 10 | **ZCode** | `~/.zcode/skills` | `%USERPROFILE%\.zcode\skills` |
-| 11 | **OpenClaw** | `~/.openclaw/skills` | `%USERPROFILE%\.openclaw\skills` |
-| 12 | **Hermes Agent** | `~/.hermes/skills` | `%USERPROFILE%\.hermes\skills` |
-| 13 | **Proma** | `~/.proma/default-skills` | `%USERPROFILE%\.proma\default-skills` |
-| 14 | **Cursor** | `~/.cursor/skills` | `%USERPROFILE%\.cursor\skills` |
-| 15 | **Kiro Agent (AWS)** | `~/.kiro/skills` | `%USERPROFILE%\.kiro\skills` |
-| 16 | **Junie (JetBrains)** | `~/.junie/skills` | `%USERPROFILE%\.junie\skills` |
-| 17 | **Cline** | `~/.cline/skills` | `%USERPROFILE%\.cline\skills` |
-| 18 | **Roo Code** | `~/.roo/skills` | `%USERPROFILE%\.roo\skills` |
-| 19 | **Warp** | `~/.warp/skills` | `%USERPROFILE%\.warp\skills` |
-| 20 | **Windsurf** | `~/.codeium/windsurf/skills` | `%USERPROFILE%\.codeium\windsurf\skills` |
-| 21 | **Firebender** | `~/.firebender/skills` | `%USERPROFILE%\.firebender\skills` |
-| 22 | **Augment** | `~/.augment/skills` | `%USERPROFILE%\.augment\skills` |
-| 23 | **Continue** | `~/.continue/skills` | `%USERPROFILE%\.continue\skills` |
-| 24 | **Goose (Block/AAIF)** | `~/.config/goose/skills` | `%USERPROFILE%\.config\goose\skills` |
-| 25 | **Agents (Standard)** | `~/.agents/skills` | `%USERPROFILE%\.agents\skills` |
-| 26 | **Run** | `~/.run/global-skills/skills` | `%USERPROFILE%\.run\global-skills\skills` |
-| 27 | **Qoder** | `~/.qoder/skills` | `%USERPROFILE%\.qoder\skills` |
-| 28 | **Qwen Code** | `~/.qwen/skills` | `%USERPROFILE%\.qwen\skills` |
-| 29 | **CodeBuddy** | `~/.codebuddy/skills` | `%USERPROFILE%\.codebuddy\skills` |
-| 30 | **Amp** | `~/.config/agents/skills` | `%USERPROFILE%\.config\agents\skills` |
-| 31 | **OpenHands** | `~/.openhands/skills` | `%USERPROFILE%\.openhands\skills` |
-| 32 | **Kilo Code** | `~/.kilocode/skills` | `%USERPROFILE%\.kilocode\skills` |
-| 33 | **Zencoder** | `~/.zencoder/skills` | `%USERPROFILE%\.zencoder\skills` |
-| 34 | **iFlow CLI** | `~/.iflow/skills` | `%USERPROFILE%\.iflow\skills` |
-| 35 | **Droid** | `~/.factory/skills` | `%USERPROFILE%\.factory\skills` |
-| 36 | **Devin for Terminal** | `~/.config/devin/skills` | `%USERPROFILE%\.config\devin\skills` |
-| 37 | **WorkBuddy** | `~/.workbuddy/skills` | `%USERPROFILE%\.workbuddy\skills` |
-| 38 | **QClaw** | `~/.qclaw/skills` | `%USERPROFILE%\.qclaw\skills` |
-| 39 | **CodeWhale** | `~/.codewhale/skills` | `%USERPROFILE%\.codewhale\skills` |
+| 2 | **Antigravity IDE** | `~/.gemini/antigravity/skills` | `%USERPROFILE%\.gemini\antigravity\skills` |
+| 3 | **Codex (OpenAI)** | `~/.codex/skills` | `%USERPROFILE%\.codex\skills` |
+| 4 | **Claude Code** | `~/.claude/skills` | `%USERPROFILE%\.claude\skills` |
+| 5 | **GitHub Copilot** | `~/.copilot/skills` | `%USERPROFILE%\.copilot\skills` |
+| 6 | **Pi** | `~/.pi/agent/skills` | `%USERPROFILE%\.pi\agent\skills` |
+| 7 | **OpenCode** | `~/.config/opencode/skills` | `%USERPROFILE%\.config\opencode\skills` |
+| 8 | **Trae (Global)** | `~/.trae/skills` | `%USERPROFILE%\.trae\skills` |
+| 9 | **Trae CN** | `~/.trae-cn/skills` | `%USERPROFILE%\.trae-cn\skills` |
+| 10 | **Kimi Code (Moonshot)** | `~/.kimi/skills` | `%USERPROFILE%\.kimi\skills` |
+| 11 | **ZCode** | `~/.zcode/skills` | `%USERPROFILE%\.zcode\skills` |
+| 12 | **OpenClaw** | `~/.openclaw/skills` | `%USERPROFILE%\.openclaw\skills` |
+| 13 | **Hermes Agent** | `~/.hermes/skills` | `%USERPROFILE%\.hermes\skills` |
+| 14 | **Proma** | `~/.proma/default-skills` | `%USERPROFILE%\.proma\default-skills` |
+| 15 | **Cursor** | `~/.cursor/skills` | `%USERPROFILE%\.cursor\skills` |
+| 16 | **Kiro Agent (AWS)** | `~/.kiro/skills` | `%USERPROFILE%\.kiro\skills` |
+| 17 | **Junie (JetBrains)** | `~/.junie/skills` | `%USERPROFILE%\.junie\skills` |
+| 18 | **Cline** | `~/.cline/skills` | `%USERPROFILE%\.cline\skills` |
+| 19 | **Roo Code** | `~/.roo/skills` | `%USERPROFILE%\.roo\skills` |
+| 20 | **Warp** | `~/.warp/skills` | `%USERPROFILE%\.warp\skills` |
+| 21 | **Windsurf** | `~/.codeium/windsurf/skills` | `%USERPROFILE%\.codeium\windsurf\skills` |
+| 22 | **Firebender** | `~/.firebender/skills` | `%USERPROFILE%\.firebender\skills` |
+| 23 | **Augment** | `~/.augment/skills` | `%USERPROFILE%\.augment\skills` |
+| 24 | **Continue** | `~/.continue/skills` | `%USERPROFILE%\.continue\skills` |
+| 25 | **Goose (Block/AAIF)** | `~/.config/goose/skills` | `%USERPROFILE%\.config\goose\skills` |
+| 26 | **Agents (Standard)** | `~/.agents/skills` | `%USERPROFILE%\.agents\skills` |
+| 27 | **Run** | `~/.run/global-skills/skills` | `%USERPROFILE%\.run\global-skills\skills` |
+| 28 | **Qoder** | `~/.qoder/skills` | `%USERPROFILE%\.qoder\skills` |
+| 29 | **Qwen Code** | `~/.qwen/skills` | `%USERPROFILE%\.qwen\skills` |
+| 30 | **CodeBuddy** | `~/.codebuddy/skills` | `%USERPROFILE%\.codebuddy\skills` |
+| 31 | **Amp** | `~/.config/agents/skills` | `%USERPROFILE%\.config\agents\skills` |
+| 32 | **OpenHands** | `~/.openhands/skills` | `%USERPROFILE%\.openhands\skills` |
+| 33 | **Kilo Code** | `~/.kilocode/skills` | `%USERPROFILE%\.kilocode\skills` |
+| 34 | **Zencoder** | `~/.zencoder/skills` | `%USERPROFILE%\.zencoder\skills` |
+| 35 | **iFlow CLI** | `~/.iflow/skills` | `%USERPROFILE%\.iflow\skills` |
+| 36 | **Droid** | `~/.factory/skills` | `%USERPROFILE%\.factory\skills` |
+| 37 | **Devin for Terminal** | `~/.config/devin/skills` | `%USERPROFILE%\.config\devin\skills` |
+| 38 | **WorkBuddy** | `~/.workbuddy/skills` | `%USERPROFILE%\.workbuddy\skills` |
+| 39 | **QClaw** | `~/.qclaw/skills` | `%USERPROFILE%\.qclaw\skills` |
+| 40 | **CodeWhale** | `~/.codewhale/skills` | `%USERPROFILE%\.codewhale\skills` |
+| 41 | **QoderWork CN** | `~/.qoderworkcn/skills` | `%USERPROFILE%\.qoderworkcn\skills` |
+| 42 | **Qoder CN** | `~/.qoder-cn/skills` | `%USERPROFILE%\.qoder-cn\skills` |
 
 > Trae and Trae CN also map to `~/Library/Application Support/Trae[-CN]/skills` (macOS) and `%APPDATA%\Trae[-CN]\skills` (Windows).
 

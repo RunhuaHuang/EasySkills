@@ -2840,12 +2840,14 @@
             }
             
             try {
-                const options = { method: payload !== null ? 'POST' : 'GET' };
-                if (payload !== null) {
-                    options.headers = {
-                        'Content-Type': 'application/json',
+                const options = {
+                    method: payload !== null ? 'POST' : 'GET',
+                    headers: {
                         'X-EasySkills-Token': easySkillsToken
-                    };
+                    }
+                };
+                if (payload !== null) {
+                    options.headers['Content-Type'] = 'application/json';
                     options.body = JSON.stringify(payload);
                 }
                 
@@ -2856,7 +2858,7 @@
                 }
 
                 let res = await fetch(endpoint, options);
-                if (res.status === 403 && retryOnForbidden && payload !== null && await refreshEasySkillsToken()) {
+                if (res.status === 403 && retryOnForbidden && await refreshEasySkillsToken()) {
                     options.headers['X-EasySkills-Token'] = easySkillsToken;
                     res = await fetch(endpoint, options);
                 }
@@ -3408,7 +3410,12 @@
         }
 
         async function fetchLatestRelease() {
-            const res = await fetch('/api/latest-release');
+            let headers = { 'X-EasySkills-Token': easySkillsToken };
+            let res = await fetch('/api/latest-release', { headers });
+            if (res.status === 403 && await refreshEasySkillsToken()) {
+                headers['X-EasySkills-Token'] = easySkillsToken;
+                res = await fetch('/api/latest-release', { headers });
+            }
             let data = {};
             try {
                 data = await res.json();

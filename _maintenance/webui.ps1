@@ -219,10 +219,19 @@ function Load-DefaultAgents {
         @{ Name="Devin for Terminal"; Path="$Home\.config\devin\skills" },
         @{ Name="WorkBuddy"; Path="$Home\.workbuddy\skills" },
         @{ Name="QClaw"; Path="$Home\.qclaw\skills" },
-        @{ Name="CodeWhale"; Path="$Home\.codewhale\skills" }
+        @{ Name="CodeWhale"; Path="$Home\.codewhale\skills" },
+        @{ Name="QoderWork CN"; Path="$Home\.qoderworkcn\skills" },
+        @{ Name="Qoder CN"; Path="$Home\.qoder-cn\skills" }
     )
 }
 $DefaultAgents = Load-DefaultAgents
+
+# Ensure ~/.qoder-cn/skills exists — Qoder CN relies on EasySkills to
+# create the path if it does not already exist.
+$qoderCnSkillsDir = Join-Path $Home ".qoder-cn\skills"
+if (-not (Test-Path $qoderCnSkillsDir)) {
+    New-Item -Path $qoderCnSkillsDir -ItemType Directory -Force | Out-Null
+}
 
 $ExcludeNames = @("_maintenance", ".git", "node_modules", "dist", "docs")
 $GitHubRepo = "RunhuaHuang/EasySkills"
@@ -385,6 +394,8 @@ function Get-AgentNameFromPath([string]$PathStr) {
     if ($PathStr -like "*\.workbuddy\*") { return "WorkBuddy" }
     if ($PathStr -like "*\.qclaw\*") { return "QClaw" }
     if ($PathStr -like "*\.codewhale\*") { return "CodeWhale" }
+    if ($PathStr -like "*\.qoderworkcn\*") { return "QoderWork CN" }
+    if ($PathStr -like "*\.qoder-cn\*") { return "Qoder CN" }
     if ($PathStr -like "*\.agents\*") { return "Agents (Standard)" }
     if ($PathStr -like "*\.run\*") { return "Run" }
     return "Custom Agent"
@@ -1090,13 +1101,34 @@ function Get-CorsOrigin($Request) {
     return $null
 }
 
+function Test-TokenValid($Request) {
+    $Token = $Request.Headers["X-EasySkills-Token"]
+    if ($null -eq $Token) {
+        $Token = ""
+    }
+
+    $Diff = $Token.Length -bxor $WebUIToken.Length
+    $MaxLen = [Math]::Max($Token.Length, $WebUIToken.Length)
+    for ($i = 0; $i -lt $MaxLen; $i++) {
+        $A = 0
+        $B = 0
+        if ($i -lt $Token.Length) {
+            $A = [int][char]$Token[$i]
+        }
+        if ($i -lt $WebUIToken.Length) {
+            $B = [int][char]$WebUIToken[$i]
+        }
+        $Diff = $Diff -bor ($A -bxor $B)
+    }
+    return ($Diff -eq 0)
+}
+
 function Test-PostAllowed($Request) {
     $Origin = $Request.Headers["Origin"]
     if ($Origin -and $Origin -ne "http://localhost:$Port" -and $Origin -ne "http://127.0.0.1:$Port") {
         return $false
     }
-    $Token = $Request.Headers["X-EasySkills-Token"]
-    return ($Token -and $Token -eq $WebUIToken)
+    return (Test-TokenValid $Request)
 }
 
 function Send-ForbiddenResponse($Context) {
@@ -1204,6 +1236,10 @@ function Invoke-WebUIRequest($Context) {
             $Context.Response.StatusCode = 204
             $Context.Response.Close()
         } elseif ($UrlPath -eq "/api/status") {
+            if (-not (Test-TokenValid $Request)) {
+                Send-ForbiddenResponse $Context
+                return
+            }
             $Skills = @(Get-SkillsData)
             $Agents = @(Get-VisibleAgentsData)
             $MappedCount = @($Agents | Where-Object { $_.mapped }).Count
@@ -1218,10 +1254,22 @@ function Invoke-WebUIRequest($Context) {
             }
             Send-JsonResponse $Context $Data
         } elseif ($UrlPath -eq "/api/skills") {
+            if (-not (Test-TokenValid $Request)) {
+                Send-ForbiddenResponse $Context
+                return
+            }
             Send-JsonResponse $Context (Get-SkillsData)
         } elseif ($UrlPath -eq "/api/agents") {
+            if (-not (Test-TokenValid $Request)) {
+                Send-ForbiddenResponse $Context
+                return
+            }
             Send-JsonResponse $Context (Get-VisibleAgentsData)
         } elseif ($UrlPath -eq "/api/latest-release") {
+            if (-not (Test-TokenValid $Request)) {
+                Send-ForbiddenResponse $Context
+                return
+            }
             Send-JsonResponse $Context (Get-LatestRelease)
         } else {
             $Context.Response.StatusCode = 404

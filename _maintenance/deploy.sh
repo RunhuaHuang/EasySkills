@@ -137,6 +137,8 @@ except Exception:
     "$HOME/.workbuddy/skills"
     "$HOME/.qclaw/skills"
     "$HOME/.codewhale/skills"
+    "$HOME/.qoderworkcn/skills"
+    "$HOME/.qoder-cn/skills"
   )
   AGENT_NAMES=()
 }
@@ -368,6 +370,8 @@ get_agent_name() {
     .workbuddy/*)          echo "WorkBuddy" ;;
     .qclaw/*)              echo "QClaw" ;;
     .codewhale/*)          echo "CodeWhale" ;;
+    .qoderworkcn/*)        echo "QoderWork CN" ;;
+    .qoder-cn/*)           echo "Qoder CN" ;;
     .agents/*)             echo "Agents (Standard)" ;;
     .run/*)                echo "Run" ;;
     Library/Application\ Support/Trae-CN/*) echo "Trae CN" ;;
@@ -389,6 +393,12 @@ run_sync() {
   load_custom_targets
   load_disabled_targets
   SUCCESSFUL_INJECTIONS=()
+
+  # Ensure ~/.qoder-cn exists — unlike other agents whose directories are
+  # created by their respective tools, Qoder CN relies on EasySkills to
+  # create the path if it does not already exist.
+  mkdir -p "$HOME/.qoder-cn/skills"
+
   echo "=========================================================="
   echo "Starting EasySkills Sync (macOS)..."
   echo "=========================================================="
