@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#installation)
 [![Agents](https://img.shields.io/badge/Supported%20Agents-42+-orange.svg)](#supported-agents)
-[![Version](https://img.shields.io/badge/Version-2.0.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Version](https://img.shields.io/badge/Version-2.1.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **One skill library. Every agent. Always in sync.**
 
