@@ -395,6 +395,40 @@ function Run-Sync {
     }
   }
 
+  # PART A.5: Prune dangling reparse-point skills and flag external-link skills
+  # in the central dir. Mirrors run_sync's PART A.5 in deploy.sh.
+  #
+  # A dangling link (its target was removed) is dead weight: agents that stat
+  # the link target without a try/catch abort their whole skill scan on it,
+  # silently dropping every skill sorted after it. Junction targets must exist
+  # to be created, but a user-built SymbolicLink (or a Junction whose target
+  # was later deleted) can dangle, so we detect and prune defensively.
+  # An external-link skill (valid symlink/junction) is left in place and
+  # forwarded for backward compatibility, but we warn and collect it.
+  #
+  # NOTE: Get-ChildItem -Directory does NOT enumerate dangling directory
+  # symlinks (it follows the link, the follow fails, the entry is dropped), so
+  # -Force is required to even see them here.
+  $DanglingRemoved = 0
+  $ExternalLinkSkills = @()
+  $CentralEntries = Get-ChildItem -Path $CentralDir -Force -ErrorAction SilentlyContinue
+  foreach ($Entry in $CentralEntries) {
+    if (-not ($Entry.Attributes -match "ReparsePoint")) { continue }
+    $EName = $Entry.Name
+    if ($EName -eq "node_modules" -or $EName -eq ".git" -or $EName -eq "dist" -or $EName -eq "docs" -or $EName -eq "_maintenance" -or $EName -like "_*") { continue }
+    # Test-Path follows the reparse point: False => dangling, True => external.
+    if (-not (Test-Path $Entry.FullName)) {
+      Remove-Item $Entry.FullName -Force -ErrorAction SilentlyContinue
+      $DanglingRemoved++
+      Write-Host "   * Pruned dangling link: $EName (target no longer exists)" -ForegroundColor DarkGray
+    } else {
+      $ExternalLinkSkills += $EName
+      Write-Host "   [!] Warning: [$EName] is an external link (-> $($Entry.Target))" -ForegroundColor Yellow
+      Write-Host "       If its target is removed, this skill may break all agents' skill scans." -ForegroundColor Yellow
+      Write-Host "       Consider converting it to a real directory." -ForegroundColor Yellow
+    }
+  }
+
   # PART B: Map each custom skill directory
   $SkillDirs = Get-ChildItem -Path $CentralDir -Directory
 
@@ -456,6 +490,17 @@ function Run-Sync {
       $AgentName = Get-AgentName $Injected
       Write-Host "   -> [$AgentName] $Injected" -ForegroundColor Gray
     }
+  }
+  # Link-health report: surface the pruning/warning that ran in PART A.5.
+  if ($DanglingRemoved -gt 0) {
+    Write-Host "----------------------------------------------------------" -ForegroundColor Cyan
+    Write-Host "   Pruned $DanglingRemoved dangling skill link(s) from central dir." -ForegroundColor DarkGray
+  }
+  if ($ExternalLinkSkills.Count -gt 0) {
+    Write-Host "----------------------------------------------------------" -ForegroundColor Cyan
+    Write-Host "   [!] $($ExternalLinkSkills.Count) skill(s) are external links (still forwarded, but fragile):" -ForegroundColor Yellow
+    foreach ($S in $ExternalLinkSkills) { Write-Host "      - $S" -ForegroundColor Yellow }
+    Write-Host "   Tip: convert them to real directories for robustness." -ForegroundColor Yellow
   }
   Write-Host "==========================================================" -ForegroundColor Cyan
 }
@@ -593,6 +638,22 @@ function Run-Status {
 
   Write-Host "   ------------------------------------------" -ForegroundColor Cyan
   Write-Host "   Total: $AgentCount agents, $TotalSkills skill mappings" -ForegroundColor White
+
+  # Link-health snapshot of the central dir (read-only: status never deletes).
+  # Mirrors the PART A.5 detection in Run-Sync so users can preview problems.
+  $DanglingCount = 0
+  $ExternalCount = 0
+  $StatusEntries = Get-ChildItem -Path $CentralDir -Force -ErrorAction SilentlyContinue
+  foreach ($Entry in $StatusEntries) {
+    if (-not ($Entry.Attributes -match "ReparsePoint")) { continue }
+    $EName = $Entry.Name
+    if ($EName -eq "node_modules" -or $EName -eq ".git" -or $EName -eq "dist" -or $EName -eq "docs" -or $EName -eq "_maintenance" -or $EName -like "_*") { continue }
+    if (-not (Test-Path $Entry.FullName)) { $DanglingCount++ } else { $ExternalCount++ }
+  }
+  if ($DanglingCount -gt 0 -or $ExternalCount -gt 0) {
+    Write-Host "   ------------------------------------------" -ForegroundColor Cyan
+    Write-Host "   Link health: $DanglingCount dangling (run sync to prune), $ExternalCount external" -ForegroundColor Yellow
+  }
   Write-Host "==========================================================" -ForegroundColor Cyan
 }
 

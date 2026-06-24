@@ -408,12 +408,46 @@ def get_skills():
             if (item.is_dir()
                     and not item.name.startswith(("_", "."))
                     and item.name not in EXCLUDE_NAMES):
+                # An external-link skill is a symlink (Path.is_symlink()) whose
+                # target still exists — is_dir() follows the link and is True,
+                # so it is still listed and forwarded normally. The flag lets
+                # the UI mark it fragile. (Dangling symlinks have is_dir()==False
+                # and are excluded here, mirroring the old behaviour; run_sync
+                # prunes them server-side.)
                 skills.append({
                     "name": item.name,
                     "path": str(item),
                     "has_skill_md": (item / "SKILL.md").exists() or (item / "README_SYSTEM.md").exists(),
+                    "is_external_link": item.is_symlink(),
                 })
     return skills
+
+
+def get_central_dir_warnings() -> dict:
+    """Count link-health issues in the central dir for /api/status.
+
+    Read-only status probe mirroring run_sync's PART A.5 detection so the
+    dashboard can surface problems without a sync. Dangling links (target gone)
+    are auto-pruned by run_sync; external links (valid symlink) are forwarded
+    but fragile. See run_sync in deploy.sh for the authoritative pruning logic.
+    """
+    dangling = 0
+    external = 0
+    if CENTRAL_DIR.exists():
+        try:
+            for item in CENTRAL_DIR.iterdir():
+                if item.name.startswith(("_", ".")) or item.name in EXCLUDE_NAMES:
+                    continue
+                if not item.is_symlink():
+                    continue
+                # exists() follows the symlink: False => dangling, True => external
+                if item.exists():
+                    external += 1
+                else:
+                    dangling += 1
+        except OSError:
+            pass
+    return {"dangling_count": dangling, "external_link_count": external}
 
 
 def get_custom_targets():
@@ -1300,6 +1334,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             watcher = get_watcher_status()
             agents  = get_visible_agents()
             skills  = get_skills()
+            link_warnings = get_central_dir_warnings()
             self._json({
                 "watcher":       watcher,
                 "central_dir":   str(CENTRAL_DIR),
@@ -1308,6 +1343,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "agents_mapped": sum(1 for a in agents if a["mapped"]),
                 "version":       get_version(),
                 "has_backup":    (CENTRAL_DIR / "_maintenance.bak").is_dir(),
+                # Link health: dangling links will be auto-pruned on next sync;
+                # external links are valid-but-fragile symlinks.
+                "dangling_count":   link_warnings["dangling_count"],
+                "external_link_count": link_warnings["external_link_count"],
             })
 
         elif path == "/api/skills":

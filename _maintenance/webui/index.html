@@ -1750,6 +1750,13 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Link-health advisory (shown only when the central dir has
+                 dangling or external-link skills; populated by refreshAll). -->
+            <div id="link-health-advisory" style="display:none; margin-bottom: var(--space-lg); padding: var(--space-md); border-radius: var(--radius-md); background-color: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); color: var(--warning); font-family: var(--font-display); font-size: 0.85rem; align-items: center; gap: var(--space-sm);">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span id="link-health-text"></span>
+            </div>
             
             <!-- Quick Action Toolbar -->
             <div class="action-bar">
@@ -2970,6 +2977,24 @@
                             <span class="status-badge stopped"><i class="fa-solid fa-circle"></i> ${dict[currentLang]['t-stopped']}</span>
                         `;
                     }
+
+                    // Link-health advisory: dangling links break agent skill scans
+                    // (auto-pruned on next sync); external links are valid but fragile.
+                    const advisory = document.getElementById('link-health-advisory');
+                    const advisoryText = document.getElementById('link-health-text');
+                    if (advisory && advisoryText) {
+                        const dangling = status.dangling_count || 0;
+                        const external = status.external_link_count || 0;
+                        if (dangling > 0 || external > 0) {
+                            const bits = [];
+                            if (dangling > 0) bits.push(`${dangling} broken link${dangling > 1 ? 's' : ''} (will be pruned on sync)`);
+                            if (external > 0) bits.push(`${external} external-link skill${external > 1 ? 's' : ''}`);
+                            advisoryText.textContent = 'Skill library health: ' + bits.join(', ') + '. See the Skills tab for details.';
+                            advisory.style.display = 'flex';
+                        } else {
+                            advisory.style.display = 'none';
+                        }
+                    }
                 }
             }
             
@@ -3113,19 +3138,29 @@
 
             const parts = [];
             skills.forEach(s => {
-                const badge = s.has_skill_md ? 
-                    `<span class="tag tag-success">SKILL.md</span>` : 
+                const badge = s.has_skill_md ?
+                    `<span class="tag tag-success">SKILL.md</span>` :
                     `<span class="tag tag-muted">Raw Folder</span>`;
-                
+                // External-link skills (a symlink whose target still exists) are
+                // forwarded normally but are fragile: if the target is removed the
+                // link goes dangling and can break an agent's whole skill scan.
+                // Surface it with a warning badge and override the accent colour.
+                const linkBadge = s.is_external_link
+                    ? `<span class="tag tag-warning" title="This skill is an external symlink. If its target is removed it may break agent skill scans. Consider converting it to a real directory.">⚠ External Link</span>`
+                    : '';
+                const isExternal = s.is_external_link;
+                const accent = isExternal ? 'var(--warning)' : (s.has_skill_md ? 'var(--success)' : 'var(--border-color)');
+                const iconColor = isExternal ? 'var(--warning)' : (s.has_skill_md ? 'var(--success)' : 'var(--text-muted)');
+
                 parts.push(`
-                    <div class="card" style="border-left: 3px solid ${s.has_skill_md ? 'var(--success)' : 'var(--border-color)'};">
+                    <div class="card" style="border-left: 3px solid ${accent};">
                         <div class="card-header">
                             <div class="card-title">
-                                <i class="fa-solid fa-cube" style="color: ${s.has_skill_md ? 'var(--success)' : 'var(--text-muted)'};" ></i>
+                                <i class="fa-solid fa-cube" style="color: ${iconColor};" ></i>
                                 <span>${escapeHtml(s.name)}</span>
                             </div>
                             <div class="skill-card-tools">
-                                ${badge}
+                                ${linkBadge}${badge}
                                 <button class="icon-btn skill-delete-btn" data-skill-name="${escapeHtml(s.name)}" title="${dict[currentLang]['t-delete-skill']}" aria-label="${dict[currentLang]['t-delete-skill']}">
                                     <i class="fa-solid fa-trash"></i>
                                 </button>

@@ -454,14 +454,42 @@ function Get-SkillsData {
             $Name = $Item.Name
             if ($Name.StartsWith("_") -or $Name.StartsWith(".") -or $ExcludeNames -contains $Name) { continue }
             $HasMd = (Test-Path (Join-Path $Item.FullName "SKILL.md")) -or (Test-Path (Join-Path $Item.FullName "README_SYSTEM.md"))
+            # An external-link skill is a reparse point (junction/symlink) whose
+            # target still exists — listed and forwarded normally, but marked so
+            # the UI can flag it as fragile. (Dangling links are not returned by
+            # Get-ChildItem -Directory, mirroring the Python backend.)
+            $IsExternal = $false
+            try { if ($Item.Attributes -match "ReparsePoint") { $IsExternal = $true } } catch {}
             $Skills += @{
                 name = $Name
                 path = $Item.FullName
                 has_skill_md = $HasMd
+                is_external_link = $IsExternal
             }
         }
     }
     return $Skills
+}
+
+function Get-CentralDirWarnings {
+    # Read-only link-health probe for /api/status, mirroring get_central_dir_warnings
+    # in webui.py. Dangling links are auto-pruned by Run-Sync in deploy.ps1.
+    $Dangling = 0
+    $External = 0
+    if (Test-Path $CentralDir) {
+        try {
+            $Entries = Get-ChildItem -Path $CentralDir -Force -ErrorAction SilentlyContinue
+            foreach ($Entry in $Entries) {
+                $IsReparse = $false
+                try { if ($Entry.Attributes -match "ReparsePoint") { $IsReparse = $true } } catch {}
+                if (-not $IsReparse) { continue }
+                $EName = $Entry.Name
+                if ($EName.StartsWith("_") -or $EName.StartsWith(".") -or $ExcludeNames -contains $EName) { continue }
+                if (-not (Test-Path $Entry.FullName)) { $Dangling++ } else { $External++ }
+            }
+        } catch {}
+    }
+    return @{ dangling_count = $Dangling; external_link_count = $External }
 }
 
 function Get-AgentsData {
@@ -1243,6 +1271,7 @@ function Invoke-WebUIRequest($Context) {
             $Skills = @(Get-SkillsData)
             $Agents = @(Get-VisibleAgentsData)
             $MappedCount = @($Agents | Where-Object { $_.mapped }).Count
+            $LinkWarnings = Get-CentralDirWarnings
             $Data = @{
                 watcher = Get-WatcherStatus
                 central_dir = $CentralDir
@@ -1251,6 +1280,10 @@ function Invoke-WebUIRequest($Context) {
                 agents_mapped = $MappedCount
                 version = Get-EasySkillsVersion
                 has_backup = (Test-Path (Join-Path $CentralDir "_maintenance.bak") -PathType Container)
+                # Link health: dangling links will be auto-pruned on next sync;
+                # external links are valid-but-fragile symlinks/junctions.
+                dangling_count = $LinkWarnings.dangling_count
+                external_link_count = $LinkWarnings.external_link_count
             }
             Send-JsonResponse $Context $Data
         } elseif ($UrlPath -eq "/api/skills") {

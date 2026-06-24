@@ -900,6 +900,111 @@ class SecurityContractsTest(unittest.TestCase):
             "run_cleanup must have exactly one loud-fail guard for central_resolved"
         )
 
+    # -------------------------------------------------------------------------
+    # Link-health: dangling/external-link skill detection (cross-platform)
+    # -------------------------------------------------------------------------
+
+    def test_get_skills_marks_external_link_and_excludes_dangling(self):
+        """get_skills() must list external-link skills (is_external_link=True) and
+        never list dangling symlinks (is_dir() is False for them)."""
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            central = root / "central"
+            central.mkdir()
+            # external symlink targets live in a sibling dir (unique per test run)
+            ext_store = root / "external-store"
+            ext_store.mkdir()
+            # normal real directory
+            (central / "normal-skill").mkdir()
+            (central / "normal-skill" / "SKILL.md").write_text("ok")
+            # external symlink: target exists outside central dir
+            ext_target = ext_store / "ext-target"
+            ext_target.mkdir()
+            (ext_target / "SKILL.md").write_text("ext")
+            (central / "external-skill").symlink_to(ext_target)
+            # dangling symlink: target does not exist
+            (central / "dangling-skill").symlink_to(ext_store / "gone")
+
+            with mock.patch.object(webui, "CENTRAL_DIR", central):
+                skills = webui.get_skills()
+            names = {s["name"]: s for s in skills}
+
+            self.assertIn("normal-skill", names)
+            self.assertIn("external-skill", names)
+            self.assertNotIn("dangling-skill", names,
+                             "dangling symlinks must be excluded (is_dir()==False)")
+            self.assertFalse(names["normal-skill"]["is_external_link"])
+            self.assertTrue(names["external-skill"]["is_external_link"])
+
+    def test_get_central_dir_warnings_counts_dangling_and_external(self):
+        """get_central_dir_warnings() must count dangling vs external links correctly."""
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            central = root / "central"
+            central.mkdir()
+            ext_store = root / "external-store"
+            ext_store.mkdir()
+            ext_target = ext_store / "ext-target"
+            ext_target.mkdir()
+            (central / "ext1").symlink_to(ext_target)
+            (central / "ext2").symlink_to(ext_target)
+            (central / "dangling1").symlink_to(ext_store / "nope")
+            (central / "real-dir").mkdir()  # not a link, must be ignored
+
+            with mock.patch.object(webui, "CENTRAL_DIR", central):
+                warnings = webui.get_central_dir_warnings()
+            self.assertEqual(warnings, {"dangling_count": 1, "external_link_count": 2})
+
+    def test_get_central_dir_warnings_handles_missing_central_dir(self):
+        """get_central_dir_warnings() must return zeros if central dir does not exist."""
+        webui = load_python_webui_module()
+        with mock.patch.object(webui, "CENTRAL_DIR", Path("/nonexistent-easyskills-test-dir")):
+            warnings = webui.get_central_dir_warnings()
+        self.assertEqual(warnings, {"dangling_count": 0, "external_link_count": 0})
+
+    def test_link_health_fields_in_status_and_skill_endpoints(self):
+        """Both backends must expose dangling_count/external_link_count in /api/status
+        and is_external_link in /api/skills; the frontend must consume them."""
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        html_src = read("_maintenance/webui/index.html")
+
+        # /api/status link-health counts — both backends
+        for src, label in ((py_src, "webui.py"), (ps_src, "webui.ps1")):
+            with self.subTest(backend=label):
+                self.assertIn("dangling_count", src, f"{label} missing dangling_count in status")
+                self.assertIn("external_link_count", src, f"{label} missing external_link_count in status")
+
+        # /api/skills is_external_link field — both backends
+        for src, label in ((py_src, "webui.py"), (ps_src, "webui.ps1")):
+            with self.subTest(backend_skill_field=label):
+                self.assertIn("is_external_link", src, f"{label} missing is_external_link in skills")
+
+        # Frontend must consume these fields
+        self.assertIn("s.is_external_link", html_src)
+        self.assertIn("status.dangling_count", html_src)
+        self.assertIn("status.external_link_count", html_src)
+
+    def test_sync_prunes_dangling_symlinks_in_central_dir(self):
+        """deploy.sh run_sync must auto-unlink dangling symlinks from the central dir,
+        and deploy.ps1 Run-Sync must do the equivalent for reparse points."""
+        sh_src = read("_maintenance/deploy.sh")
+        ps_src = read("_maintenance/deploy.ps1")
+
+        # bash: dangling detection + unlink + count
+        self.assertIn('PART A.5', sh_src)
+        self.assertIn('[ -L "$_entry" ]', sh_src)
+        self.assertIn('dangling_removed', sh_src)
+        # The dangling branch must unlink
+        self.assertRegex(sh_src, r'if \[ ! -e "\$_entry" \][\s\S]*?unlink "\$_entry"')
+
+        # PowerShell: reparse-point detection + Remove-Item + count
+        self.assertIn('PART A.5', ps_src)
+        self.assertIn('ReparsePoint', ps_src)
+        self.assertIn('$DanglingRemoved', ps_src)
+
 
 if __name__ == "__main__":
     unittest.main()

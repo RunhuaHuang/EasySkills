@@ -425,6 +425,41 @@ run_sync() {
     fi
   done
 
+  # PART A.5: Prune dangling symlinks and flag external-link skills in the
+  # central dir.
+  #
+  # A dangling symlink (its target was removed) is dead weight that must never
+  # be forwarded into an agent's skills dir — agents that stat the link target
+  # without a try/catch (e.g. older Run) abort their whole skill scan on it,
+  # silently dropping every skill sorted after it. So we auto-remove them here.
+  #
+  # An external-link skill (a symlink whose target still exists) is left in
+  # place and forwarded normally for backward compatibility, but we warn and
+  # collect it so the summary can nudge the user toward converting it to a
+  # real directory (which removes the multi-hop link failure mode entirely).
+  #
+  # NOTE: the PART B glob "$CENTRAL_DIR"/*/ does NOT match dangling symlinks
+  # on macOS/Linux, so they would otherwise be invisible to the rest of this
+  # script. This plain-glob scan is the only place that sees them.
+  local dangling_removed=0
+  declare -a external_link_skills=()
+  for _entry in "$CENTRAL_DIR"/*; do
+    [ -L "$_entry" ] || continue
+    _e_name=$(basename "$_entry")
+    [[ "$_e_name" == node_modules || "$_e_name" == .git || "$_e_name" == dist || "$_e_name" == docs || "$_e_name" == _* ]] && continue
+    if [ ! -e "$_entry" ]; then
+      unlink "$_entry"
+      dangling_removed=$((dangling_removed + 1))
+      echo "   * Pruned dangling symlink: $_e_name (target no longer exists)"
+    else
+      external_link_skills+=("$_e_name")
+      echo "   ⚠ Warning: [$_e_name] is an external symlink -> $(readlink "$_entry")"
+      echo "     If its target is removed, this skill may break all agents' skill scans."
+      echo "     Consider converting it to a real directory."
+    fi
+  done
+  unset _entry _e_name
+
   # PART B: Map each custom skill directory
   for skill_dir in "$CENTRAL_DIR"/*/; do
     [ -d "$skill_dir" ] || continue
@@ -475,6 +510,18 @@ run_sync() {
       agent_name=$(get_agent_name "$injected")
       echo "   -> [$agent_name] $injected"
     done
+  fi
+  # Link-health report: surface the pruning/warning that ran in PART A.5 so the
+  # user can see why a skill disappeared (pruned) or why one is fragile.
+  if [ "$dangling_removed" -gt 0 ]; then
+    echo "----------------------------------------------------------"
+    echo "   Pruned $dangling_removed dangling skill link(s) from central dir."
+  fi
+  if [ "${#external_link_skills[@]}" -gt 0 ]; then
+    echo "----------------------------------------------------------"
+    echo "   ⚠ ${#external_link_skills[@]} skill(s) are external symlinks (still forwarded, but fragile):"
+    printf '      - %s\n' "${external_link_skills[@]}"
+    echo "   Tip: convert them to real directories for robustness."
   fi
   echo "=========================================================="
 }
@@ -628,6 +675,30 @@ run_status() {
 
   echo "   ------------------------------------------"
   echo "   Total: $agent_count agents, $skill_count skill mappings"
+
+  # Link-health snapshot of the central dir (read-only: status never deletes).
+  # Mirrors the PART A.5 detection in run_sync so users can preview problems
+  # without running a sync. Dangling links are reported as actionable; external
+  # links are reported as fragile.
+  local dangling_count=0
+  local external_count=0
+  if [ -d "$CENTRAL_DIR" ]; then
+    for _entry in "$CENTRAL_DIR"/*; do
+      [ -L "$_entry" ] || continue
+      _e_name=$(basename "$_entry")
+      [[ "$_e_name" == node_modules || "$_e_name" == .git || "$_e_name" == dist || "$_e_name" == docs || "$_e_name" == _* ]] && continue
+      if [ ! -e "$_entry" ]; then
+        dangling_count=$((dangling_count + 1))
+      else
+        external_count=$((external_count + 1))
+      fi
+    done
+    unset _entry _e_name
+  fi
+  if [ "$dangling_count" -gt 0 ] || [ "$external_count" -gt 0 ]; then
+    echo "   ------------------------------------------"
+    echo "   Link health: $dangling_count dangling (run sync to prune), $external_count external"
+  fi
   echo "=========================================================="
 }
 
