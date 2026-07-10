@@ -4,13 +4,13 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#安装方式)
-[![Agents](https://img.shields.io/badge/支持Agent-42+-orange.svg)](#支持的-agent-列表)
+[![Agents](https://img.shields.io/badge/支持Agent-43+-orange.svg)](#支持的-agent-列表)
 [![Version](https://img.shields.io/badge/版本-2.1.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **一个技能库，所有 Agent，始终同步。**
 
 只需将技能文件夹放入 `~/EasySkills` 一次，
-它就会通过原生链接，自动出现在 Claude Code、Codex、Cursor、Gemini、Copilot、Windsurf、Trae 等 42+ Agent 的技能目录中。
+它就会通过原生链接，自动出现在 Claude Code、Codex、Cursor、Gemini、Copilot、Windsurf、Trae 等 43+ Agent 的技能目录中。
 
 本地优先 &bull; 空闲零 CPU &bull; 自带 WebUI
 
@@ -141,7 +141,7 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 │ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
 │ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
 │ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
-│ ... 42+ 个目标，全部同步，始终一致         │
+│ ... 43+ 个目标，全部同步，始终一致         │
 └─────────────────────────────────────────────┘
 ```
 
@@ -178,7 +178,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 | | 特性 | 说明 |
 |:---:|:---|:---|
 | **1** | **技能库导入/删除** | 通过 WebUI 导入技能文件夹；删除时弹窗确认 |
-| **2** | **Agent 自动检测** | 自动识别 42+ 主流 Agent，只为真实存在的路径建立连接 |
+| **2** | **Agent 自动检测** | 自动识别 43+ 主流 Agent，只为真实存在的路径建立连接 |
 | **3** | **实时映射** | 监听服务在几秒内同步技能增删 |
 | **4** | **非侵入式** | 共享技能与 Agent 专属技能并列存在——原有 skills 不受影响 |
 | **5** | **Windows 免提权** | 使用 NTFS 目录联结，无需管理员权限或开发者模式 |
@@ -216,7 +216,7 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [选项]
 
 ## 支持的 Agent 列表
 
-开箱即用支持 42+ 个 Agent 目标路径，可随时通过命令行、WebUI 或对话添加自定义路径。
+开箱即用支持 43+ 个 Agent 目标路径，可随时通过命令行、WebUI 或对话添加自定义路径。
 
 <details>
 <summary><b>查看完整列表</b></summary>
@@ -265,6 +265,7 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [选项]
 | 40 | **CodeWhale** | `~/.codewhale/skills` | `%USERPROFILE%\.codewhale\skills` |
 | 41 | **QoderWork CN** | `~/.qoderworkcn/skills` | `%USERPROFILE%\.qoderworkcn\skills` |
 | 42 | **Qoder CN** | `~/.qoder-cn/skills` | `%USERPROFILE%\.qoder-cn\skills` |
+| 43 | **MiniMax Code** | `~/.mavis/skills` | `%USERPROFILE%\.mavis\skills` |
 
 > Trae 和 Trae CN 同时映射到 `~/Library/Application Support/Trae[-CN]/skills`（macOS）和 `%APPDATA%\Trae[-CN]\skills`（Windows）。
 

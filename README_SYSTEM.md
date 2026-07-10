@@ -258,3 +258,7 @@ their directory exists. Agents not installed on the machine are skipped.
 ### 42. Qoder CN
 - **macOS**: `~/.qoder-cn/skills`
 - **Windows**: `%USERPROFILE%\.qoder-cn\skills`
+
+### 43. MiniMax Code
+- **macOS**: `~/.mavis/skills`
+- **Windows**: `%USERPROFILE%\.mavis\skills`

@@ -280,12 +280,12 @@ class SecurityContractsTest(unittest.TestCase):
 
     def test_readme_version_and_agent_count_match_release(self):
         agent_count = len(json.loads(read("_maintenance/agents.json"))["agents"])
-        self.assertEqual(42, agent_count)
-        self.assertIn("Version-2.0.1", read("README_EN.md"))
-        self.assertIn("版本-2.0.1", read("README.md"))
+        self.assertEqual(43, agent_count)
+        self.assertIn("Version-2.1.0", read("README_EN.md"))
+        self.assertIn("版本-2.1.0", read("README.md"))
         self.assertIn(f"{agent_count}+ agent targets are pre-configured", read("README_EN.md"))
         self.assertIn(f"开箱即用支持 {agent_count}+ 个 Agent", read("README.md"))
-        self.assertEqual("2.0.1", read("_maintenance/.version").strip())
+        self.assertEqual("2.1.0", read("_maintenance/.version").strip())
 
     def test_default_agent_targets_include_requested_agents_and_corrected_paths(self):
         expected_paths = {
@@ -400,6 +400,13 @@ class SecurityContractsTest(unittest.TestCase):
                 "py": 'Path.home() / ".qoder-cn/skills"',
                 "doc_mac": "~/.qoder-cn/skills",
                 "doc_win": "%USERPROFILE%\\.qoder-cn\\skills",
+            },
+            "MiniMax Code": {
+                "mac": "$HOME/.mavis/skills",
+                "win": "$Home\\.mavis\\skills",
+                "py": 'Path.home() / ".mavis/skills"',
+                "doc_mac": "~/.mavis/skills",
+                "doc_win": "%USERPROFILE%\\.mavis\\skills",
             },
         }
 

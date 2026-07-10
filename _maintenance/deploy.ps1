@@ -151,7 +151,8 @@ function Load-Agents {
       "$Home\.qclaw\skills",
       "$Home\.codewhale\skills",
       "$Home\.qoderworkcn\skills",
-      "$Home\.qoder-cn\skills"
+      "$Home\.qoder-cn\skills",
+      "$Home\.mavis\skills"
     )
     $script:AgentNameMap = @{}
   }
@@ -343,6 +344,7 @@ function Get-AgentName ([string]$Path) {
     ".codewhale\*"             { return "CodeWhale" }
     ".qoderworkcn\*"           { return "QoderWork CN" }
     ".qoder-cn\*"              { return "Qoder CN" }
+    ".mavis\*"                 { return "MiniMax Code" }
     ".agents\*"                { return "Agents (Standard)" }
     ".run\*"                   { return "Run" }
     "Trae-CN\*"                { return "Trae CN" }

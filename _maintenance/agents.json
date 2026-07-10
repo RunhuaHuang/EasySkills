@@ -216,6 +216,11 @@
       "name": "Qoder CN",
       "mac_path": "~/.qoder-cn/skills",
       "win_path": "%USERPROFILE%\\.qoder-cn\\skills"
+    },
+    {
+      "name": "MiniMax Code",
+      "mac_path": "~/.mavis/skills",
+      "win_path": "%USERPROFILE%\\.mavis\\skills"
     }
   ]
 }
