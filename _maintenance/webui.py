@@ -190,7 +190,11 @@ def _load_or_create_token() -> str:
         finally:
             os.close(fd)
     except FileExistsError:
-        # Another process won the race — retry reading up to 3 times
+        # Another process won the race — retry reading up to 3 times. If the
+        # file exists but is empty/corrupt (e.g. a prior write was interrupted
+        # partway), reading it will never satisfy the length check and we would
+        # loop forever across restarts. Treat a persistently-invalid file as
+        # corrupt: remove it and fall through to create a fresh one.
         for _ in range(3):
             try:
                 candidate = TOKEN_FILE.read_text(encoding="utf-8").strip()
@@ -200,10 +204,20 @@ def _load_or_create_token() -> str:
                 pass
             import time
             time.sleep(0.05)
-        # Both processes failed to write a valid token; surface as an error
-        raise RuntimeError(
-            f"Token file {TOKEN_FILE} exists but could not be read after 3 retries."
-        )
+        # File exists but never held a valid token — it is corrupt (a prior
+        # write failed mid-way). Reclaim it instead of bricking startup.
+        try:
+            TOKEN_FILE.unlink()
+            fd = os.open(str(TOKEN_FILE), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, token.encode("utf-8"))
+            finally:
+                os.close(fd)
+            return token
+        except OSError:
+            raise RuntimeError(
+                f"Token file {TOKEN_FILE} exists but could not be read or reclaimed after 3 retries."
+            )
     except OSError:
         pass
     return token
@@ -1102,16 +1116,22 @@ def do_self_update() -> dict:
                         s.chmod(0o755)
 
             except Exception:
-                # Rollback: restore from backup_maint_new if available
+                # Rollback. Two renames happened above; the dangerous case is
+                # when the FIRST (current -> .bak) succeeded but the SECOND
+                # (new -> current) failed: the running version now lives in
+                # backup_maint and dest_maint is gone. The correct recovery is
+                # to UNDO the first rename (move .bak back to current), NOT to
+                # delete backup_maint — that would destroy the current version.
                 try:
                     if new_maint_tmp.exists():
                         shutil.rmtree(new_maint_tmp)
-                    if backup_maint_new.exists():
-                        if backup_maint.exists():
-                            shutil.rmtree(backup_maint)
-                        backup_maint_new.rename(backup_maint)
+                    # Undo the current->.bak rotation so the live version is
+                    # restored to its original place.
                     if not dest_maint.exists() and backup_maint.exists():
-                        shutil.copytree(backup_maint, dest_maint)
+                        backup_maint.rename(dest_maint)
+                    # Restore the pre-existing .bak snapshot (we overwrote it).
+                    if backup_maint_new.exists() and not backup_maint.exists():
+                        backup_maint_new.rename(backup_maint)
                 except Exception:
                     pass
                 raise
@@ -1164,11 +1184,31 @@ def do_rollback() -> dict:
             except OSError:
                 pass
 
-        if dest_maint.exists():
-            dest_maint.rename(CENTRAL_DIR / "_maintenance.prev")
-        rollback_tmp.rename(dest_maint)
-        # Remove the transient .prev directory
+        # Pre-clean _maintenance.prev: a stale .prev left by a prior failed
+        # rollback would make the rename below fail (POSIX rename refuses to
+        # overwrite an existing directory), dooming every subsequent rollback.
         prev = CENTRAL_DIR / "_maintenance.prev"
+        if prev.exists():
+            shutil.rmtree(prev)
+
+        try:
+            # Rotate: current -> .prev, rollback-tmp -> current (two renames).
+            if dest_maint.exists():
+                dest_maint.rename(prev)
+            rollback_tmp.rename(dest_maint)
+        except Exception:
+            # If the second rename failed after the first succeeded, the
+            # current version is stranded in .prev — restore it.
+            try:
+                if not dest_maint.exists() and prev.exists():
+                    prev.rename(dest_maint)
+                if rollback_tmp.exists():
+                    shutil.rmtree(rollback_tmp)
+            except Exception:
+                pass
+            raise
+
+        # Remove the transient .prev directory now that the rotation succeeded.
         if prev.exists():
             shutil.rmtree(prev)
 

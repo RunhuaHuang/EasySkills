@@ -663,8 +663,6 @@ function Quote-ProcessArgument([string]$Arg) {
 function Run-DeployCommand([string[]]$ArgsArr) {
     try {
         $DeployScript = Join-Path $ScriptDir "deploy.ps1"
-        $TempOut = [System.IO.Path]::GetTempFileName()
-        $TempErr = [System.IO.Path]::GetTempFileName()
         $ArgList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $DeployScript) + $ArgsArr
 
         $ProcInfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -675,12 +673,28 @@ function Run-DeployCommand([string[]]$ArgsArr) {
         $ProcInfo.RedirectStandardError = $true
         $ProcInfo.CreateNoWindow = $true
 
-        $Process = [System.Diagnostics.Process]::Start($ProcInfo)
-        # Read streams first to prevent deadlock, then wait
-        $StdOut = $Process.StandardOutput.ReadToEnd()
-        $StdErr = $Process.StandardError.ReadToEnd()
+        $Process = New-Object System.Diagnostics.Process
+        $Process.StartInfo = $ProcInfo
+        [void]$Process.Start()
+
+        # Read each stream asynchronously via the .NET Task API so neither
+        # pipe buffer can fill and deadlock the child while we block on the
+        # other. Synchronous ReadToEnd() on BOTH streams from one thread is
+        # the classic deadlock: if stdout fills its ~64 KiB OS pipe buffer
+        # while we block on stderr's ReadToEnd (or vice versa), the child
+        # blocks on its next write and the 30s timeout below is never reached.
+        # ReadToEndAsync returns a Task we can await after WaitForExit, so the
+        # timeout stays effective and both buffers drain concurrently.
+        $OutTask = $Process.StandardOutput.ReadToEndAsync()
+        $ErrTask = $Process.StandardError.ReadToEndAsync()
+
         $Finished = $Process.WaitForExit(30000)
-        if (-not $Finished) { try { $Process.Kill() } catch {} }
+        if (-not $Finished) { try { $Process.Kill(); $Process.WaitForExit(2000) } catch {} }
+
+        # Give the async reads a moment to complete after process exit.
+        try { $OutTask.Wait(2000) | Out-Null; $ErrTask.Wait(2000) | Out-Null } catch {}
+        $StdOut = if ($OutTask.IsCompleted) { $OutTask.Result } else { "" }
+        $StdErr = if ($ErrTask.IsCompleted) { $ErrTask.Result } else { "" }
 
         $ExitCode = if ($Finished) { $Process.ExitCode } else { 1 }
         $Combined = ("$StdOut$StdErr").Trim()
@@ -913,6 +927,15 @@ function Run-SelfUpdate {
             return @{ success = $false; message = "No download URL in release" }
         }
 
+        # Defense against a tampered API response redirecting the update to an
+        # arbitrary host. Only known GitHub delivery hosts are allowed. Mirrors
+        # _is_github_download_url / _GITHUB_TARBALL_HOSTS in webui.py.
+        $TrustedHosts = @("api.github.com", "github.com", "codeload.github.com", "objects.githubusercontent.com")
+        try { $DownloadHost = ([System.Uri]$ZipUrl).Host } catch { $DownloadHost = "" }
+        if (-not $ZipUrl.StartsWith("https://") -or $TrustedHosts -notcontains $DownloadHost) {
+            return @{ success = $false; message = "Update rejected: download host is not a trusted GitHub host ($DownloadHost)." }
+        }
+
         $TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "EasySkills_update_$(Get-Random)"
         New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
 
@@ -1005,15 +1028,22 @@ function Run-SelfUpdate {
 
                 if (Test-Path $BackupMaintNew) { Remove-Item $BackupMaintNew -Recurse -Force }
             } catch {
-                # Rollback: restore from backup snapshot if available
-                if (Test-Path $NewMaintTmp) { Remove-Item $NewMaintTmp -Recurse -Force }
-                if (Test-Path $BackupMaintNew) {
-                    if (Test-Path $BackupMaint) { Remove-Item $BackupMaint -Recurse -Force }
-                    Rename-Item -Path $BackupMaintNew -NewName "_maintenance.bak" -Force
-                }
-                if (-not (Test-Path $DestMaint) -and (Test-Path $BackupMaint)) {
-                    Copy-Item $BackupMaint $DestMaint -Recurse -Force
-                }
+                # Rollback. The dangerous case: the FIRST rename (current -> .bak)
+                # succeeded but the SECOND (new -> current) failed — the running
+                # version now lives in BackupMaint and DestMaint is gone. Undo the
+                # first rename instead of deleting BackupMaint (which would destroy
+                # the current version).
+                if (Test-Path $NewMaintTmp) { Remove-Item $NewMaintTmp -Recurse -Force -ErrorAction SilentlyContinue }
+                try {
+                    # Undo the current->.bak rotation so the live version is restored.
+                    if (-not (Test-Path $DestMaint) -and (Test-Path $BackupMaint)) {
+                        Rename-Item -Path $BackupMaint -NewName "_maintenance" -Force
+                    }
+                    # Restore the pre-existing .bak snapshot (we overwrote it).
+                    if ((Test-Path $BackupMaintNew) -and -not (Test-Path $BackupMaint)) {
+                        Rename-Item -Path $BackupMaintNew -NewName "_maintenance.bak" -Force
+                    }
+                } catch {}
                 throw
             }
         } finally {
@@ -1065,13 +1095,31 @@ function Do-Rollback {
         # Move our own working directory OUT of _maintenance before renaming it
         try { [System.IO.Directory]::SetCurrentDirectory($CentralDir) } catch {}
 
-        if (Test-Path $DestMaint) {
-            Rename-Item -Path $DestMaint -NewName "_maintenance.prev" -Force
-        }
-        Rename-Item -Path $RollbackTmp -NewName "_maintenance" -Force
-
+        # Pre-clean _maintenance.prev: a stale .prev from a prior failed
+        # rollback would make the rename below fail, dooming every subsequent
+        # rollback attempt until manual cleanup.
         $Prev = Join-Path $CentralDir "_maintenance.prev"
-        if (Test-Path $Prev) { Remove-Item $Prev -Recurse -Force }
+        if (Test-Path $Prev) { Remove-Item $Prev -Recurse -Force -ErrorAction SilentlyContinue }
+
+        try {
+            # Rotate: current -> .prev, rollback-tmp -> current (two renames).
+            if (Test-Path $DestMaint) {
+                Rename-Item -Path $DestMaint -NewName "_maintenance.prev" -Force
+            }
+            Rename-Item -Path $RollbackTmp -NewName "_maintenance" -Force
+        } catch {
+            # If the second rename failed after the first succeeded, the
+            # current version is stranded in .prev — restore it.
+            try {
+                if (-not (Test-Path $DestMaint) -and (Test-Path $Prev)) {
+                    Rename-Item -Path $Prev -NewName "_maintenance" -Force
+                }
+                if (Test-Path $RollbackTmp) { Remove-Item $RollbackTmp -Recurse -Force -ErrorAction SilentlyContinue }
+            } catch {}
+            throw
+        }
+
+        if (Test-Path $Prev) { Remove-Item $Prev -Recurse -Force -ErrorAction SilentlyContinue }
 
         Run-DeployCommand @("-Sync") | Out-Null
         # Remove backup so a second rollback doesn't restore stale state
