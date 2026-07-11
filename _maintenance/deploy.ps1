@@ -377,22 +377,27 @@ function Run-Sync {
   $CentralResolved = (Resolve-Path -LiteralPath $CentralDir).ProviderPath
   foreach ($Target in $script:Targets) {
     $DestPath = Join-Path -Path $Target -ChildPath "EasySkills"
-    if (Test-Path $DestPath) {
-      $Item = Get-Item $DestPath
-      if ($Item.Attributes -match "ReparsePoint") {
-        $LinkTarget = $Item.Target
-        $ResolvedTarget = $null
-        if ($LinkTarget) {
-          try {
-            $ResolvedTarget = (Resolve-Path -LiteralPath $LinkTarget).ProviderPath
-          } catch {
-            try { $ResolvedTarget = [System.IO.Path]::GetFullPath($LinkTarget) } catch {}
-          }
+    # Use Get-Item -Force (not Test-Path) so a DANGLING reparse point — whose
+    # target no longer exists and which Test-Path follows and reports as False —
+    # is still detected. Test-Path on a reparse point follows the link; the
+    # attributes check below does not.
+    $Item = Get-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
+    if ($Item -and ($Item.Attributes -match "ReparsePoint")) {
+      $LinkTarget = $Item.Target
+      $ResolvedTarget = $null
+      if ($LinkTarget) {
+        try {
+          $ResolvedTarget = (Resolve-Path -LiteralPath $LinkTarget).ProviderPath
+        } catch {
+          try { $ResolvedTarget = [System.IO.Path]::GetFullPath($LinkTarget) } catch {}
         }
-        if ($ResolvedTarget -and $ResolvedTarget.Equals($CentralResolved, [System.StringComparison]::OrdinalIgnoreCase)) {
-          Remove-Item $Item.FullName -Recurse -Force
-          Write-Host "   * Cleaned up legacy self-mapping -> $DestPath" -ForegroundColor Green
-        }
+      }
+      if ($ResolvedTarget -and $ResolvedTarget.Equals($CentralResolved, [System.StringComparison]::OrdinalIgnoreCase)) {
+        # Delete the reparse point ITSELF, never its target. Remove-Item -Recurse
+        # on a directory junction/symlink can traverse into and delete the real
+        # contents of the link target on Windows PowerShell 5.1.
+        [System.IO.Directory]::Delete($Item.FullName, $false)
+        Write-Host "   * Cleaned up legacy self-mapping -> $DestPath" -ForegroundColor Green
       }
     }
   }
@@ -420,7 +425,10 @@ function Run-Sync {
     if ($EName -eq "node_modules" -or $EName -eq ".git" -or $EName -eq "dist" -or $EName -eq "docs" -or $EName -eq "_maintenance" -or $EName -like "_*") { continue }
     # Test-Path follows the reparse point: False => dangling, True => external.
     if (-not (Test-Path $Entry.FullName)) {
-      Remove-Item $Entry.FullName -Force -ErrorAction SilentlyContinue
+      # Delete the dead link itself, not any target it may still partially
+      # resolve to. Directory::Delete(path, $false) removes the reparse point
+      # without recursing into the target.
+      try { [System.IO.Directory]::Delete($Entry.FullName, $false) } catch {}
       $DanglingRemoved++
       Write-Host "   * Pruned dangling link: $EName (target no longer exists)" -ForegroundColor DarkGray
     } else {
@@ -461,10 +469,18 @@ function Run-Sync {
 
       $DestPath = Join-Path -Path $Target -ChildPath $SkillName
 
-      if (Test-Path $DestPath) {
-        $Item = Get-Item $DestPath
-        if ($Item.Attributes -match "ReparsePoint") {
-          Remove-Item $DestPath -Recurse -Force
+      # Detect an existing entry WITHOUT following reparse points. Test-Path
+      # follows links, so a DANGLING junction/symlink (target removed) reports
+      # False and would be skipped below — then New-Item would fail because the
+      # dead reparse point still occupies the name. Get-Item -Force sees the
+      # entry regardless of whether its target exists.
+      $Existing = Get-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
+      if ($Existing) {
+        if ($Existing.Attributes -match "ReparsePoint") {
+          # Remove the link ITSELF only — never recurse into its target
+          # (Remove-Item -Recurse on a directory junction can delete the real
+          # target contents on Windows PowerShell 5.1).
+          [System.IO.Directory]::Delete($Existing.FullName, $false)
         } else {
           Write-Host "      Warning: [$SkillName] already exists as a real directory in $Target. Skipped." -ForegroundColor Yellow
           continue
@@ -593,7 +609,8 @@ function Run-Cleanup {
             }
           }
           if ($ResolvedTarget -and ($ResolvedTarget.Equals($CentralResolved, [System.StringComparison]::OrdinalIgnoreCase) -or $ResolvedTarget.StartsWith("$CentralResolved\", [System.StringComparison]::OrdinalIgnoreCase))) {
-            Remove-Item $Item.FullName -Recurse -Force
+            # Delete the reparse point only, not its target's contents.
+            [System.IO.Directory]::Delete($Item.FullName, $false)
             Write-Host "   Removed junction: $($Item.FullName)" -ForegroundColor Green
           }
         }

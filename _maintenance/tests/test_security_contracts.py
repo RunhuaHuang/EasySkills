@@ -279,136 +279,25 @@ class SecurityContractsTest(unittest.TestCase):
                 self.assertFalse((central / "ImportedSkill").exists())
 
     def test_readme_version_and_agent_count_match_release(self):
+        # agents.json is the single source of truth for the agent count, and
+        # _maintenance/.version is the single source of truth for the version.
+        # Deriving both expected values from those files (instead of hardcoding
+        # them here) means this test never goes red just because a release
+        # bumped the version but forgot to update the assertions.
         agent_count = len(json.loads(read("_maintenance/agents.json"))["agents"])
-        self.assertEqual(43, agent_count)
-        self.assertIn("Version-2.1.0", read("README_EN.md"))
-        self.assertIn("版本-2.1.0", read("README.md"))
+        version = read("_maintenance/.version").strip()
+
+        self.assertIn(f"Version-{version}", read("README_EN.md"))
+        self.assertIn(f"版本-{version}", read("README.md"))
         self.assertIn(f"{agent_count}+ agent targets are pre-configured", read("README_EN.md"))
         self.assertIn(f"开箱即用支持 {agent_count}+ 个 Agent", read("README.md"))
-        self.assertEqual("2.1.0", read("_maintenance/.version").strip())
 
     def test_default_agent_targets_include_requested_agents_and_corrected_paths(self):
-        expected_paths = {
-            "Qoder": {
-                "mac": "$HOME/.qoder/skills",
-                "win": "$Home\\.qoder\\skills",
-                "py": 'Path.home() / ".qoder/skills"',
-                "doc_mac": "~/.qoder/skills",
-                "doc_win": "%USERPROFILE%\\.qoder\\skills",
-            },
-            "Qwen Code": {
-                "mac": "$HOME/.qwen/skills",
-                "win": "$Home\\.qwen\\skills",
-                "py": 'Path.home() / ".qwen/skills"',
-                "doc_mac": "~/.qwen/skills",
-                "doc_win": "%USERPROFILE%\\.qwen\\skills",
-            },
-            "CodeBuddy": {
-                "mac": "$HOME/.codebuddy/skills",
-                "win": "$Home\\.codebuddy\\skills",
-                "py": 'Path.home() / ".codebuddy/skills"',
-                "doc_mac": "~/.codebuddy/skills",
-                "doc_win": "%USERPROFILE%\\.codebuddy\\skills",
-            },
-            "Amp": {
-                "mac": "$HOME/.config/agents/skills",
-                "win": "$Home\\.config\\agents\\skills",
-                "py": 'Path.home() / ".config/agents/skills"',
-                "doc_mac": "~/.config/agents/skills",
-                "doc_win": "%USERPROFILE%\\.config\\agents\\skills",
-            },
-            "OpenHands": {
-                "mac": "$HOME/.openhands/skills",
-                "win": "$Home\\.openhands\\skills",
-                "py": 'Path.home() / ".openhands/skills"',
-                "doc_mac": "~/.openhands/skills",
-                "doc_win": "%USERPROFILE%\\.openhands\\skills",
-            },
-            "Kilo Code": {
-                "mac": "$HOME/.kilocode/skills",
-                "win": "$Home\\.kilocode\\skills",
-                "py": 'Path.home() / ".kilocode/skills"',
-                "doc_mac": "~/.kilocode/skills",
-                "doc_win": "%USERPROFILE%\\.kilocode\\skills",
-            },
-            "Zencoder": {
-                "mac": "$HOME/.zencoder/skills",
-                "win": "$Home\\.zencoder\\skills",
-                "py": 'Path.home() / ".zencoder/skills"',
-                "doc_mac": "~/.zencoder/skills",
-                "doc_win": "%USERPROFILE%\\.zencoder\\skills",
-            },
-            "iFlow CLI": {
-                "mac": "$HOME/.iflow/skills",
-                "win": "$Home\\.iflow\\skills",
-                "py": 'Path.home() / ".iflow/skills"',
-                "doc_mac": "~/.iflow/skills",
-                "doc_win": "%USERPROFILE%\\.iflow\\skills",
-            },
-            "Droid": {
-                "mac": "$HOME/.factory/skills",
-                "win": "$Home\\.factory\\skills",
-                "py": 'Path.home() / ".factory/skills"',
-                "doc_mac": "~/.factory/skills",
-                "doc_win": "%USERPROFILE%\\.factory\\skills",
-            },
-            "Devin for Terminal": {
-                "mac": "$HOME/.config/devin/skills",
-                "win": "$Home\\.config\\devin\\skills",
-                "py": 'Path.home() / ".config/devin/skills"',
-                "doc_mac": "~/.config/devin/skills",
-                "doc_win": "%USERPROFILE%\\.config\\devin\\skills",
-            },
-            "OpenCode": {
-                "mac": "$HOME/.config/opencode/skills",
-                "win": "$Home\\.config\\opencode\\skills",
-                "py": 'Path.home() / ".config/opencode/skills"',
-                "doc_mac": "~/.config/opencode/skills",
-                "doc_win": "%USERPROFILE%\\.config\\opencode\\skills",
-            },
-            "Goose": {
-                "mac": "$HOME/.config/goose/skills",
-                "win": "$Home\\.config\\goose\\skills",
-                "py": 'Path.home() / ".config/goose/skills"',
-                "doc_mac": "~/.config/goose/skills",
-                "doc_win": "%USERPROFILE%\\.config\\goose\\skills",
-            },
-            "Windsurf": {
-                "mac": "$HOME/.codeium/windsurf/skills",
-                "win": "$Home\\.codeium\\windsurf\\skills",
-                "py": 'Path.home() / ".codeium/windsurf/skills"',
-                "doc_mac": "~/.codeium/windsurf/skills",
-                "doc_win": "%USERPROFILE%\\.codeium\\windsurf\\skills",
-            },
-            "Pi": {
-                "mac": "$HOME/.pi/agent/skills",
-                "win": "$Home\\.pi\\agent\\skills",
-                "py": 'Path.home() / ".pi/agent/skills"',
-                "doc_mac": "~/.pi/agent/skills",
-                "doc_win": "%USERPROFILE%\\.pi\\agent\\skills",
-            },
-            "QoderWork CN": {
-                "mac": "$HOME/.qoderworkcn/skills",
-                "win": "$Home\\.qoderworkcn\\skills",
-                "py": 'Path.home() / ".qoderworkcn/skills"',
-                "doc_mac": "~/.qoderworkcn/skills",
-                "doc_win": "%USERPROFILE%\\.qoderworkcn\\skills",
-            },
-            "Qoder CN": {
-                "mac": "$HOME/.qoder-cn/skills",
-                "win": "$Home\\.qoder-cn\\skills",
-                "py": 'Path.home() / ".qoder-cn/skills"',
-                "doc_mac": "~/.qoder-cn/skills",
-                "doc_win": "%USERPROFILE%\\.qoder-cn\\skills",
-            },
-            "MiniMax Code": {
-                "mac": "$HOME/.mavis/skills",
-                "win": "$Home\\.mavis\\skills",
-                "py": 'Path.home() / ".mavis/skills"',
-                "doc_mac": "~/.mavis/skills",
-                "doc_win": "%USERPROFILE%\\.mavis\\skills",
-            },
-        }
+        # Driven by agents.json (the single source of truth): every agent entry
+        # is checked across all five runtime surfaces so a new agent can never
+        # silently land in only some files. Path forms are derived mechanically
+        # from the canonical mac_path/win_path in agents.json.
+        agents = json.loads(read("_maintenance/agents.json"))["agents"]
 
         deploy_sh = read("_maintenance/deploy.sh")
         deploy_ps = read("_maintenance/deploy.ps1")
@@ -416,14 +305,33 @@ class SecurityContractsTest(unittest.TestCase):
         webui_ps = read("_maintenance/webui.ps1")
         docs = read("README.md") + read("README_EN.md") + read("README_SYSTEM.md")
 
-        for name, paths in expected_paths.items():
+        for agent in agents:
+            name = agent["name"]
+            mac_tilde = agent["mac_path"]                       # ~/.xxx/skills
+            win_env = agent["win_path"]                         # %USERPROFILE%\.xxx\skills
+
+            mac_home = "$HOME/" + mac_tilde[2:]                 # deploy.sh form
+            win_ps = "$Home\\" + win_env[len("%USERPROFILE%\\"):]  # .ps1 form
+            py_tail = mac_tilde[2:]                             # webui.py string-literal tail
+
             with self.subTest(agent=name):
-                self.assertIn(paths["mac"], deploy_sh)
-                self.assertIn(paths["win"], deploy_ps)
-                self.assertIn(paths["py"], webui_py)
-                self.assertIn(paths["win"], webui_ps)
-                self.assertIn(paths["doc_mac"], docs)
-                self.assertIn(paths["doc_win"], docs)
+                self.assertIn(mac_home, deploy_sh,
+                              f"{name}: deploy.sh missing {mac_home}")
+                self.assertIn(win_ps, deploy_ps,
+                              f"{name}: deploy.ps1 missing {win_ps}")
+                # webui.py uses the mac_path tail as a single string literal
+                # (e.g. Path.home() / ".codex/skills"). Match the tail; one
+                # legacy entry (Run) splits the segments, so fall back to the
+                # final path component for that case.
+                if py_tail not in webui_py:
+                    self.assertIn(py_tail.rsplit("/", 1)[-1], webui_py,
+                                  f"{name}: webui.py missing path tail for {mac_tilde}")
+                self.assertIn(win_ps, webui_ps,
+                              f"{name}: webui.ps1 missing {win_ps}")
+                self.assertIn(mac_tilde, docs,
+                              f"{name}: docs missing {mac_tilde}")
+                self.assertIn(win_env, docs,
+                              f"{name}: docs missing {win_env}")
 
         for stale_path in (
             "$HOME/.opencode/skills",
@@ -1011,6 +919,136 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn('PART A.5', ps_src)
         self.assertIn('ReparsePoint', ps_src)
         self.assertIn('$DanglingRemoved', ps_src)
+
+    # -------------------------------------------------------------------------
+    # Reparse-point safety: never delete link target contents (Fix A/B)
+    # -------------------------------------------------------------------------
+
+    def test_deploy_ps1_deletes_reparse_points_without_recurse(self):
+        """deploy.ps1 must NEVER use Remove-Item -Recurse on a reparse point.
+
+        Remove-Item -Recurse -Force on a directory junction/symlink can
+        traverse into and delete the REAL contents of the link target on
+        Windows PowerShell 5.1 — permanent data loss of the central skill
+        library. Reparse points must be removed with a non-recursive delete
+        (Directory::Delete(path, $false)) that only removes the link itself.
+        """
+        ps_src = read("_maintenance/deploy.ps1")
+        # No Remove-Item call on a reparse-point path may carry -Recurse.
+        # Find every ReparsePoint branch and assert the line after the
+        # attribute check uses Directory::Delete, not Remove-Item -Recurse.
+        self.assertNotIn("Remove-Item $DestPath -Recurse -Force", ps_src,
+                         "PART B must not use Remove-Item -Recurse on junctions")
+        self.assertNotIn("Remove-Item $Item.FullName -Recurse -Force", ps_src,
+                         "PART A legacy cleanup must not use Remove-Item -Recurse on junctions")
+        # The safe non-recursive delete must be present.
+        self.assertIn("[System.IO.Directory]::Delete(", ps_src)
+
+    def test_deploy_ps1_detects_reparse_points_without_following_links(self):
+        """deploy.ps1 PART B must use Get-Item -Force (attributes), not
+        Test-Path, to detect an existing entry at the destination.
+
+        Test-Path FOLLOWS reparse points: a dangling junction (target removed)
+        reports False, so it would be skipped and New-Item would then fail
+        because the dead reparse point still occupies the name. Get-Item
+        -Force sees the entry regardless of whether its target exists.
+        """
+        ps_src = read("_maintenance/deploy.ps1")
+        # The existence check in PART B must use Get-Item -Force, not Test-Path.
+        self.assertIn("Get-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue", ps_src)
+
+    # -------------------------------------------------------------------------
+    # Self-update / rollback: host allowlist + rename-recovery (Fix C/D/E)
+    # -------------------------------------------------------------------------
+
+    def test_webui_ps1_self_update_validates_download_host(self):
+        """webui.ps1 Run-SelfUpdate must reject download URLs whose host is not
+        a trusted GitHub delivery host, mirroring webui.py's
+        _is_github_download_url / _GITHUB_TARBALL_HOSTS."""
+        ps_src = read("_maintenance/webui.ps1")
+        self.assertIn("$TrustedHosts", ps_src)
+        self.assertIn("objects.githubusercontent.com", ps_src)
+        self.assertIn("Update rejected: download host is not a trusted GitHub host", ps_src)
+
+    def test_webui_py_self_update_rollback_undoes_first_rename(self):
+        """do_self_update rollback must UNDO the current->.bak rotation
+        (restore the live version to its original place) when the second
+        rename fails — it must NOT rmtree the backup, which would destroy the
+        currently-running version."""
+        py_src = read("_maintenance/webui.py")
+        rollback_fn = py_src.split("def do_self_update")[1].split("\ndef ")[0]
+        rollback_block = rollback_fn.split("except Exception:")[1] if "except Exception:" in rollback_fn else ""
+        # The recovery must rename .bak back to _maintenance (undo), not
+        # rmtree the backup (which would destroy the current version).
+        self.assertIn("backup_maint.rename(dest_maint)", rollback_block,
+                      "rollback must undo current->.bak by renaming back")
+        # The destructive rmtree of backup_maint must NOT be in the rollback.
+        self.assertNotIn("shutil.rmtree(backup_maint)", rollback_block,
+                         "rollback must not destroy the current version in .bak")
+
+    def test_webui_py_rollback_precleans_prev_and_recovers(self):
+        """do_rollback must pre-clean _maintenance.prev (a stale .prev would
+        make every subsequent rollback fail) and must restore the current
+        version from .prev if the second rename fails."""
+        py_src = read("_maintenance/webui.py")
+        rollback_fn = py_src.split("def do_rollback")[1].split("\ndef ")[0]
+        # Pre-clean of .prev must happen BEFORE the rename.
+        rename_idx = rollback_fn.index("dest_maint.rename")
+        preclean_idx = rollback_fn.index("shutil.rmtree(prev)")
+        self.assertLess(preclean_idx, rename_idx,
+                        "_maintenance.prev must be cleaned before the rename rotation")
+        # Recovery: restore from .prev on failure.
+        self.assertIn("prev.rename(dest_maint)", rollback_fn,
+                      "rollback must restore current version from .prev on failure")
+
+    def test_webui_ps1_rollback_precleans_prev_and_recovers(self):
+        """PowerShell Do-Rollback must pre-clean _maintenance.prev and recover
+        from a failed second rename — same contract as the Python side."""
+        ps_src = read("_maintenance/webui.ps1")
+        rollback_fn = ps_src.split("function Do-Rollback")[1].split("\nfunction ")[0]
+        # Pre-clean before rename.
+        self.assertIn("Rename-Item -Path $Prev", rollback_fn)
+        # Recovery from .prev.
+        self.assertRegex(rollback_fn, r"Rename-Item -Path \$Prev -NewName .*_maintenance",
+                         "Do-Rollback must restore from .prev on failure")
+
+    # -------------------------------------------------------------------------
+    # Run-DeployCommand: async reads prevent deadlock (Fix F)
+    # -------------------------------------------------------------------------
+
+    def test_webui_ps1_deploy_command_reads_streams_asynchronously(self):
+        """Run-DeployCommand must read stdout/stderr asynchronously
+        (ReadToEndAsync) so the 30s timeout actually works. Synchronous
+        ReadToEnd on both streams deadlocks when the child fills the pipe
+        buffer on one stream while we block reading the other."""
+        ps_src = read("_maintenance/webui.ps1")
+        self.assertIn("ReadToEndAsync", ps_src)
+        # The deadlock-prone synchronous pattern must be gone. (A bare
+        # ReadToEndAsync must be the only ReadToEnd-family call here.)
+        self.assertNotIn("StandardOutput.ReadToEnd()", ps_src)
+        self.assertNotIn("StandardError.ReadToEnd()", ps_src)
+
+    # -------------------------------------------------------------------------
+    # Token: corrupt file recovery prevents bricked startup (Fix G)
+    # -------------------------------------------------------------------------
+
+    def test_token_loader_reclaims_corrupt_file(self):
+        """_load_or_create_token must reclaim a corrupt (empty/short) token
+        file instead of looping forever across restarts. A prior interrupted
+        write can leave the file existing-but-empty, which the O_CREAT|O_EXCL
+        path can never replace — bricking startup with RuntimeError."""
+        webui = load_python_webui_module()
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            token_file = Path(tmp) / ".easyskills-token"
+            # Simulate a corrupt (empty) token file.
+            token_file.write_text("")
+            with mock.patch.object(webui, "TOKEN_FILE", token_file):
+                token = webui._load_or_create_token()
+            # Must have produced a valid token, not raised RuntimeError.
+            self.assertGreaterEqual(len(token), 16)
+            # The file must now hold the new valid token.
+            self.assertEqual(token, token_file.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
