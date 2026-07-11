@@ -4,13 +4,13 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#installation)
-[![Agents](https://img.shields.io/badge/Supported%20Agents-42+-orange.svg)](#supported-agents)
+[![Agents](https://img.shields.io/badge/Supported%20Agents-43+-orange.svg)](#supported-agents)
 [![Version](https://img.shields.io/badge/Version-2.1.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **One skill library. Every agent. Always in sync.**
 
 Drop a skill folder once into `~/EasySkills`.
-It appears in Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 42+ more agent targets — instantly, through native links.
+It appears in Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 43+ more agent targets — instantly, through native links.
 
 Local-first &bull; Zero idle CPU &bull; WebUI included
 
@@ -141,7 +141,7 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 │ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
 │ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
 │ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
-│ ... 42+ targets, all in sync, all the time  │
+│ ... 43+ targets, all in sync, all the time  │
 └─────────────────────────────────────────────┘
 ```
 
@@ -178,7 +178,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 | | Feature | Details |
 |:---:|:---|:---|
 | **1** | **Skill library import/delete** | Import skill folders through the WebUI; delete with confirmation dialog. Manage linked agents visually |
-| **2** | **Agent auto-discovery** | Detects 42+ mainstream agents and only links paths that actually exist |
+| **2** | **Agent auto-discovery** | Detects 43+ mainstream agents and only links paths that actually exist |
 | **3** | **Live mapping** | Watcher syncs skill additions/removals within seconds |
 | **4** | **Non-invasive** | Shared skills sit beside agent-specific skills — private skills keep working |
 | **5** | **Zero-privilege Windows** | NTFS directory junctions — no admin mode or Developer Mode needed |
@@ -216,7 +216,7 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
 
 ## Supported Agents
 
-42+ agent targets are pre-configured. Custom paths can be added at any time via CLI, WebUI, or chat.
+43+ agent targets are pre-configured. Custom paths can be added at any time via CLI, WebUI, or chat.
 
 <details>
 <summary><b>View full agent list</b></summary>
@@ -265,6 +265,7 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
 | 40 | **CodeWhale** | `~/.codewhale/skills` | `%USERPROFILE%\.codewhale\skills` |
 | 41 | **QoderWork CN** | `~/.qoderworkcn/skills` | `%USERPROFILE%\.qoderworkcn\skills` |
 | 42 | **Qoder CN** | `~/.qoder-cn/skills` | `%USERPROFILE%\.qoder-cn\skills` |
+| 43 | **MiniMax Code** | `~/.mavis/skills` | `%USERPROFILE%\.mavis\skills` |
 
 > Trae and Trae CN also map to `~/Library/Application Support/Trae[-CN]/skills` (macOS) and `%APPDATA%\Trae[-CN]\skills` (Windows).
 

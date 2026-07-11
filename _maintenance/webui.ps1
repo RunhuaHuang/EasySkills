@@ -221,7 +221,8 @@ function Load-DefaultAgents {
         @{ Name="QClaw"; Path="$Home\.qclaw\skills" },
         @{ Name="CodeWhale"; Path="$Home\.codewhale\skills" },
         @{ Name="QoderWork CN"; Path="$Home\.qoderworkcn\skills" },
-        @{ Name="Qoder CN"; Path="$Home\.qoder-cn\skills" }
+        @{ Name="Qoder CN"; Path="$Home\.qoder-cn\skills" },
+        @{ Name="MiniMax Code"; Path="$Home\.mavis\skills" }
     )
 }
 $DefaultAgents = Load-DefaultAgents
@@ -396,6 +397,7 @@ function Get-AgentNameFromPath([string]$PathStr) {
     if ($PathStr -like "*\.codewhale\*") { return "CodeWhale" }
     if ($PathStr -like "*\.qoderworkcn\*") { return "QoderWork CN" }
     if ($PathStr -like "*\.qoder-cn\*") { return "Qoder CN" }
+    if ($PathStr -like "*\.mavis\*") { return "MiniMax Code" }
     if ($PathStr -like "*\.agents\*") { return "Agents (Standard)" }
     if ($PathStr -like "*\.run\*") { return "Run" }
     return "Custom Agent"

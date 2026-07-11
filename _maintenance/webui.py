@@ -282,6 +282,7 @@ def _load_default_agents() -> list[tuple[str, Path]]:
         ("CodeWhale",                      Path.home() / ".codewhale/skills"),
         ("QoderWork CN",                   Path.home() / ".qoderworkcn/skills"),
         ("Qoder CN",                       Path.home() / ".qoder-cn/skills"),
+        ("MiniMax Code",                   Path.home() / ".mavis/skills"),
     ]
 
 DEFAULT_AGENTS = _load_default_agents()
@@ -337,6 +338,7 @@ _AGENT_PREFIX_MAP: list[tuple[str, str]] = [
     (".codewhale/",         "CodeWhale"),
     (".qoderworkcn/",       "QoderWork CN"),
     (".qoder-cn/",          "Qoder CN"),
+    (".mavis/",             "MiniMax Code"),
     (".agents/",            "Agents (Standard)"),
     (".run/",               "Run"),
     ("Trae-CN/",            "Trae CN"),

@@ -139,6 +139,7 @@ except Exception:
     "$HOME/.codewhale/skills"
     "$HOME/.qoderworkcn/skills"
     "$HOME/.qoder-cn/skills"
+    "$HOME/.mavis/skills"
   )
   AGENT_NAMES=()
 }
@@ -372,6 +373,7 @@ get_agent_name() {
     .codewhale/*)          echo "CodeWhale" ;;
     .qoderworkcn/*)        echo "QoderWork CN" ;;
     .qoder-cn/*)           echo "Qoder CN" ;;
+    .mavis/*)              echo "MiniMax Code" ;;
     .agents/*)             echo "Agents (Standard)" ;;
     .run/*)                echo "Run" ;;
     Library/Application\ Support/Trae-CN/*) echo "Trae CN" ;;
