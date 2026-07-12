@@ -3403,7 +3403,10 @@
 
         function renderInstructions(data) {
             if (!data) return;
-            const sig = JSON.stringify(data);
+            // Include currentLang in the signature so a language switch forces
+            // a re-render even when the backend payload is unchanged (the card
+            // button labels are generated from dict[currentLang] at render time).
+            const sig = currentLang + '\n' + JSON.stringify(data);
             if (sig === lastInstructionsJson) return;
             lastInstructionsJson = sig;
 
@@ -3499,7 +3502,10 @@
             if (name) {
                 nameInput.value = name;
                 nameInput.disabled = true;
-                const res = await fetch('/api/instructions/content/' + encodeURIComponent(name), { headers: { 'X-EasySkills-Token': easySkillsToken } });
+                let res = await fetch('/api/instructions/content/' + encodeURIComponent(name), { headers: { 'X-EasySkills-Token': easySkillsToken } });
+                if (res.status === 403 && await refreshEasySkillsToken()) {
+                    res = await fetch('/api/instructions/content/' + encodeURIComponent(name), { headers: { 'X-EasySkills-Token': easySkillsToken } });
+                }
                 if (res.ok) {
                     const data = await res.json();
                     contentArea.value = data.content || '';

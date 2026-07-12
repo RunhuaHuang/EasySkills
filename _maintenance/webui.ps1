@@ -1072,16 +1072,16 @@ function Write-InstructionsToOne([string]$PathStr) {
         if (Test-Path $Resolved) { $Existing = [System.IO.File]::ReadAllText($Resolved, [System.Text.Encoding]::UTF8) }
         $NewContent = Inject-ManagedBlock $Existing $Block
         [System.IO.File]::WriteAllText($Resolved, $NewContent, [System.Text.Encoding]::UTF8)
-        return $true
+        return @{ success = $true; message = "Wrote rules to $Resolved" }
     } catch {
-        return $false
+        return @{ success = $false; message = "Write failed for $PathStr: $_" }
     }
 }
 
 function Remove-InstructionsFromOne([string]$PathStr) {
     try {
         $Resolved = [System.IO.Path]::GetFullPath($PathStr)
-        if (-not (Test-Path $Resolved)) { return $true }
+        if (-not (Test-Path $Resolved)) { return @{ success = $true; message = "File does not exist: $Resolved" } }
         $Content = [System.IO.File]::ReadAllText($Resolved, [System.Text.Encoding]::UTF8)
         $Remaining = Strip-ManagedBlock $Content
         if ($Remaining.Trim()) {
@@ -1089,9 +1089,9 @@ function Remove-InstructionsFromOne([string]$PathStr) {
         } else {
             Remove-Item -LiteralPath $Resolved -Force
         }
-        return $true
+        return @{ success = $true; message = "Removed managed block from $Resolved" }
     } catch {
-        return $false
+        return @{ success = $false; message = "Remove failed for $PathStr: $_" }
     }
 }
 
@@ -1102,7 +1102,8 @@ function Write-InstructionsToAll {
     if ($Targets.Count -eq 0) { return @{ success = $false; message = "No agent instruction targets found." } }
     $Written = @(); $Failed = @()
     foreach ($T in $Targets) {
-        if (Write-InstructionsToOne $T.Path) { $Written += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
+        $Result = Write-InstructionsToOne $T.Path
+        if ($Result.success) { $Written += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
     }
     $Msg = "Wrote rules to $($Written.Count) agent(s)."
     if ($Failed.Count -gt 0) { $Msg += " Failed: $($Failed -join ', ')" }
@@ -1114,7 +1115,8 @@ function Remove-InstructionsFromAll {
     if ($Targets.Count -eq 0) { return @{ success = $false; message = "No agent instruction targets found." } }
     $Removed = @(); $Failed = @()
     foreach ($T in $Targets) {
-        if (Remove-InstructionsFromOne $T.Path) { $Removed += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
+        $Result = Remove-InstructionsFromOne $T.Path
+        if ($Result.success) { $Removed += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
     }
     $Msg = "Removed managed block from $($Removed.Count) agent(s)."
     if ($Failed.Count -gt 0) { $Msg += " Failed: $($Failed -join ', ')" }
@@ -1657,9 +1659,9 @@ function Invoke-WebUIRequest($Context) {
         } elseif ($UrlPath -eq "/api/instructions/remove-all") {
             Send-JsonResponse $Context (Remove-InstructionsFromAll)
         } elseif ($UrlPath -eq "/api/instructions/write-one") {
-            Send-JsonResponse $Context (@{ success = (Write-InstructionsToOne $BodyData["path"]); message = "Write done" })
+            Send-JsonResponse $Context (Write-InstructionsToOne $BodyData["path"])
         } elseif ($UrlPath -eq "/api/instructions/remove-one") {
-            Send-JsonResponse $Context (@{ success = (Remove-InstructionsFromOne $BodyData["path"]); message = "Remove done" })
+            Send-JsonResponse $Context (Remove-InstructionsFromOne $BodyData["path"])
         } elseif ($UrlPath -eq "/api/update") {
             Send-JsonResponse $Context (Run-SelfUpdate)
         } elseif ($UrlPath -eq "/api/rollback") {
