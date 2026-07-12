@@ -1098,6 +1098,8 @@ class SecurityContractsTest(unittest.TestCase):
             "/api/instructions/remove-all",
             "/api/instructions/write-one",
             "/api/instructions/remove-one",
+            "/api/instructions/write-selected",
+            "/api/instructions/remove-selected",
         ]
         for ep in post_endpoints:
             self.assertIn(ep, py_src, f"webui.py missing POST {ep}")
@@ -1143,8 +1145,8 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn('data-target="instructions"', html_src)
         self.assertIn('id="instructions"', html_src)
         self.assertIn('function renderInstructions', html_src)
-        self.assertIn("function writeAllInstructions", html_src)
-        self.assertIn("function removeAllInstructions", html_src)
+        self.assertIn("function writeInstructions", html_src)
+        self.assertIn("function removeInstructions", html_src)
         self.assertIn("function openRuleEditor", html_src)
         # i18n keys in both languages
         self.assertIn("'t-instructions'", html_src)

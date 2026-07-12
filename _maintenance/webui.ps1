@@ -1120,6 +1120,63 @@ function Remove-InstructionsFromAll {
     }
     $Msg = "Removed managed block from $($Removed.Count) agent(s)."
     if ($Failed.Count -gt 0) { $Msg += " Failed: $($Failed -join ', ')" }
+	    return @{ success = ($Failed.Count -eq 0); message = $Msg; removed = $Removed.Count; failed = $Failed }
+	}
+
+# Concat only the named rule files (empty = all rules).
+function Get-SelectedRules([string[]]$RuleNames) {
+    if (-not $RuleNames -or $RuleNames.Count -eq 0) { return Get-ConcatenatedRules }
+    $Parts = @()
+    foreach ($Name in $RuleNames) {
+        $Check = Test-InstructionName $Name
+        if (-not $Check.ok) { continue }
+        $File = Join-Path $InstructionsDir $Check.value
+        if (Test-Path $File) {
+            try { $Txt = [System.IO.File]::ReadAllText($File.FullName, [System.Text.Encoding]::UTF8).Trim(); if ($Txt) { $Parts += $Txt } } catch {}
+        }
+    }
+    return ($Parts -join "`n`n---`n`n")
+}
+
+function Write-SelectedInstructions {
+    param([string[]]$Rules, [string[]]$Agents)
+    $RulesText = Get-SelectedRules $Rules
+    if (-not $RulesText.Trim()) { return @{ success = $false; message = "No rules selected or rule library is empty." } }
+    $Targets = Get-InstructionTargets
+    if (-not $Targets) { return @{ success = $false; message = "No agent instruction targets found." } }
+    if ($Agents -and $Agents.Count -gt 0) {
+        $AgentSet = @{}
+        foreach ($a in $Agents) { $AgentSet[([System.IO.Path]::GetFullPath($a))] = $true }
+        $Targets = @($Targets | Where-Object { $AgentSet.ContainsKey([System.IO.Path]::GetFullPath($_.Path)) })
+    }
+    if (-not $Targets) { return @{ success = $false; message = "No matching agent targets. Check the selected paths." } }
+    $Written = @(); $Failed = @()
+    foreach ($T in $Targets) {
+        $Result = Write-InstructionsToOne $T.Path
+        if ($Result.success) { $Written += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
+    }
+    $Msg = "Wrote rules to $($Written.Count) agent(s)."
+    if ($Failed.Count -gt 0) { $Msg += " Failed: $($Failed -join ', ')" }
+    return @{ success = ($Failed.Count -eq 0); message = $Msg; written = $Written.Count; failed = $Failed }
+}
+
+function Remove-SelectedInstructions {
+    param([string[]]$Agents)
+    $Targets = Get-InstructionTargets
+    if (-not $Targets) { return @{ success = $false; message = "No agent instruction targets found." } }
+    if ($Agents -and $Agents.Count -gt 0) {
+        $AgentSet = @{}
+        foreach ($a in $Agents) { $AgentSet[([System.IO.Path]::GetFullPath($a))] = $true }
+        $Targets = @($Targets | Where-Object { $AgentSet.ContainsKey([System.IO.Path]::GetFullPath($_.Path)) })
+    }
+    if (-not $Targets) { return @{ success = $false; message = "No matching agent targets. Check the selected paths." } }
+    $Removed = @(); $Failed = @()
+    foreach ($T in $Targets) {
+        $Result = Remove-InstructionsFromOne $T.Path
+        if ($Result.success) { $Removed += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
+    }
+    $Msg = "Removed managed block from $($Removed.Count) agent(s)."
+    if ($Failed.Count -gt 0) { $Msg += " Failed: $($Failed -join ', ')" }
     return @{ success = ($Failed.Count -eq 0); message = $Msg; removed = $Removed.Count; failed = $Failed }
 }
 
@@ -1662,6 +1719,10 @@ function Invoke-WebUIRequest($Context) {
             Send-JsonResponse $Context (Write-InstructionsToOne $BodyData["path"])
         } elseif ($UrlPath -eq "/api/instructions/remove-one") {
             Send-JsonResponse $Context (Remove-InstructionsFromOne $BodyData["path"])
+        } elseif ($UrlPath -eq "/api/instructions/write-selected") {
+            Send-JsonResponse $Context (Write-SelectedInstructions -Rules $BodyData["rules"] -Agents $BodyData["agents"])
+        } elseif ($UrlPath -eq "/api/instructions/remove-selected") {
+            Send-JsonResponse $Context (Remove-SelectedInstructions -Agents $BodyData["agents"])
         } elseif ($UrlPath -eq "/api/update") {
             Send-JsonResponse $Context (Run-SelfUpdate)
         } elseif ($UrlPath -eq "/api/rollback") {

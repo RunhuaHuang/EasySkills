@@ -1859,17 +1859,18 @@
                 </div>
             </div>
 
-            <!-- Command bar: write-all / remove-all / new rule -->
-            <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap; margin-bottom: var(--space-md);">
-                <button class="btn btn-primary" id="rules-write-all-btn" onclick="writeAllInstructions(this)">
+            <!-- Command bar: write / remove / new rule -->
+            <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap; margin-bottom: var(--space-md); align-items: center;">
+                <button class="btn btn-primary" onclick="writeInstructions(this)">
                     <i class="fa-solid fa-bolt"></i> <span class="t-rules-write-all">Write to All Agents</span>
                 </button>
-                <button class="btn btn-outline" id="rules-remove-all-btn" onclick="removeAllInstructions(this)">
+                <button class="btn btn-outline" onclick="removeInstructions(this)">
                     <i class="fa-solid fa-eraser"></i> <span class="t-rules-remove-all">Remove from All Agents</span>
                 </button>
-                <button class="btn btn-primary" id="rules-new-btn" onclick="openRuleEditor('')">
+                <button class="btn btn-primary" onclick="openRuleEditor('')">
                     <i class="fa-solid fa-circle-plus"></i> <span class="t-rules-new">New Rule</span>
                 </button>
+                <span style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-display);" class="t-rules-select-hint">Select rules and agents below, then click Write or Remove.</span>
             </div>
 
             <!-- Rules library -->
@@ -2215,7 +2216,10 @@
             </div>
             <h3 class="skill-delete-title t-rule-editor-title" id="rule-editor-title">Create / Edit Rule</h3>
             <p class="skill-delete-copy t-rule-editor-desc">Each rule is a markdown file in the rule library. When you "Write to All Agents", all rules are concatenated into a managed block.</p>
-            <input type="text" id="rule-editor-name" class="command-input" placeholder="rule-name.md" style="margin-bottom: var(--space-sm);">
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-main); font-family: var(--font-display); margin-bottom: 4px;">
+                <span class="t-rule-editor-name-label">Rule File Name</span>
+            </label>
+            <input type="text" id="rule-editor-name" class="command-input" placeholder="e.g. coding-style.md" style="margin-bottom: var(--space-sm); border: 2px solid var(--primary); background: var(--bg-surface);">
             <textarea id="rule-editor-content" rows="10" style="width: 100%; font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace); font-size: 0.85rem; padding: var(--space-sm); border: 1px solid var(--border-subtle); border-radius: 8px; resize: vertical; background: var(--bg-surface); color: var(--text-main);" placeholder="# Your rule content in markdown..."></textarea>
             <div class="skill-delete-actions">
                 <button class="btn btn-outline" id="rule-editor-cancel">
@@ -2329,6 +2333,9 @@
                 't-rule-editor-desc': 'Each rule is a markdown file in the rule library. When you "Write to All Agents", all rules are concatenated into a managed block.',
                 't-rule-editor-save': 'Save Rule',
                 't-rule-name-placeholder': 'rule-name.md',
+                't-rule-editor-name-label': 'Rule File Name',
+                't-rules-select-all': 'Select All',
+                't-rules-select-hint': 'Select rules and agents below, then click Write or Remove.',
                 't-about-desc': 'Cross-platform automated skills manager for advanced agent coding. Automatically detects agent configurations, orchestrates background watches, and maps symlinks dynamically.',
                 't-github-desc': 'Automate your workflow. Setup custom skills repositories and map them to Claude, Gemini, Cursor, Trae, and more. Open-source under MIT License.',
                 't-visit-github': 'Visit Repository',
@@ -2479,6 +2486,9 @@
                 't-rule-editor-desc': '每条规则是规则库中的一个 markdown 文件。当你"一键写入所有 Agent"时，所有规则会拼接成一个托管块。',
                 't-rule-editor-save': '保存规则',
                 't-rule-name-placeholder': '规则名.md',
+                't-rule-editor-name-label': '规则文件名',
+                't-rules-select-all': '全选',
+                't-rules-select-hint': '勾选下方的规则和 Agent，然后点击写入或移除。',
                 't-about-desc': '专为大语言智能体（Agent）设计的跨平台、全自动技能分发与热重载管理器。自适应宿主环境，动态监听技能库变更，秒级完成多端软链接深度连接。',
                 't-github-desc': '极客级的自动化开发利器。配置自定义技能注册表，支持 Claude, Gemini, Cursor, Trae, Continue 等所有主流编码客户端，项目遵循 MIT 开源许可。',
                 't-visit-github': '访问 GitHub 仓库',
@@ -3403,9 +3413,6 @@
 
         function renderInstructions(data) {
             if (!data) return;
-            // Include currentLang in the signature so a language switch forces
-            // a re-render even when the backend payload is unchanged (the card
-            // button labels are generated from dict[currentLang] at render time).
             const sig = currentLang + '\n' + JSON.stringify(data);
             if (sig === lastInstructionsJson) return;
             lastInstructionsJson = sig;
@@ -3413,25 +3420,38 @@
             const lang = currentLang;
             const t = (key) => dict[lang][key] || dict['en'][key] || key;
 
-            // --- Rules grid ---
+            // --- Rules grid with checkboxes ---
             const rulesGrid = document.getElementById('rules-grid');
             if (rulesGrid) {
                 const rules = data.rules || [];
                 if (rules.length === 0) {
                     rulesGrid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: var(--space-xl); color: var(--text-muted); font-family: var(--font-display);">${escapeHtml(t('t-rules-empty'))}</div>`;
                 } else {
-                    const parts = rules.map(r => {
+                    const allChecked = window._rulesChecked && window._rulesChecked.size === rules.length;
+                    const parts = [];
+                    // Select-all row
+                    parts.push(`<div style="grid-column: 1/-1; display: flex; align-items: center; gap: var(--space-sm); padding: 0 0 var(--space-xs) 0; font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-display);">
+                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                            <input type="checkbox" id="rules-select-all" ${allChecked ? 'checked' : ''} onchange="toggleAllRules(this.checked)">
+                            <span class="t-rules-select-all">Select All</span>
+                        </label>
+                    </div>`);
+                    rules.forEach(r => {
+                        const checked = window._rulesChecked && window._rulesChecked.has(r.name);
                         const preview = escapeHtml((r.preview || '').slice(0, 120));
-                        return `<div class="card" style="border-top: 2px solid var(--warning);">
+                        parts.push(`<div class="card" style="border-top: 2px solid var(--warning);">
                             <div class="card-header">
-                                <div class="card-title"><i class="fa-solid fa-file-lines" style="color: var(--warning);"></i><span>${escapeHtml(r.name)}</span></div>
+                                <div class="card-title" style="gap: 6px;">
+                                    <input type="checkbox" data-rule-check="${escapeHtml(r.name)}" ${checked ? 'checked' : ''} onchange="onRuleCheckChange()">
+                                    <i class="fa-solid fa-file-lines" style="color: var(--warning);"></i><span>${escapeHtml(r.name)}</span>
+                                </div>
                             </div>
                             <div class="card-subtitle" style="white-space: pre-wrap; max-height: 80px; overflow: hidden; font-family: var(--font-mono, monospace); font-size: 0.75rem; color: var(--text-muted);">${preview}</div>
                             <div class="card-actions">
                                 <button class="btn btn-outline" data-rule-action="edit" data-rule-name="${escapeHtml(r.name)}"><i class="fa-solid fa-pen"></i> ${escapeHtml(t('t-rules-edit'))}</button>
                                 <button class="btn btn-danger" data-rule-action="delete" data-rule-name="${escapeHtml(r.name)}"><i class="fa-solid fa-trash"></i></button>
                             </div>
-                        </div>`;
+                        </div>`);
                     });
                     rulesGrid.innerHTML = parts.join('');
                     rulesGrid.querySelectorAll('[data-rule-action]').forEach(btn => {
@@ -3445,18 +3465,30 @@
                 }
             }
 
-            // --- Agent status grid ---
+            // --- Agent status grid with checkboxes ---
             const agentsGrid = document.getElementById('rules-agents-grid');
             if (agentsGrid) {
                 const agents = data.agents || [];
-                const parts = agents.map(a => {
+                const allAgentChecked = window._agentsChecked && window._agentsChecked.size === agents.length;
+                const parts = [];
+                parts.push(`<div style="grid-column: 1/-1; display: flex; align-items: center; gap: var(--space-sm); padding: 0 0 var(--space-xs) 0; font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-display);">
+                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <input type="checkbox" id="agents-select-all" ${allAgentChecked ? 'checked' : ''} onchange="toggleAllAgents(this.checked)">
+                        <span class="t-rules-select-all">Select All</span>
+                    </label>
+                </div>`);
+                agents.forEach(a => {
+                    const checked = window._agentsChecked && window._agentsChecked.has(a.path);
                     const written = a.has_managed_block;
                     const badge = written
                         ? `<span class="tag tag-success">${escapeHtml(t('t-rules-written'))}</span>`
                         : `<span class="tag tag-muted">${escapeHtml(t('t-rules-not-written'))}</span>`;
-                    return `<div class="card" style="opacity: ${a.exists ? '1' : '0.6'}; border-top: 2px solid ${written ? 'var(--success)' : 'var(--border-subtle)'};">
+                    parts.push(`<div class="card" style="opacity: ${a.exists ? '1' : '0.6'}; border-top: 2px solid ${written ? 'var(--success)' : 'var(--border-subtle)'};">
                         <div class="card-header">
-                            <div class="card-title"><i class="fa-solid fa-${written ? 'check-circle' : 'circle'}" style="color: ${written ? 'var(--success)' : 'var(--text-muted)'};"></i><span>${escapeHtml(a.name)}</span></div>
+                            <div class="card-title" style="gap: 6px;">
+                                <input type="checkbox" data-agent-check="${escapeHtml(a.path)}" ${checked ? 'checked' : ''} onchange="onAgentCheckChange()">
+                                <i class="fa-solid fa-${written ? 'check-circle' : 'circle'}" style="color: ${written ? 'var(--success)' : 'var(--text-muted)'};"></i><span>${escapeHtml(a.name)}</span>
+                            </div>
                             ${badge}
                         </div>
                         <div class="card-subtitle">${escapeHtml(a.path)}</div>
@@ -3464,7 +3496,7 @@
                             <button class="btn btn-outline" data-agent-rule-action="write" data-agent-rule-path="${escapeHtml(a.path)}"><i class="fa-solid fa-bolt"></i> ${escapeHtml(t('t-rules-write-one'))}</button>
                             <button class="btn btn-outline" data-agent-rule-action="remove" data-agent-rule-path="${escapeHtml(a.path)}"><i class="fa-solid fa-eraser"></i> ${escapeHtml(t('t-rules-remove-one'))}</button>
                         </div>
-                    </div>`;
+                    </div>`);
                 });
                 agentsGrid.innerHTML = parts.join('');
                 agentsGrid.querySelectorAll('[data-agent-rule-action]').forEach(btn => {
@@ -3478,12 +3510,67 @@
             }
         }
 
-        async function writeAllInstructions(btn) {
-            await apiCall('/api/instructions/write-all', {}, btn);
+        // --- Checkbox helpers ---
+        window._rulesChecked = null;  // Set<string> of checked rule names
+        window._agentsChecked = null; // Set<string> of checked agent paths
+
+        function onRuleCheckChange() {
+            const checks = document.querySelectorAll('[data-rule-check]');
+            const s = new Set();
+            checks.forEach(cb => { if (cb.checked) s.add(cb.getAttribute('data-rule-check')); });
+            window._rulesChecked = s.size > 0 ? s : null;
+            const allCb = document.getElementById('rules-select-all');
+            if (allCb) allCb.checked = s.size === checks.length;
         }
 
-        async function removeAllInstructions(btn) {
-            await apiCall('/api/instructions/remove-all', {}, btn);
+        function toggleAllRules(checked) {
+            document.querySelectorAll('[data-rule-check]').forEach(cb => cb.checked = checked);
+            window._rulesChecked = checked ? new Set(Array.from(document.querySelectorAll('[data-rule-check]')).map(cb => cb.getAttribute('data-rule-check'))) : null;
+            const allCb = document.getElementById('rules-select-all');
+            if (allCb) allCb.checked = checked;
+        }
+
+        function onAgentCheckChange() {
+            const checks = document.querySelectorAll('[data-agent-check]');
+            const s = new Set();
+            checks.forEach(cb => { if (cb.checked) s.add(cb.getAttribute('data-agent-check')); });
+            window._agentsChecked = s.size > 0 ? s : null;
+            const allCb = document.getElementById('agents-select-all');
+            if (allCb) allCb.checked = s.size === checks.length;
+        }
+
+        function toggleAllAgents(checked) {
+            document.querySelectorAll('[data-agent-check]').forEach(cb => cb.checked = checked);
+            window._agentsChecked = checked ? new Set(Array.from(document.querySelectorAll('[data-agent-check]')).map(cb => cb.getAttribute('data-agent-check'))) : null;
+            const allCb = document.getElementById('agents-select-all');
+            if (allCb) allCb.checked = checked;
+        }
+
+        function getCheckedRules() {
+            return window._rulesChecked ? Array.from(window._rulesChecked) : [];
+        }
+
+        function getCheckedAgents() {
+            return window._agentsChecked ? Array.from(window._agentsChecked) : [];
+        }
+
+        async function writeInstructions(btn) {
+            const rules = getCheckedRules();
+            const agents = getCheckedAgents();
+            if (rules.length > 0 || agents.length > 0) {
+                await apiCall('/api/instructions/write-selected', { rules, agents }, btn);
+            } else {
+                await apiCall('/api/instructions/write-all', {}, btn);
+            }
+        }
+
+        async function removeInstructions(btn) {
+            const agents = getCheckedAgents();
+            if (agents.length > 0) {
+                await apiCall('/api/instructions/remove-selected', { agents }, btn);
+            } else {
+                await apiCall('/api/instructions/remove-all', {}, btn);
+            }
         }
 
         async function deleteRule(name, btn) {

@@ -875,6 +875,77 @@ def remove_instructions_from_one(path_str: str) -> dict:
     return {"success": False, "message": f"Remove failed for {path}"}
 
 
+def _concat_selected_rules(rule_names: list[str]) -> str:
+    """Concatenate only the named rule files (sorted)."""
+    if not rule_names:
+        return _concat_rules()  # empty list = all rules
+    parts = []
+    if INSTRUCTIONS_DIR.exists():
+        for name in sorted(rule_names):
+            clean = _validate_instruction_name(name)
+            if not clean[0]:
+                continue
+            f = INSTRUCTIONS_DIR / clean[1]
+            if f.exists():
+                parts.append(f.read_text(encoding="utf-8").strip())
+    return "\n\n---\n\n".join(parts)
+
+
+@_writes_locked
+def write_selected_instructions(rules: list[str] | None = None, agents: list[str] | None = None) -> dict:
+    """Write selected rules to selected agent instruction files.
+
+    If ``rules`` is None or empty → all rules. If ``agents`` is None or empty → all targets.
+    """
+    rules_text = _concat_selected_rules(rules or [])
+    if not rules_text.strip():
+        return {"success": False, "message": "No rules selected or rule library is empty."}
+    targets = _load_instruction_targets()
+    if not targets:
+        return {"success": False, "message": "No agent instruction targets found."}
+    if agents:
+        agents_set = {str(Path(a).expanduser().resolve()) for a in agents}
+        targets = [(n, p) for n, p in targets if str(p.resolve()) in agents_set]
+    if not targets:
+        return {"success": False, "message": "No matching agent targets. Check the selected paths."}
+    written, failed = [], []
+    for name, path in targets:
+        if _write_to_one(path, rules_text):
+            written.append(name)
+        else:
+            failed.append(f"{name} ({path})")
+    msg = f"Wrote rules to {len(written)} agent(s)."
+    if failed:
+        msg += f" Failed: {', '.join(failed)}"
+    return {"success": len(failed) == 0, "message": msg, "written": len(written), "failed": failed}
+
+
+@_writes_locked
+def remove_selected_instructions(agents: list[str] | None = None) -> dict:
+    """Remove the managed block from selected agent instruction files.
+
+    If ``agents`` is None or empty → all targets.
+    """
+    targets = _load_instruction_targets()
+    if not targets:
+        return {"success": False, "message": "No agent instruction targets found."}
+    if agents:
+        agents_set = {str(Path(a).expanduser().resolve()) for a in agents}
+        targets = [(n, p) for n, p in targets if str(p.resolve()) in agents_set]
+    if not targets:
+        return {"success": False, "message": "No matching agent targets. Check the selected paths."}
+    removed, failed = [], []
+    for name, path in targets:
+        if _remove_from_one(path):
+            removed.append(name)
+        else:
+            failed.append(f"{name} ({path})")
+    msg = f"Removed managed block from {len(removed)} agent(s)."
+    if failed:
+        msg += f" Failed: {', '.join(failed)}"
+    return {"success": len(failed) == 0, "message": msg, "removed": len(removed), "failed": failed}
+
+
 def get_latest_release() -> dict:
     def release_from_tag(tag: str, name: str = "") -> dict:
         return {
@@ -1737,6 +1808,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "/api/instructions/remove-all":   lambda: remove_instructions_from_all(),
             "/api/instructions/write-one":    lambda: write_instructions_to_one(body.get("path", "")),
             "/api/instructions/remove-one":   lambda: remove_instructions_from_one(body.get("path", "")),
+            "/api/instructions/write-selected":   lambda: write_selected_instructions(body.get("rules"), body.get("agents")),
+            "/api/instructions/remove-selected":  lambda: remove_selected_instructions(body.get("agents")),
             "/api/update":               lambda: do_self_update(),
             "/api/rollback":             lambda: do_rollback(),
         }
