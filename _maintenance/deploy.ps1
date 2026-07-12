@@ -545,7 +545,7 @@ function List-Links {
 function Add-Target ([string]$Path) {
   if (!$Path -or !(Test-Path $Path)) {
     Write-Error "Error: Please specify a valid directory."
-    exit 1
+    return $false
   }
   $AbsPath = (Get-Item $Path).FullName
   if (!(Test-Path $CustomTargetsFile)) {
@@ -560,12 +560,13 @@ function Add-Target ([string]$Path) {
   }
   Remove-DisabledTarget $Path
   Run-Sync
+  return $true
 }
 
 function Remove-Target ([string]$Path) {
   if (!$Path) {
     Write-Error "Error: Please specify a path to remove."
-    exit 1
+    return $false
   }
   # Resolve to absolute path (same as Add-Target)
   $AbsPath = $Path
@@ -586,6 +587,7 @@ function Remove-Target ([string]$Path) {
   } else {
     Write-Host "No custom targets file found." -ForegroundColor Gray
   }
+  return $true
 }
 
 function Run-Cleanup {
@@ -700,9 +702,9 @@ try {
   } elseif ($List) {
     List-Links
   } elseif ($Add) {
-    Add-Target $Add
+    if (-not (Add-Target $Add)) { Release-Lock; exit 1 }
   } elseif ($Remove) {
-    Remove-Target $Remove
+    if (-not (Remove-Target $Remove)) { Release-Lock; exit 1 }
   } elseif ($Watch) {
     & "$ScriptDir\watch.ps1"
   } elseif ($Unwatch) {

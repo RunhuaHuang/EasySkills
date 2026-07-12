@@ -50,16 +50,18 @@ foreach ($ShortcutPath in $ShortcutPaths) {
 # unrelated script of the same name elsewhere on the system).
 $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 try {
-    # watcher-service.ps1 / webui-service.ps1 names are EasySkills-specific enough;
-    # the generic webui.ps1 is narrowed to our install path. When -KeepWebUI is
-    # set, only reap the watcher (leave WebUI running).
+    # All service scripts are scoped to THIS installation's path so a second
+    # EasySkills install on the same machine is never cross-killed. When
+    # -KeepWebUI is set, only reap the watcher (leave WebUI running).
+    $WatcherGlob = '*' + $ScriptDir + '\watcher-service.ps1*'
+    $WebUISvcGlob = '*' + $ScriptDir + '\webui-service.ps1*'
     $WebUIGlob = '*' + $ScriptDir + '\webui.ps1*'
     $Processes = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -and $_.ProcessId -ne $PID -and (
-                $_.CommandLine -like '*watcher-service.ps1*' -or
+                $_.CommandLine -like $WatcherGlob -or
                 (-not $KeepWebUI -and (
-                    $_.CommandLine -like '*webui-service.ps1*' -or
+                    $_.CommandLine -like $WebUISvcGlob -or
                     $_.CommandLine -like $WebUIGlob
                 ))
             )

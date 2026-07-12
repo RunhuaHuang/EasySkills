@@ -897,12 +897,21 @@ def do_unmap(target_path: str) -> dict:
 def update_agent_path(name: str, old_path: str, new_path: str) -> dict:
     if not new_path:
         return {"success": False, "message": "New path cannot be empty"}
-    
+
     # Expand paths correctly
     try:
         new_path = str(Path(new_path).expanduser().resolve())
     except Exception:
         new_path = str(Path(new_path).expanduser())
+
+    # Normalize old_path the same way new_path and stored lines are normalized,
+    # otherwise a `~`-form or dotted old_path silently fails to match the stored
+    # absolute path, leaving a stale/duplicate entry behind.
+    if old_path:
+        try:
+            old_path = str(Path(old_path).expanduser().resolve())
+        except Exception:
+            old_path = str(Path(old_path).expanduser())
 
     lines = []
     if CUSTOM_TARGETS_FILE.exists():
@@ -1266,11 +1275,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return origin
         return None
 
+    def _send_security_headers(self):
+        # Defense-in-depth: prevent MIME sniffing and clickjacking. The page
+        # embeds the auth token in a <meta> tag, so it must not be framable by
+        # any other (even loopback) origin.
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+
     def _json(self, data, status: int = 200):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self._send_security_headers()
         cors_origin = self._cors_origin()
         if cors_origin:
             self.send_header("Access-Control-Allow-Origin", cors_origin)
@@ -1285,21 +1302,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-            self.send_header("Pragma", "no-cache")
-            self.send_header("Expires", "0")
-            self.end_headers()
-            self.wfile.write(data)
-        except FileNotFoundError:
-            self.send_response(404)
-            self.end_headers()
-
-    def _file(self, path: Path, content_type: str):
-        try:
-            data = path.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(data)))
+            self._send_security_headers()
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
@@ -1324,6 +1327,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not length:
             return {}
         if length > 10 * 1024 * 1024:  # 10 MB cap
+            # Drain the oversized body so it does not sit in the socket buffer
+            # and corrupt the connection state / pin the handler thread until
+            # the socket timeout fires. Cap the drain to avoid unbounded memory.
+            drain = min(length, 10 * 1024 * 1024)
+            try:
+                self.rfile.read(drain)
+            except OSError:
+                pass
             return None  # Signal to caller: send 413
         try:
             return json.loads(self.rfile.read(length))

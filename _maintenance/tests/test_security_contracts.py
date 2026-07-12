@@ -957,6 +957,103 @@ class SecurityContractsTest(unittest.TestCase):
         # The existence check in PART B must use Get-Item -Force, not Test-Path.
         self.assertIn("Get-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue", ps_src)
 
+    def test_webui_ps1_deletes_reparse_points_without_recurse(self):
+        """webui.ps1 Do-Map and Do-Unmap must NEVER use Remove-Item -Recurse
+        on a reparse point.
+
+        Remove-Item -Recurse -Force on a directory junction can traverse into
+        and delete the real target contents on Windows PowerShell 5.1. Both
+        functions must use [System.IO.Directory]::Delete(path, $false) to
+        remove only the link itself, mirroring the contract in deploy.ps1.
+        """
+        ps_src = read("_maintenance/webui.ps1")
+        # Neither Do-Map nor Do-Unmap may use Remove-Item -Recurse on a path
+        # derived from a ReparsePoint attribute check.
+        self.assertNotIn(
+            "Remove-Item $Dest -Recurse -Force",
+            ps_src,
+            "Do-Map must not use Remove-Item -Recurse on a reparse point"
+        )
+        self.assertNotIn(
+            "Remove-Item $Item.FullName -Recurse -Force",
+            ps_src,
+            "Do-Unmap must not use Remove-Item -Recurse on a reparse point"
+        )
+        # The safe non-recursive delete must be present in both functions.
+        self.assertIn("[System.IO.Directory]::Delete($Dest, $false)", ps_src,
+                      "Do-Map should use Directory::Delete for the reparse point")
+        self.assertIn("[System.IO.Directory]::Delete($Item.FullName, $false)", ps_src,
+                      "Do-Unmap should use Directory::Delete for the reparse point")
+
+    def test_deploy_ps1_add_remove_target_return_true_on_success(self):
+        """Add-Target / Remove-Target must return $true on the success path.
+
+        The main dispatch wraps them as `if (-not (Add-Target $Add)) { ...; exit 1 }`.
+        In PowerShell a function with no explicit return on the success path
+        yields $null, and `-not $null` is $true — so a missing `return $true`
+        makes the script `exit 1` even after a successful add/remove. This
+        regressed the WebUI ("Command failed" shown for a successful add).
+        Every code path that is NOT the early `return $false` must return $true.
+        """
+        ps_src = read("_maintenance/deploy.ps1")
+        self.assertIn("if (-not (Add-Target $Add))", ps_src,
+                      "main dispatch must check Add-Target's return value")
+        self.assertIn("if (-not (Remove-Target $Remove))", ps_src,
+                      "main dispatch must check Remove-Target's return value")
+        # Both functions must have an explicit success return.
+        self.assertIn("return $true", ps_src,
+                      "Add-Target/Remove-Target must return $true on success")
+        # The failure early-out must still be present.
+        self.assertIn("return $false", ps_src,
+                      "Add-Target/Remove-Target must return $false on bad input")
+
+    def test_update_agent_path_normalizes_old_path_symmetrically(self):
+        """update_agent_path must normalize old_path just like new_path.
+
+        Without normalization, a `~`-form or dotted old_path silently fails to
+        match the stored absolute path, leaving a stale/duplicate entry behind.
+        Both backends (webui.py and webui.ps1) must normalize old_path the same
+        way they normalize new_path, keeping the two implementations symmetric.
+        """
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        # Python: both old_path and new_path go through expanduser().resolve().
+        self.assertIn("old_path = str(Path(old_path).expanduser().resolve())", py_src)
+        self.assertIn("new_path = str(Path(new_path).expanduser().resolve())", py_src)
+        # PowerShell: both OldPath and NewPath go through GetFullPath.
+        self.assertIn("$OldPath = [System.IO.Path]::GetFullPath($OldPath)", ps_src)
+        self.assertIn("$NewPath = [System.IO.Path]::GetFullPath($NewPath)", ps_src)
+
+    def test_windows_process_termination_scoped_to_install_path(self):
+        """install.ps1, unwatch.ps1, register-tasks.ps1 must scope process
+        matching to THIS installation's path, not a bare script-name glob.
+
+        A bare `*watcher-service.ps1*` / `*webui-service.ps1*` matches every
+        EasySkills install on the machine — cross-killing a second install's
+        services. The fix (already applied to webui.ps1 / install.ps1) is to
+        anchor the glob to the script's own directory.
+        """
+        for rel in ("_maintenance/unwatch.ps1", "_maintenance/register-tasks.ps1"):
+            ps_src = read(rel)
+            # No bare (un-scoped) service-script globs may remain.
+            self.assertNotIn("'*webui-service.ps1*'", ps_src,
+                             f"{rel}: webui-service glob must be scoped to $ScriptDir")
+            self.assertNotIn("'*watcher-service.ps1*'", ps_src,
+                             f"{rel}: watcher-service glob must be scoped to $ScriptDir")
+
+    def test_webui_sets_clickjacking_and_sniffing_security_headers(self):
+        """Both WebUI backends must send X-Content-Type-Options and X-Frame-Options.
+
+        The index page embeds the auth token in a <meta> tag, so it must not be
+        framable by any other (even loopback) origin.
+        """
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        self.assertIn('"X-Content-Type-Options", "nosniff"', py_src)
+        self.assertIn('"X-Frame-Options", "DENY"', py_src)
+        self.assertIn('"X-Content-Type-Options", "nosniff"', ps_src)
+        self.assertIn('"X-Frame-Options", "DENY"', ps_src)
+
     # -------------------------------------------------------------------------
     # Self-update / rollback: host allowlist + rename-recovery (Fix C/D/E)
     # -------------------------------------------------------------------------

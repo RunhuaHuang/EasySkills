@@ -18,12 +18,13 @@ function Stop-StaleEasySkillsProcesses {
   # try to overwrite it. Matches by command-line via WMI, then waits up to
   # 5 seconds for the OS to release the file handles.
   try {
+    $EasySkillsPath = "$env:USERPROFILE\EasySkills"
     $Procs = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
       Where-Object {
         $_.CommandLine -and (
-          $_.CommandLine -like '*webui-service.ps1*' -or
-          $_.CommandLine -like '*watcher-service.ps1*' -or
-          $_.CommandLine -like '*webui.ps1*'
+          ($_.CommandLine -like "*$EasySkillsPath*webui-service.ps1*") -or
+          ($_.CommandLine -like "*$EasySkillsPath*watcher-service.ps1*") -or
+          ($_.CommandLine -like "*$EasySkillsPath*webui.ps1*")
         )
       }
     $KilledPids = @()

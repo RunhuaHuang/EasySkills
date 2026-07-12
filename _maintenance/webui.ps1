@@ -712,6 +712,14 @@ function Update-AgentPath([string]$Name, [string]$OldPath, [string]$NewPath) {
     $NewPath = $NewPath.Trim()
     try { $NewPath = [System.IO.Path]::GetFullPath($NewPath) } catch {}
 
+    # Normalize OldPath the same way as NewPath and the stored lines, otherwise
+    # a `~`-form or dotted OldPath silently fails to match the stored absolute
+    # path, leaving a stale/duplicate entry behind. Mirrors webui.py.
+    if ($OldPath) {
+        $OldPath = $OldPath.Trim()
+        try { $OldPath = [System.IO.Path]::GetFullPath($OldPath) } catch {}
+    }
+
     $Lines = @()
     if (Test-Path $CustomTargetsFile) {
         $Lines = @(Get-Content $CustomTargetsFile -Encoding UTF8 -ErrorAction SilentlyContinue)
@@ -779,7 +787,10 @@ function Do-Map([string]$TargetPath) {
             if (Test-Path $Dest) {
                 $Item = Get-Item $Dest
                 if ($Item.Attributes -match "ReparsePoint") {
-                    Remove-Item $Dest -Recurse -Force
+                    # Remove the reparse point itself only — never recurse into its
+                    # target (Remove-Item -Recurse on a junction can delete the real
+                    # target contents on Windows PowerShell 5.1).
+                    [System.IO.Directory]::Delete($Dest, $false)
                 }
             }
             if (-not (Test-Path $Dest)) {
@@ -1156,7 +1167,10 @@ function Do-Unmap([string]$TargetPath) {
                     }
                 }
                 if ($ResolvedTarget -and ($ResolvedTarget.Equals($CentralResolved, [System.StringComparison]::OrdinalIgnoreCase) -or $ResolvedTarget.StartsWith("$CentralResolved\", [System.StringComparison]::OrdinalIgnoreCase))) {
-                    Remove-Item $Item.FullName -Recurse -Force
+                    # Remove the reparse point itself only — never recurse into its
+                    # target (Remove-Item -Recurse on a junction can delete the real
+                    # target contents on Windows PowerShell 5.1).
+                    [System.IO.Directory]::Delete($Item.FullName, $false)
                     $Removed += $Item.Name
                 }
             }
@@ -1220,6 +1234,10 @@ function Send-JsonResponse($Context, $Data, $StatusCode = 200) {
     if ($CorsOrigin) {
         $Response.Headers.Add("Access-Control-Allow-Origin", $CorsOrigin)
     }
+    # Defense-in-depth: prevent MIME sniffing and clickjacking. The index page
+    # embeds the auth token in a <meta> tag, so it must not be framable.
+    $Response.Headers.Add("X-Content-Type-Options", "nosniff")
+    $Response.Headers.Add("X-Frame-Options", "DENY")
     $Response.ContentType = "application/json; charset=utf-8"
 
     $JsonStr = $Data | ConvertTo-Json -Depth 10 -Compress
@@ -1235,6 +1253,8 @@ function Send-FileResponse($Context, $FilePath, $ContentType) {
     if ($CorsOrigin) {
         $Response.Headers.Add("Access-Control-Allow-Origin", $CorsOrigin)
     }
+    $Response.Headers.Add("X-Content-Type-Options", "nosniff")
+    $Response.Headers.Add("X-Frame-Options", "DENY")
     if (Test-Path $FilePath) {
         $Response.StatusCode = 200
         $Response.ContentType = $ContentType

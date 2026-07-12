@@ -40,13 +40,18 @@ function Stop-EasySkillsBackgroundProcesses {
     # Unregister-ScheduledTask does NOT kill running task instances; if we
     # don't reap them, an old supervisor process from the prior install
     # will keep running alongside the freshly-registered task.
+    # Scoped to THIS installation's path so a second EasySkills install on the
+    # same machine is never cross-killed.
     try {
+        $WatcherGlob = '*' + $ScriptDir + '\watcher-service.ps1*'
+        $WebUISvcGlob = '*' + $ScriptDir + '\webui-service.ps1*'
+        $WebUIGlob = '*' + $ScriptDir + '\webui.ps1*'
         $Procs = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
             Where-Object {
                 $_.CommandLine -and (
-                    $_.CommandLine -like '*webui-service.ps1*' -or
-                    $_.CommandLine -like '*watcher-service.ps1*' -or
-                    $_.CommandLine -like '*webui.ps1*'
+                    $_.CommandLine -like $WatcherGlob -or
+                    $_.CommandLine -like $WebUISvcGlob -or
+                    $_.CommandLine -like $WebUIGlob
                 ) -and $_.ProcessId -ne $PID
             }
         foreach ($P in $Procs) {
