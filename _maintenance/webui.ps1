@@ -82,6 +82,11 @@ if ((Test-Path $HomeCentralDir) -and -not (Test-Path $RepoGitDir)) {
 $CustomTargetsFile = Join-Path -Path $ScriptDir -ChildPath "custom-targets.txt"
 $DisabledTargetsFile = Join-Path -Path $ScriptDir -ChildPath "disabled-targets.txt"
 
+# --- Instruction-rule library (AGENTS.md / CLAUDE.md management) ---
+$InstructionsDir = Join-Path $CentralDir "instructions"
+$EasySkillsBegin = "<!-- EasySkills:begin (managed block - do not edit manually) -->"
+$EasySkillsEnd = "<!-- EasySkills:end -->"
+
 function Add-DisabledTarget([string]$Path) {
     if (-not $Path) { return }
     $Path = $Path.Trim()
@@ -921,6 +926,201 @@ function Delete-Skill([string]$Name) {
     return @{ success = $true; message = $Msg; skill = $CleanName }
 }
 
+# --------------------------------------------------------------
+# Instruction-rule library: modular AGENTS.md / CLAUDE.md management
+# --------------------------------------------------------------
+
+# Read win_instructions_file targets from agents.json (de-duplicated).
+function Get-InstructionTargets {
+    $Targets = @()
+    $Seen = @{}
+    if (Test-Path $AgentsJsonFile) {
+        try {
+            $Data = Get-Content $AgentsJsonFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($Agent in $Data.agents) {
+                $Raw = [string]$Agent.win_instructions_file
+                if (-not $Raw) { continue }
+                $Expanded = $Raw -replace '%USERPROFILE%', $Home -replace '%APPDATA%', $env:APPDATA
+                try { $Resolved = ([System.IO.Path]::GetFullPath($Expanded)) } catch { $Resolved = $Expanded }
+                if ($Seen.ContainsKey($Resolved)) { continue }
+                $Seen[$Resolved] = $true
+                $Targets += @{ Name = $Agent.name; Path = $Expanded }
+            }
+        } catch {}
+    }
+    return $Targets
+}
+
+function Test-InstructionName([string]$Name) {
+    $Clean = if ($Name) { $Name.Trim() } else { "" }
+    if (-not $Clean) { return @{ ok = $false; value = "Rule name cannot be empty" } }
+    if ($Clean.Contains("/") -or $Clean.Contains("\") -or $Clean.Contains([char]0) -or $Clean -eq "." -or $Clean -eq "..") {
+        return @{ ok = $false; value = "Invalid rule name" }
+    }
+    if (-not $Clean.EndsWith(".md")) { $Clean = $Clean + ".md" }
+    return @{ ok = $true; value = $Clean }
+}
+
+# Replace or insert the managed block within an instruction file's content.
+function Inject-ManagedBlock([string]$Existing, [string]$Block) {
+    if ($Existing.Contains($EasySkillsBegin) -and $Existing.Contains($EasySkillsEnd)) {
+        $Pattern = [regex]::Escape($EasySkillsBegin) + ".*?" + [regex]::Escape($EasySkillsEnd)
+        return [regex]::Replace($Existing, $Pattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $Block }, [System.Text.RegularExpressions.RegexOptions]::Singleline, 1)
+    }
+    if ($Existing.Trim()) {
+        return $Existing.TrimEnd() + "`n`n" + $Block + "`n"
+    }
+    return $Block + "`n"
+}
+
+# Remove the managed block from content.
+function Strip-ManagedBlock([string]$Content) {
+    if (-not ($Content.Contains($EasySkillsBegin)) -or -not ($Content.Contains($EasySkillsEnd))) { return $Content }
+    $Pattern = [regex]::Escape($EasySkillsBegin) + ".*?" + [regex]::Escape($EasySkillsEnd) + "`n?"
+    return [regex]::Replace($Content, $Pattern, "", [System.Text.RegularExpressions.RegexOptions]::Singleline, 1)
+}
+
+function Get-InstructionsData {
+    $Rules = @()
+    if (Test-Path $InstructionsDir) {
+        $Files = Get-ChildItem -Path $InstructionsDir -Filter "*.md" -File -ErrorAction SilentlyContinue | Sort-Object Name
+        foreach ($File in $Files) {
+            $Content = ""
+            try { $Content = [System.IO.File]::ReadAllText($File.FullName, [System.Text.Encoding]::UTF8) } catch {}
+            $Preview = if ($Content.Length -gt 200) { $Content.Substring(0, 200) } else { $Content }
+            $Rules += @{ name = $File.Name; preview = $Preview; size = $Content.Length }
+        }
+    }
+
+    $Targets = Get-InstructionTargets
+    $AgentsStatus = @()
+    foreach ($T in $Targets) {
+        $HasBlock = $false
+        $Exists = (Test-Path $T.Path)
+        if ($Exists) {
+            try {
+                $Txt = [System.IO.File]::ReadAllText($T.Path, [System.Text.Encoding]::UTF8)
+                $HasBlock = $Txt.Contains($EasySkillsBegin)
+            } catch {}
+        }
+        $AgentsStatus += @{ name = $T.Name; path = $T.Path; exists = $Exists; has_managed_block = $HasBlock }
+    }
+
+    return @{ success = $true; rules = $Rules; agents = $AgentsStatus }
+}
+
+function Save-Instruction([string]$Name, [string]$Content) {
+    $Check = Test-InstructionName $Name
+    if (-not $Check.ok) { return @{ success = $false; message = $Check.value } }
+    $CleanName = $Check.value
+    try {
+        if (-not (Test-Path $InstructionsDir)) { New-Item -ItemType Directory -Path $InstructionsDir -Force | Out-Null }
+        [System.IO.File]::WriteAllText((Join-Path $InstructionsDir $CleanName), ($Content), [System.Text.Encoding]::UTF8)
+    } catch {
+        return @{ success = $false; message = "Save failed: $_" }
+    }
+    return @{ success = $true; message = "Saved rule: $CleanName"; name = $CleanName }
+}
+
+function Remove-Instruction([string]$Name) {
+    $Check = Test-InstructionName $Name
+    if (-not $Check.ok) { return @{ success = $false; message = $Check.value } }
+    $CleanName = $Check.value
+    $Target = Join-Path $InstructionsDir $CleanName
+    if (-not (Test-Path $Target)) { return @{ success = $false; message = "Rule not found: $CleanName" } }
+    try { Remove-Item -LiteralPath $Target -Force } catch { return @{ success = $false; message = "Delete failed: $_" } }
+    return @{ success = $true; message = "Deleted rule: $CleanName"; name = $CleanName }
+}
+
+function Get-InstructionContent([string]$Name) {
+    $Check = Test-InstructionName $Name
+    if (-not $Check.ok) { return @{ success = $false; message = $Check.value } }
+    $CleanName = $Check.value
+    $Target = Join-Path $InstructionsDir $CleanName
+    if (-not (Test-Path $Target)) { return @{ success = $false; message = "Rule not found: $CleanName" } }
+    try {
+        $Content = [System.IO.File]::ReadAllText($Target, [System.Text.Encoding]::UTF8)
+        return @{ success = $true; name = $CleanName; content = $Content }
+    } catch {
+        return @{ success = $false; message = "Read failed: $_" }
+    }
+}
+
+# Concatenate all rule files into one text block.
+function Get-ConcatenatedRules {
+    if (-not (Test-Path $InstructionsDir)) { return "" }
+    $Files = Get-ChildItem -Path $InstructionsDir -Filter "*.md" -File -ErrorAction SilentlyContinue | Sort-Object Name
+    $Parts = @()
+    foreach ($File in $Files) {
+        try {
+            $Txt = [System.IO.File]::ReadAllText($File.FullName, [System.Text.Encoding]::UTF8).Trim()
+            if ($Txt) { $Parts += $Txt }
+        } catch {}
+    }
+    return ($Parts -join "`n`n---`n`n")
+}
+
+function Write-InstructionsToOne([string]$PathStr) {
+    $RulesText = Get-ConcatenatedRules
+    if (-not $RulesText.Trim()) { return @{ success = $false; message = "No rules in the library. Add rules first." } }
+    $Block = "$EasySkillsBegin`n$RulesText`n$EasySkillsEnd"
+    try {
+        $Resolved = [System.IO.Path]::GetFullPath($PathStr)
+        $Parent = Split-Path -Path $Resolved -Parent
+        if (-not (Test-Path $Parent)) { New-Item -ItemType Directory -Path $Parent -Force | Out-Null }
+        $Existing = ""
+        if (Test-Path $Resolved) { $Existing = [System.IO.File]::ReadAllText($Resolved, [System.Text.Encoding]::UTF8) }
+        $NewContent = Inject-ManagedBlock $Existing $Block
+        [System.IO.File]::WriteAllText($Resolved, $NewContent, [System.Text.Encoding]::UTF8)
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Remove-InstructionsFromOne([string]$PathStr) {
+    try {
+        $Resolved = [System.IO.Path]::GetFullPath($PathStr)
+        if (-not (Test-Path $Resolved)) { return $true }
+        $Content = [System.IO.File]::ReadAllText($Resolved, [System.Text.Encoding]::UTF8)
+        $Remaining = Strip-ManagedBlock $Content
+        if ($Remaining.Trim()) {
+            [System.IO.File]::WriteAllText($Resolved, $Remaining, [System.Text.Encoding]::UTF8)
+        } else {
+            Remove-Item -LiteralPath $Resolved -Force
+        }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Write-InstructionsToAll {
+    $RulesText = Get-ConcatenatedRules
+    if (-not $RulesText.Trim()) { return @{ success = $false; message = "No rules in the library. Add rules first." } }
+    $Targets = Get-InstructionTargets
+    if ($Targets.Count -eq 0) { return @{ success = $false; message = "No agent instruction targets found." } }
+    $Written = @(); $Failed = @()
+    foreach ($T in $Targets) {
+        if (Write-InstructionsToOne $T.Path) { $Written += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
+    }
+    $Msg = "Wrote rules to $($Written.Count) agent(s)."
+    if ($Failed.Count -gt 0) { $Msg += " Failed: $($Failed -join ', ')" }
+    return @{ success = ($Failed.Count -eq 0); message = $Msg; written = $Written.Count; failed = $Failed }
+}
+
+function Remove-InstructionsFromAll {
+    $Targets = Get-InstructionTargets
+    if ($Targets.Count -eq 0) { return @{ success = $false; message = "No agent instruction targets found." } }
+    $Removed = @(); $Failed = @()
+    foreach ($T in $Targets) {
+        if (Remove-InstructionsFromOne $T.Path) { $Removed += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
+    }
+    $Msg = "Removed managed block from $($Removed.Count) agent(s)."
+    if ($Failed.Count -gt 0) { $Msg += " Failed: $($Failed -join ', ')" }
+    return @{ success = ($Failed.Count -eq 0); message = $Msg; removed = $Removed.Count; failed = $Failed }
+}
+
 function Run-SelfUpdate {
     try {
         $Release = Get-LatestRelease
@@ -1374,6 +1574,19 @@ function Invoke-WebUIRequest($Context) {
                 return
             }
             Send-JsonResponse $Context (Get-LatestRelease)
+        } elseif ($UrlPath -eq "/api/instructions") {
+            if (-not (Test-TokenValid $Request)) {
+                Send-ForbiddenResponse $Context
+                return
+            }
+            Send-JsonResponse $Context (Get-InstructionsData)
+        } elseif ($UrlPath -like "/api/instructions/content/*") {
+            if (-not (Test-TokenValid $Request)) {
+                Send-ForbiddenResponse $Context
+                return
+            }
+            $RuleName = [System.Uri]::UnescapeDataString($UrlPath.Substring("/api/instructions/content/".Length))
+            Send-JsonResponse $Context (Get-InstructionContent $RuleName)
         } else {
             $Context.Response.StatusCode = 404
             $Context.Response.Close()
@@ -1435,6 +1648,18 @@ function Invoke-WebUIRequest($Context) {
             Send-JsonResponse $Context (Import-SkillFolder $BodyData["name"] $BodyData["files"])
         } elseif ($UrlPath -eq "/api/skills/delete") {
             Send-JsonResponse $Context (Delete-Skill $BodyData["name"])
+        } elseif ($UrlPath -eq "/api/instructions/save") {
+            Send-JsonResponse $Context (Save-Instruction (Get-PayloadValue $BodyData "name") (Get-PayloadValue $BodyData "content"))
+        } elseif ($UrlPath -eq "/api/instructions/delete") {
+            Send-JsonResponse $Context (Remove-Instruction $BodyData["name"])
+        } elseif ($UrlPath -eq "/api/instructions/write-all") {
+            Send-JsonResponse $Context (Write-InstructionsToAll)
+        } elseif ($UrlPath -eq "/api/instructions/remove-all") {
+            Send-JsonResponse $Context (Remove-InstructionsFromAll)
+        } elseif ($UrlPath -eq "/api/instructions/write-one") {
+            Send-JsonResponse $Context (@{ success = (Write-InstructionsToOne $BodyData["path"]); message = "Write done" })
+        } elseif ($UrlPath -eq "/api/instructions/remove-one") {
+            Send-JsonResponse $Context (@{ success = (Remove-InstructionsFromOne $BodyData["path"]); message = "Remove done" })
         } elseif ($UrlPath -eq "/api/update") {
             Send-JsonResponse $Context (Run-SelfUpdate)
         } elseif ($UrlPath -eq "/api/rollback") {

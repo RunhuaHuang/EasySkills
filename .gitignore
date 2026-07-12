@@ -31,3 +31,6 @@ _maintenance.bak/
 
 # Stray patch/working artifacts
 /diff.patch
+
+# IDE / agent working directories
+.zcode/

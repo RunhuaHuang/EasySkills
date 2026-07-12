@@ -5,222 +5,308 @@
     {
       "name": "Antigravity CLI",
       "mac_path": "~/.gemini/config/skills",
-      "win_path": "%USERPROFILE%\\.gemini\\config\\skills"
+      "win_path": "%USERPROFILE%\\.gemini\\config\\skills",
+      "mac_instructions_file": "~/.gemini/GEMINI.md",
+      "win_instructions_file": "%USERPROFILE%\\.gemini\\GEMINI.md"
     },
     {
       "name": "Antigravity IDE",
       "mac_path": "~/.gemini/antigravity/skills",
-      "win_path": "%USERPROFILE%\\.gemini\\antigravity\\skills"
+      "win_path": "%USERPROFILE%\\.gemini\\antigravity\\skills",
+      "mac_instructions_file": "~/.gemini/GEMINI.md",
+      "win_instructions_file": "%USERPROFILE%\\.gemini\\GEMINI.md"
     },
     {
       "name": "Codex",
       "mac_path": "~/.codex/skills",
-      "win_path": "%USERPROFILE%\\.codex\\skills"
+      "win_path": "%USERPROFILE%\\.codex\\skills",
+      "mac_instructions_file": "~/.codex/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.codex\\AGENTS.md"
     },
     {
       "name": "Claude Code",
       "mac_path": "~/.claude/skills",
-      "win_path": "%USERPROFILE%\\.claude\\skills"
+      "win_path": "%USERPROFILE%\\.claude\\skills",
+      "mac_instructions_file": "~/.claude/CLAUDE.md",
+      "win_instructions_file": "%USERPROFILE%\\.claude\\CLAUDE.md"
     },
     {
       "name": "GitHub Copilot",
       "mac_path": "~/.copilot/skills",
-      "win_path": "%USERPROFILE%\\.copilot\\skills"
+      "win_path": "%USERPROFILE%\\.copilot\\skills",
+      "mac_instructions_file": "~/.copilot/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.copilot\\AGENTS.md"
     },
     {
       "name": "Pi",
       "mac_path": "~/.pi/agent/skills",
-      "win_path": "%USERPROFILE%\\.pi\\agent\\skills"
+      "win_path": "%USERPROFILE%\\.pi\\agent\\skills",
+      "mac_instructions_file": "~/.pi/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.pi\\AGENTS.md"
     },
     {
       "name": "OpenCode",
       "mac_path": "~/.config/opencode/skills",
-      "win_path": "%USERPROFILE%\\.config\\opencode\\skills"
+      "win_path": "%USERPROFILE%\\.config\\opencode\\skills",
+      "mac_instructions_file": "~/.config/opencode/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.config\\opencode\\AGENTS.md"
     },
     {
       "name": "Kimi Code",
       "mac_path": "~/.kimi/skills",
-      "win_path": "%USERPROFILE%\\.kimi\\skills"
+      "win_path": "%USERPROFILE%\\.kimi\\skills",
+      "mac_instructions_file": "~/.kimi/KIMI.md",
+      "win_instructions_file": "%USERPROFILE%\\.kimi\\KIMI.md"
     },
     {
       "name": "ZCode",
       "mac_path": "~/.zcode/skills",
-      "win_path": "%USERPROFILE%\\.zcode\\skills"
+      "win_path": "%USERPROFILE%\\.zcode\\skills",
+      "mac_instructions_file": "~/.zcode/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.zcode\\AGENTS.md"
     },
     {
       "name": "Trae (Global)",
       "mac_path": "~/.trae/skills",
       "win_path": "%USERPROFILE%\\.trae\\skills",
       "mac_extra_path": "~/Library/Application Support/Trae/skills",
-      "win_extra_path": "%APPDATA%\\Trae\\skills"
+      "win_extra_path": "%APPDATA%\\Trae\\skills",
+      "mac_instructions_file": "~/.trae/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.trae\\AGENTS.md"
     },
     {
       "name": "Trae CN",
       "mac_path": "~/.trae-cn/skills",
       "win_path": "%USERPROFILE%\\.trae-cn\\skills",
       "mac_extra_path": "~/Library/Application Support/Trae-CN/skills",
-      "win_extra_path": "%APPDATA%\\Trae-CN\\skills"
+      "win_extra_path": "%APPDATA%\\Trae-CN\\skills",
+      "mac_instructions_file": "~/.trae-cn/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.trae-cn\\AGENTS.md"
     },
     {
       "name": "OpenClaw",
       "mac_path": "~/.openclaw/skills",
-      "win_path": "%USERPROFILE%\\.openclaw\\skills"
+      "win_path": "%USERPROFILE%\\.openclaw\\skills",
+      "mac_instructions_file": "~/.openclaw/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.openclaw\\AGENTS.md"
     },
     {
       "name": "Hermes Agent",
       "mac_path": "~/.hermes/skills",
-      "win_path": "%USERPROFILE%\\.hermes\\skills"
+      "win_path": "%USERPROFILE%\\.hermes\\skills",
+      "mac_instructions_file": "~/.hermes/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.hermes\\AGENTS.md"
     },
     {
       "name": "Proma",
       "mac_path": "~/.proma/default-skills",
       "win_path": "%USERPROFILE%\\.proma\\default-skills",
-      "_note": "Proma also auto-discovers workspace skills dirs at runtime"
+      "_note": "Proma also auto-discovers workspace skills dirs at runtime",
+      "mac_instructions_file": "~/.proma/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.proma\\AGENTS.md"
     },
     {
       "name": "Cursor",
       "mac_path": "~/.cursor/skills",
-      "win_path": "%USERPROFILE%\\.cursor\\skills"
+      "win_path": "%USERPROFILE%\\.cursor\\skills",
+      "mac_instructions_file": "~/.cursor/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.cursor\\AGENTS.md"
     },
     {
       "name": "Kiro Agent",
       "mac_path": "~/.kiro/skills",
-      "win_path": "%USERPROFILE%\\.kiro\\skills"
+      "win_path": "%USERPROFILE%\\.kiro\\skills",
+      "mac_instructions_file": "~/.kiro/steering/easyskills-instructions.md",
+      "win_instructions_file": "%USERPROFILE%\\.kiro\\steering\\easyskills-instructions.md"
     },
     {
       "name": "Junie (JetBrains)",
       "mac_path": "~/.junie/skills",
-      "win_path": "%USERPROFILE%\\.junie\\skills"
+      "win_path": "%USERPROFILE%\\.junie\\skills",
+      "mac_instructions_file": "~/.junie/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.junie\\AGENTS.md"
     },
     {
       "name": "Cline",
       "mac_path": "~/.cline/skills",
-      "win_path": "%USERPROFILE%\\.cline\\skills"
+      "win_path": "%USERPROFILE%\\.cline\\skills",
+      "mac_instructions_file": "~/Documents/Cline/Rules/easyskills-instructions.md",
+      "win_instructions_file": "%USERPROFILE%\\Documents\\Cline\\Rules\\easyskills-instructions.md"
     },
     {
       "name": "Roo Code",
       "mac_path": "~/.roo/skills",
-      "win_path": "%USERPROFILE%\\.roo\\skills"
+      "win_path": "%USERPROFILE%\\.roo\\skills",
+      "mac_instructions_file": "~/.roo/rules/easyskills-instructions.md",
+      "win_instructions_file": "%USERPROFILE%\\.roo\\rules\\easyskills-instructions.md"
     },
     {
       "name": "Run",
       "mac_path": "~/.run/global-skills/skills",
-      "win_path": "%USERPROFILE%\\.run\\global-skills\\skills"
+      "win_path": "%USERPROFILE%\\.run\\global-skills\\skills",
+      "mac_instructions_file": "~/.run/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.run\\AGENTS.md"
     },
     {
       "name": "Warp",
       "mac_path": "~/.warp/skills",
-      "win_path": "%USERPROFILE%\\.warp\\skills"
+      "win_path": "%USERPROFILE%\\.warp\\skills",
+      "mac_instructions_file": "~/.warp/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.warp\\AGENTS.md"
     },
     {
       "name": "Windsurf",
       "mac_path": "~/.codeium/windsurf/skills",
-      "win_path": "%USERPROFILE%\\.codeium\\windsurf\\skills"
+      "win_path": "%USERPROFILE%\\.codeium\\windsurf\\skills",
+      "mac_instructions_file": "~/.codeium/windsurf/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.codeium\\windsurf\\AGENTS.md"
     },
     {
       "name": "Firebender",
       "mac_path": "~/.firebender/skills",
-      "win_path": "%USERPROFILE%\\.firebender\\skills"
+      "win_path": "%USERPROFILE%\\.firebender\\skills",
+      "mac_instructions_file": "~/.firebender/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.firebender\\AGENTS.md"
     },
     {
       "name": "Augment",
       "mac_path": "~/.augment/skills",
-      "win_path": "%USERPROFILE%\\.augment\\skills"
+      "win_path": "%USERPROFILE%\\.augment\\skills",
+      "mac_instructions_file": "~/.augment/rules/easyskills-instructions.md",
+      "win_instructions_file": "%USERPROFILE%\\.augment\\rules\\easyskills-instructions.md"
     },
     {
       "name": "Continue",
       "mac_path": "~/.continue/skills",
-      "win_path": "%USERPROFILE%\\.continue\\skills"
+      "win_path": "%USERPROFILE%\\.continue\\skills",
+      "mac_instructions_file": "~/.continue/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.continue\\AGENTS.md"
     },
     {
       "name": "Goose",
       "mac_path": "~/.config/goose/skills",
-      "win_path": "%USERPROFILE%\\.config\\goose\\skills"
+      "win_path": "%USERPROFILE%\\.config\\goose\\skills",
+      "mac_instructions_file": "~/.config/goose/.goosehints",
+      "win_instructions_file": "%USERPROFILE%\\.config\\goose\\.goosehints"
     },
     {
       "name": "Agents (Standard)",
       "mac_path": "~/.agents/skills",
-      "win_path": "%USERPROFILE%\\.agents\\skills"
+      "win_path": "%USERPROFILE%\\.agents\\skills",
+      "mac_instructions_file": "~/.agents/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.agents\\AGENTS.md"
     },
     {
       "name": "Qoder",
       "mac_path": "~/.qoder/skills",
-      "win_path": "%USERPROFILE%\\.qoder\\skills"
+      "win_path": "%USERPROFILE%\\.qoder\\skills",
+      "mac_instructions_file": "~/.qoder/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.qoder\\AGENTS.md"
     },
     {
       "name": "Qwen Code",
       "mac_path": "~/.qwen/skills",
-      "win_path": "%USERPROFILE%\\.qwen\\skills"
+      "win_path": "%USERPROFILE%\\.qwen\\skills",
+      "mac_instructions_file": "~/.qwen/QWEN.md",
+      "win_instructions_file": "%USERPROFILE%\\.qwen\\QWEN.md"
     },
     {
       "name": "CodeBuddy",
       "mac_path": "~/.codebuddy/skills",
-      "win_path": "%USERPROFILE%\\.codebuddy\\skills"
+      "win_path": "%USERPROFILE%\\.codebuddy\\skills",
+      "mac_instructions_file": "~/.codebuddy/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.codebuddy\\AGENTS.md"
     },
     {
       "name": "Amp",
       "mac_path": "~/.config/agents/skills",
-      "win_path": "%USERPROFILE%\\.config\\agents\\skills"
+      "win_path": "%USERPROFILE%\\.config\\agents\\skills",
+      "mac_instructions_file": "~/.config/agents/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.config\\agents\\AGENTS.md"
     },
     {
       "name": "OpenHands",
       "mac_path": "~/.openhands/skills",
-      "win_path": "%USERPROFILE%\\.openhands\\skills"
+      "win_path": "%USERPROFILE%\\.openhands\\skills",
+      "mac_instructions_file": "~/.openhands/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.openhands\\AGENTS.md"
     },
     {
       "name": "Kilo Code",
       "mac_path": "~/.kilocode/skills",
-      "win_path": "%USERPROFILE%\\.kilocode\\skills"
+      "win_path": "%USERPROFILE%\\.kilocode\\skills",
+      "mac_instructions_file": "~/.kilocode/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.kilocode\\AGENTS.md"
     },
     {
       "name": "Zencoder",
       "mac_path": "~/.zencoder/skills",
-      "win_path": "%USERPROFILE%\\.zencoder\\skills"
+      "win_path": "%USERPROFILE%\\.zencoder\\skills",
+      "mac_instructions_file": "~/.zencoder/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.zencoder\\AGENTS.md"
     },
     {
       "name": "iFlow CLI",
       "mac_path": "~/.iflow/skills",
-      "win_path": "%USERPROFILE%\\.iflow\\skills"
+      "win_path": "%USERPROFILE%\\.iflow\\skills",
+      "mac_instructions_file": "~/.iflow/IFLOW.md",
+      "win_instructions_file": "%USERPROFILE%\\.iflow\\IFLOW.md"
     },
     {
       "name": "Droid",
       "mac_path": "~/.factory/skills",
-      "win_path": "%USERPROFILE%\\.factory\\skills"
+      "win_path": "%USERPROFILE%\\.factory\\skills",
+      "mac_instructions_file": "~/.factory/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.factory\\AGENTS.md"
     },
     {
       "name": "Devin for Terminal",
       "mac_path": "~/.config/devin/skills",
-      "win_path": "%USERPROFILE%\\.config\\devin\\skills"
+      "win_path": "%USERPROFILE%\\.config\\devin\\skills",
+      "mac_instructions_file": "~/.config/devin/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.config\\devin\\AGENTS.md"
     },
     {
       "name": "WorkBuddy",
       "mac_path": "~/.workbuddy/skills",
-      "win_path": "%USERPROFILE%\\.workbuddy\\skills"
+      "win_path": "%USERPROFILE%\\.workbuddy\\skills",
+      "mac_instructions_file": "~/.workbuddy/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.workbuddy\\AGENTS.md"
     },
     {
       "name": "QClaw",
       "mac_path": "~/.qclaw/skills",
-      "win_path": "%USERPROFILE%\\.qclaw\\skills"
+      "win_path": "%USERPROFILE%\\.qclaw\\skills",
+      "mac_instructions_file": "~/.qclaw/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.qclaw\\AGENTS.md"
     },
     {
       "name": "CodeWhale",
       "mac_path": "~/.codewhale/skills",
-      "win_path": "%USERPROFILE%\\.codewhale\\skills"
+      "win_path": "%USERPROFILE%\\.codewhale\\skills",
+      "mac_instructions_file": "~/.codewhale/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.codewhale\\AGENTS.md"
     },
     {
       "name": "QoderWork CN",
       "mac_path": "~/.qoderworkcn/skills",
-      "win_path": "%USERPROFILE%\\.qoderworkcn\\skills"
+      "win_path": "%USERPROFILE%\\.qoderworkcn\\skills",
+      "mac_instructions_file": "~/.qoderworkcn/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.qoderworkcn\\AGENTS.md"
     },
     {
       "name": "Qoder CN",
       "mac_path": "~/.qoder-cn/skills",
-      "win_path": "%USERPROFILE%\\.qoder-cn\\skills"
+      "win_path": "%USERPROFILE%\\.qoder-cn\\skills",
+      "mac_instructions_file": "~/.qoder-cn/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.qoder-cn\\AGENTS.md"
     },
     {
       "name": "MiniMax Code",
       "mac_path": "~/.mavis/skills",
-      "win_path": "%USERPROFILE%\\.mavis\\skills"
+      "win_path": "%USERPROFILE%\\.mavis\\skills",
+      "mac_instructions_file": "~/.mavis/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.mavis\\AGENTS.md"
     }
   ]
 }

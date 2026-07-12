@@ -158,6 +158,13 @@ AGENTS_JSON_FILE = SCRIPT_DIR / "agents.json"
 WEBUI_DIR = SCRIPT_DIR / "webui"
 if not WEBUI_DIR.exists():
     WEBUI_DIR = Path(__file__).parent.resolve() / "webui"
+
+# --- Instruction-rule library (AGENTS.md / CLAUDE.md management) ---
+# Modular rule files live here; "write to all agents" concatenates them into a
+# single managed block injected into each agent's global instruction file.
+INSTRUCTIONS_DIR = CENTRAL_DIR / "instructions"
+EASY_SKILLS_BEGIN = "<!-- EasySkills:begin (managed block — do not edit manually) -->"
+EASY_SKILLS_END = "<!-- EasySkills:end -->"
 # WebUI listen port — SINGLE SOURCE OF TRUTH. Mirror any change in webui.ps1
 # ($Port) and webui-service.ps1 ($Port); display strings referencing 6633 in the
 # installers/scripts also need updating.
@@ -607,6 +614,265 @@ def get_version():
     if version_file.exists():
         return version_file.read_text(encoding="utf-8").strip()
     return "unknown"
+
+
+# ──────────────────────────────────────────────────────────────
+# Instruction-rule library: modular AGENTS.md / CLAUDE.md management
+# ──────────────────────────────────────────────────────────────
+
+def _load_instruction_targets() -> list[tuple[str, Path]]:
+    """Return [(agent_name, instruction_file_path)] from agents.json.
+
+    Reads the ``mac_instructions_file`` field (Windows uses win_instructions_file,
+    handled by webui.ps1). De-duplicates so two agents sharing one instruction
+    file (e.g. Antigravity CLI + IDE both use ~/.gemini/GEMINI.md) are written once.
+    """
+    targets: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    try:
+        if AGENTS_JSON_FILE.exists():
+            data = json.loads(AGENTS_JSON_FILE.read_text(encoding="utf-8"))
+            for a in data.get("agents", []):
+                raw = (a.get("mac_instructions_file") or "").strip()
+                if not raw:
+                    continue
+                expanded = str(Path.home()) + raw[1:] if raw.startswith("~") else raw
+                resolved = str(Path(expanded).resolve())
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                targets.append((a.get("name", ""), Path(expanded)))
+    except Exception:
+        pass
+    return targets
+
+
+def _validate_instruction_name(name: str) -> tuple[bool, str]:
+    """Validate a rule filename (must be safe, end with .md)."""
+    name = (name or "").strip()
+    if not name:
+        return False, "Rule name cannot be empty"
+    if "/" in name or "\\" in name or "\x00" in name or name in (".", ".."):
+        return False, "Invalid rule name"
+    if not name.endswith(".md"):
+        name = name + ".md"
+    return True, name
+
+
+def _build_managed_block(rules_text: str) -> str:
+    """Wrap concatenated rules in managed-block markers."""
+    return f"{EASY_SKILLS_BEGIN}\n{rules_text}\n{EASY_SKILLS_END}"
+
+
+def _inject_managed_block(existing: str, block: str) -> str:
+    """Insert or replace the managed block inside an instruction file's content.
+
+    - No existing content  → block alone.
+    - Has managed block    → replace the old block with the new one.
+    - No managed block     → append block (separated by a blank line).
+    """
+    if EASY_SKILLS_BEGIN in existing and EASY_SKILLS_END in existing:
+        import re
+        pattern = re.compile(
+            re.escape(EASY_SKILLS_BEGIN) + r".*?" + re.escape(EASY_SKILLS_END),
+            re.DOTALL,
+        )
+        return pattern.sub(lambda m: block, existing, count=1)
+    if existing.strip():
+        return existing.rstrip() + "\n\n" + block + "\n"
+    return block + "\n"
+
+
+def _strip_managed_block(content: str) -> str:
+    """Remove the managed block from content, returning the remainder."""
+    if EASY_SKILLS_BEGIN not in content or EASY_SKILLS_END not in content:
+        return content
+    import re
+    pattern = re.compile(
+        re.escape(EASY_SKILLS_BEGIN) + r".*?" + re.escape(EASY_SKILLS_END) + r"\n?",
+        re.DOTALL,
+    )
+    return pattern.sub("", content, count=1)
+
+
+def get_instructions() -> dict:
+    """List rule files in the instructions library + per-agent write status."""
+    rules = []
+    if INSTRUCTIONS_DIR.exists():
+        for item in sorted(INSTRUCTIONS_DIR.iterdir()):
+            if item.is_file() and item.suffix == ".md":
+                content = item.read_text(encoding="utf-8")
+                rules.append({
+                    "name": item.name,
+                    "preview": content[:200],
+                    "size": len(content),
+                })
+
+    targets = _load_instruction_targets()
+    agents_status = []
+    for name, path in targets:
+        has_block = False
+        exists = path.exists()
+        if exists:
+            try:
+                has_block = EASY_SKILLS_BEGIN in path.read_text(encoding="utf-8")
+            except OSError:
+                pass
+        agents_status.append({
+            "name": name,
+            "path": str(path),
+            "exists": exists,
+            "has_managed_block": has_block,
+        })
+
+    return {
+        "success": True,
+        "rules": rules,
+        "agents": agents_status,
+    }
+
+
+@_writes_locked
+def save_instruction(name: str, content: str) -> dict:
+    """Create or overwrite a single rule file in the instructions library."""
+    valid, clean = _validate_instruction_name(name)
+    if not valid:
+        return {"success": False, "message": clean}
+    try:
+        INSTRUCTIONS_DIR.mkdir(parents=True, exist_ok=True)
+        (INSTRUCTIONS_DIR / clean).write_text(content or "", encoding="utf-8")
+    except OSError as e:
+        return {"success": False, "message": f"Save failed: {e}"}
+    return {"success": True, "message": f"Saved rule: {clean}", "name": clean}
+
+
+@_writes_locked
+def delete_instruction(name: str) -> dict:
+    """Delete a single rule file from the instructions library."""
+    valid, clean = _validate_instruction_name(name)
+    if not valid:
+        return {"success": False, "message": clean}
+    target = INSTRUCTIONS_DIR / clean
+    if not target.exists():
+        return {"success": False, "message": f"Rule not found: {clean}"}
+    try:
+        target.unlink()
+    except OSError as e:
+        return {"success": False, "message": f"Delete failed: {e}"}
+    return {"success": True, "message": f"Deleted rule: {clean}", "name": clean}
+
+
+@_writes_locked
+def get_instruction_content(name: str) -> dict:
+    """Read the full content of a single rule file (for the editor)."""
+    valid, clean = _validate_instruction_name(name)
+    if not valid:
+        return {"success": False, "message": clean}
+    target = INSTRUCTIONS_DIR / clean
+    if not target.exists():
+        return {"success": False, "message": f"Rule not found: {clean}"}
+    return {"success": True, "name": clean, "content": target.read_text(encoding="utf-8")}
+
+
+def _concat_rules() -> str:
+    """Concatenate all rule files (sorted by name) into one text block."""
+    parts = []
+    if INSTRUCTIONS_DIR.exists():
+        for item in sorted(INSTRUCTIONS_DIR.iterdir()):
+            if item.is_file() and item.suffix == ".md":
+                parts.append(item.read_text(encoding="utf-8").strip())
+    return "\n\n---\n\n".join(parts)
+
+
+def _write_to_one(path: Path, rules_text: str) -> bool:
+    """Write (or refresh) the managed block in a single instruction file."""
+    block = _build_managed_block(rules_text)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        path.write_text(_inject_managed_block(existing, block), encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+
+def _remove_from_one(path: Path) -> bool:
+    """Remove the managed block from a single instruction file."""
+    try:
+        if not path.exists():
+            return True
+        remaining = _strip_managed_block(path.read_text(encoding="utf-8"))
+        if remaining.strip():
+            path.write_text(remaining, encoding="utf-8")
+        else:
+            path.unlink()
+        return True
+    except OSError:
+        return False
+
+
+@_writes_locked
+def write_instructions_to_all() -> dict:
+    """Concatenate every rule and write the managed block into ALL agent files."""
+    rules_text = _concat_rules()
+    if not rules_text.strip():
+        return {"success": False, "message": "No rules in the library. Add rules first."}
+    targets = _load_instruction_targets()
+    if not targets:
+        return {"success": False, "message": "No agent instruction targets found."}
+    written, failed = [], []
+    for name, path in targets:
+        if _write_to_one(path, rules_text):
+            written.append(name)
+        else:
+            failed.append(f"{name} ({path})")
+    msg = f"Wrote rules to {len(written)} agent(s)."
+    if failed:
+        msg += f" Failed: {', '.join(failed)}"
+    return {"success": len(failed) == 0, "message": msg, "written": len(written), "failed": failed}
+
+
+@_writes_locked
+def remove_instructions_from_all() -> dict:
+    """Remove the managed block from ALL agent instruction files."""
+    targets = _load_instruction_targets()
+    if not targets:
+        return {"success": False, "message": "No agent instruction targets found."}
+    removed, failed = [], []
+    for name, path in targets:
+        if _remove_from_one(path):
+            removed.append(name)
+        else:
+            failed.append(f"{name} ({path})")
+    msg = f"Removed managed block from {len(removed)} agent(s)."
+    if failed:
+        msg += f" Failed: {', '.join(failed)}"
+    return {"success": len(failed) == 0, "message": msg, "removed": len(removed), "failed": failed}
+
+
+@_writes_locked
+def write_instructions_to_one(path_str: str) -> dict:
+    """Write the managed block into a single agent's instruction file."""
+    if not path_str:
+        return {"success": False, "message": "Path cannot be empty"}
+    rules_text = _concat_rules()
+    if not rules_text.strip():
+        return {"success": False, "message": "No rules in the library. Add rules first."}
+    path = Path(path_str).expanduser()
+    if _write_to_one(path, rules_text):
+        return {"success": True, "message": f"Wrote rules to {path}"}
+    return {"success": False, "message": f"Write failed for {path}"}
+
+
+@_writes_locked
+def remove_instructions_from_one(path_str: str) -> dict:
+    """Remove the managed block from a single agent's instruction file."""
+    if not path_str:
+        return {"success": False, "message": "Path cannot be empty"}
+    path = Path(path_str).expanduser()
+    if _remove_from_one(path):
+        return {"success": True, "message": f"Removed managed block from {path}"}
+    return {"success": False, "message": f"Remove failed for {path}"}
 
 
 def get_latest_release() -> dict:
@@ -1420,6 +1686,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             self._json(get_latest_release())
 
+        elif path == "/api/instructions":
+            if not self._is_token_valid():
+                self._reject_forbidden()
+                return
+            self._json(get_instructions())
+
+        elif path.startswith("/api/instructions/content/"):
+            if not self._is_token_valid():
+                self._reject_forbidden()
+                return
+            rule_name = urllib.parse.unquote(path[len("/api/instructions/content/"):])
+            self._json(get_instruction_content(rule_name))
+
         else:
             self.send_response(404)
             self.end_headers()
@@ -1452,6 +1731,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "/api/agents/custom/remove": lambda: run_deploy("--remove", body.get("path", "")),
             "/api/skills/import":        lambda: import_skill_folder(body.get("name", ""), body.get("files", [])),
             "/api/skills/delete":        lambda: delete_skill(body.get("name", "")),
+            "/api/instructions/save":    lambda: save_instruction(body.get("name", ""), body.get("content", "")),
+            "/api/instructions/delete":  lambda: delete_instruction(body.get("name", "")),
+            "/api/instructions/write-all":    lambda: write_instructions_to_all(),
+            "/api/instructions/remove-all":   lambda: remove_instructions_from_all(),
+            "/api/instructions/write-one":    lambda: write_instructions_to_one(body.get("path", "")),
+            "/api/instructions/remove-one":   lambda: remove_instructions_from_one(body.get("path", "")),
             "/api/update":               lambda: do_self_update(),
             "/api/rollback":             lambda: do_rollback(),
         }

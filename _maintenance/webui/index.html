@@ -1664,6 +1664,10 @@
                 <i class="fa-solid fa-cube"></i>
                 <span class="t-agents">Agents</span>
             </div>
+            <div class="nav-item" data-target="instructions">
+                <i class="fa-solid fa-scroll"></i>
+                <span class="t-instructions">Rules</span>
+            </div>
             <div class="nav-item" data-target="guide">
                 <i class="fa-solid fa-book-open"></i>
                 <span class="t-guide">Guide</span>
@@ -1842,6 +1846,50 @@
             </div>
             <div class="grid-layout" id="agents-grid">
                 <!-- Javascript Injection -->
+            </div>
+        </section>
+
+        <!-- Instructions Section -->
+        <section id="instructions" class="view-section">
+            <div class="agent-register-note">
+                <i class="fa-solid fa-circle-info"></i>
+                <div>
+                    <strong class="t-rules-intro-title">Modular instruction rules for every agent</strong>
+                    <p class="t-rules-intro-desc">Create reusable rule modules here, then write them into each agent's global instruction file (AGENTS.md, CLAUDE.md, etc.) with one click. The managed block is clearly marked — removing it never touches your own content.</p>
+                </div>
+            </div>
+
+            <!-- Command bar: write-all / remove-all / new rule -->
+            <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap; margin-bottom: var(--space-md);">
+                <button class="btn btn-primary" id="rules-write-all-btn" onclick="writeAllInstructions(this)">
+                    <i class="fa-solid fa-bolt"></i> <span class="t-rules-write-all">Write to All Agents</span>
+                </button>
+                <button class="btn btn-outline" id="rules-remove-all-btn" onclick="removeAllInstructions(this)">
+                    <i class="fa-solid fa-eraser"></i> <span class="t-rules-remove-all">Remove from All Agents</span>
+                </button>
+                <button class="btn btn-primary" id="rules-new-btn" onclick="openRuleEditor('')">
+                    <i class="fa-solid fa-circle-plus"></i> <span class="t-rules-new">New Rule</span>
+                </button>
+            </div>
+
+            <!-- Rules library -->
+            <div class="agent-list-header">
+                <h3 class="agent-list-title t-rules-library">
+                    Rule Library
+                </h3>
+            </div>
+            <div class="grid-layout" id="rules-grid">
+                <!-- JS injection -->
+            </div>
+
+            <!-- Agent write status -->
+            <div class="agent-list-header" style="margin-top: var(--space-lg);">
+                <h3 class="agent-list-title t-rules-agent-status">
+                    Agent Instruction Files
+                </h3>
+            </div>
+            <div class="grid-layout" id="rules-agents-grid">
+                <!-- JS injection -->
             </div>
         </section>
         <!-- Guide Section -->
@@ -2158,6 +2206,30 @@
         </div>
     </div>
 
+    <!-- Rule Editor Overlay -->
+    <div class="skill-delete-overlay" id="rule-editor-overlay" aria-hidden="true">
+        <div class="skill-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="rule-editor-title" style="max-width: 640px;">
+            <div class="skill-delete-kicker">
+                <i class="fa-solid fa-scroll"></i>
+                <span class="t-rule-editor-kicker">Rule Editor</span>
+            </div>
+            <h3 class="skill-delete-title t-rule-editor-title" id="rule-editor-title">Create / Edit Rule</h3>
+            <p class="skill-delete-copy t-rule-editor-desc">Each rule is a markdown file in the rule library. When you "Write to All Agents", all rules are concatenated into a managed block.</p>
+            <input type="text" id="rule-editor-name" class="command-input" placeholder="rule-name.md" style="margin-bottom: var(--space-sm);">
+            <textarea id="rule-editor-content" rows="10" style="width: 100%; font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace); font-size: 0.85rem; padding: var(--space-sm); border: 1px solid var(--border-subtle); border-radius: 8px; resize: vertical; background: var(--bg-surface); color: var(--text-main);" placeholder="# Your rule content in markdown..."></textarea>
+            <div class="skill-delete-actions">
+                <button class="btn btn-outline" id="rule-editor-cancel">
+                    <i class="fa-solid fa-xmark"></i>
+                    <span class="t-cancel">Cancel</span>
+                </button>
+                <button class="btn btn-primary" id="rule-editor-save">
+                    <i class="fa-solid fa-floppy-disk"></i>
+                    <span class="t-rule-editor-save">Save Rule</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notifications Layer -->
     <div id="toast-container"></div>
 
@@ -2238,6 +2310,25 @@
                 't-cleanup-desc-title': 'Prune Invalid Symlinks',
                 't-cleanup-desc': 'Scans agent skill targets, detecting and unlinking broken junctions (symlinks pointing to deleted skills). Keeps your agent environments clean and prevents load trace errors.',
                 't-about': 'About',
+                't-instructions': 'Rules',
+                't-rules-intro-title': 'Modular instruction rules for every agent',
+                't-rules-intro-desc': 'Create reusable rule modules here, then write them into each agent\'s global instruction file (AGENTS.md, CLAUDE.md, etc.) with one click. The managed block is clearly marked — removing it never touches your own content.',
+                't-rules-write-all': 'Write to All Agents',
+                't-rules-remove-all': 'Remove from All Agents',
+                't-rules-new': 'New Rule',
+                't-rules-library': 'Rule Library',
+                't-rules-agent-status': 'Agent Instruction Files',
+                't-rules-empty': 'No rules yet. Click "New Rule" to create your first instruction module.',
+                't-rules-edit': 'Edit',
+                't-rules-write-one': 'Write',
+                't-rules-remove-one': 'Remove',
+                't-rules-written': 'Written',
+                't-rules-not-written': 'Not written',
+                't-rule-editor-kicker': 'Rule Editor',
+                't-rule-editor-title': 'Create / Edit Rule',
+                't-rule-editor-desc': 'Each rule is a markdown file in the rule library. When you "Write to All Agents", all rules are concatenated into a managed block.',
+                't-rule-editor-save': 'Save Rule',
+                't-rule-name-placeholder': 'rule-name.md',
                 't-about-desc': 'Cross-platform automated skills manager for advanced agent coding. Automatically detects agent configurations, orchestrates background watches, and maps symlinks dynamically.',
                 't-github-desc': 'Automate your workflow. Setup custom skills repositories and map them to Claude, Gemini, Cursor, Trae, and more. Open-source under MIT License.',
                 't-visit-github': 'Visit Repository',
@@ -2369,6 +2460,25 @@
                 't-cleanup-desc-title': '清理失效软链接',
                 't-cleanup-desc': '深度扫描所有已注册智能体的 skills 目录，探测并强制拔除“失效软链接”（即指向已删除技能文件夹的死链接），避免 AI 客户端在加载运行时发生寻址报错。',
                 't-about': '关于',
+                't-instructions': '规则',
+                't-rules-intro-title': '为每个 Agent 管理模块化指令规则',
+                't-rules-intro-desc': '在此创建可复用的规则模块，然后一键写入每个 Agent 的全局指令文件（AGENTS.md、CLAUDE.md 等）。托管块有明确标记——移除时绝不会触碰你自己手写的内容。',
+                't-rules-write-all': '一键写入所有 Agent',
+                't-rules-remove-all': '一键删除所有 Agent 规则',
+                't-rules-new': '新建规则',
+                't-rules-library': '规则库',
+                't-rules-agent-status': 'Agent 指令文件',
+                't-rules-empty': '还没有规则。点击"新建规则"创建你的第一个指令模块。',
+                't-rules-edit': '编辑',
+                't-rules-write-one': '写入',
+                't-rules-remove-one': '移除',
+                't-rules-written': '已写入',
+                't-rules-not-written': '未写入',
+                't-rule-editor-kicker': '规则编辑器',
+                't-rule-editor-title': '创建 / 编辑规则',
+                't-rule-editor-desc': '每条规则是规则库中的一个 markdown 文件。当你"一键写入所有 Agent"时，所有规则会拼接成一个托管块。',
+                't-rule-editor-save': '保存规则',
+                't-rule-name-placeholder': '规则名.md',
                 't-about-desc': '专为大语言智能体（Agent）设计的跨平台、全自动技能分发与热重载管理器。自适应宿主环境，动态监听技能库变更，秒级完成多端软链接深度连接。',
                 't-github-desc': '极客级的自动化开发利器。配置自定义技能注册表，支持 Claude, Gemini, Cursor, Trae, Continue 等所有主流编码客户端，项目遵循 MIT 开源许可。',
                 't-visit-github': '访问 GitHub 仓库',
@@ -3008,6 +3118,11 @@
                 if (agents) renderAgents(agents);
             }
 
+            if (activeNav === 'instructions') {
+                const data = await apiCall('/api/instructions');
+                if (data) renderInstructions(data);
+            }
+
             if (activeNav === 'about') {
                 const latestLabel = document.getElementById('latest-version');
                 if (latestLabel && latestLabel.innerText === 'Loading...') {
@@ -3282,6 +3397,157 @@
             // Preserves active filter after live refresh
             filterAgents();
         }
+
+        // ==================== Instructions / Rules ====================
+        let lastInstructionsJson = '';
+
+        function renderInstructions(data) {
+            if (!data) return;
+            const sig = JSON.stringify(data);
+            if (sig === lastInstructionsJson) return;
+            lastInstructionsJson = sig;
+
+            const lang = currentLang;
+            const t = (key) => dict[lang][key] || dict['en'][key] || key;
+
+            // --- Rules grid ---
+            const rulesGrid = document.getElementById('rules-grid');
+            if (rulesGrid) {
+                const rules = data.rules || [];
+                if (rules.length === 0) {
+                    rulesGrid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: var(--space-xl); color: var(--text-muted); font-family: var(--font-display);">${escapeHtml(t('t-rules-empty'))}</div>`;
+                } else {
+                    const parts = rules.map(r => {
+                        const preview = escapeHtml((r.preview || '').slice(0, 120));
+                        return `<div class="card" style="border-top: 2px solid var(--warning);">
+                            <div class="card-header">
+                                <div class="card-title"><i class="fa-solid fa-file-lines" style="color: var(--warning);"></i><span>${escapeHtml(r.name)}</span></div>
+                            </div>
+                            <div class="card-subtitle" style="white-space: pre-wrap; max-height: 80px; overflow: hidden; font-family: var(--font-mono, monospace); font-size: 0.75rem; color: var(--text-muted);">${preview}</div>
+                            <div class="card-actions">
+                                <button class="btn btn-outline" data-rule-action="edit" data-rule-name="${escapeHtml(r.name)}"><i class="fa-solid fa-pen"></i> ${escapeHtml(t('t-rules-edit'))}</button>
+                                <button class="btn btn-danger" data-rule-action="delete" data-rule-name="${escapeHtml(r.name)}"><i class="fa-solid fa-trash"></i></button>
+                            </div>
+                        </div>`;
+                    });
+                    rulesGrid.innerHTML = parts.join('');
+                    rulesGrid.querySelectorAll('[data-rule-action]').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const action = btn.getAttribute('data-rule-action');
+                            const name = btn.getAttribute('data-rule-name');
+                            if (action === 'edit') openRuleEditor(name);
+                            else if (action === 'delete') deleteRule(name, btn);
+                        });
+                    });
+                }
+            }
+
+            // --- Agent status grid ---
+            const agentsGrid = document.getElementById('rules-agents-grid');
+            if (agentsGrid) {
+                const agents = data.agents || [];
+                const parts = agents.map(a => {
+                    const written = a.has_managed_block;
+                    const badge = written
+                        ? `<span class="tag tag-success">${escapeHtml(t('t-rules-written'))}</span>`
+                        : `<span class="tag tag-muted">${escapeHtml(t('t-rules-not-written'))}</span>`;
+                    return `<div class="card" style="opacity: ${a.exists ? '1' : '0.6'}; border-top: 2px solid ${written ? 'var(--success)' : 'var(--border-subtle)'};">
+                        <div class="card-header">
+                            <div class="card-title"><i class="fa-solid fa-${written ? 'check-circle' : 'circle'}" style="color: ${written ? 'var(--success)' : 'var(--text-muted)'};"></i><span>${escapeHtml(a.name)}</span></div>
+                            ${badge}
+                        </div>
+                        <div class="card-subtitle">${escapeHtml(a.path)}</div>
+                        <div class="card-actions">
+                            <button class="btn btn-outline" data-agent-rule-action="write" data-agent-rule-path="${escapeHtml(a.path)}"><i class="fa-solid fa-bolt"></i> ${escapeHtml(t('t-rules-write-one'))}</button>
+                            <button class="btn btn-outline" data-agent-rule-action="remove" data-agent-rule-path="${escapeHtml(a.path)}"><i class="fa-solid fa-eraser"></i> ${escapeHtml(t('t-rules-remove-one'))}</button>
+                        </div>
+                    </div>`;
+                });
+                agentsGrid.innerHTML = parts.join('');
+                agentsGrid.querySelectorAll('[data-agent-rule-action]').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const action = btn.getAttribute('data-agent-rule-action');
+                        const path = btn.getAttribute('data-agent-rule-path');
+                        const endpoint = action === 'write' ? '/api/instructions/write-one' : '/api/instructions/remove-one';
+                        apiCall(endpoint, { path }, btn);
+                    });
+                });
+            }
+        }
+
+        async function writeAllInstructions(btn) {
+            await apiCall('/api/instructions/write-all', {}, btn);
+        }
+
+        async function removeAllInstructions(btn) {
+            await apiCall('/api/instructions/remove-all', {}, btn);
+        }
+
+        async function deleteRule(name, btn) {
+            await apiCall('/api/instructions/delete', { name }, btn);
+        }
+
+        // --- Rule editor overlay ---
+        let editingRuleName = '';
+
+        async function openRuleEditor(name) {
+            editingRuleName = name || '';
+            const overlay = document.getElementById('rule-editor-overlay');
+            const nameInput = document.getElementById('rule-editor-name');
+            const contentArea = document.getElementById('rule-editor-content');
+            if (!overlay) return;
+            if (name) {
+                nameInput.value = name;
+                nameInput.disabled = true;
+                const res = await fetch('/api/instructions/content/' + encodeURIComponent(name), { headers: { 'X-EasySkills-Token': easySkillsToken } });
+                if (res.ok) {
+                    const data = await res.json();
+                    contentArea.value = data.content || '';
+                }
+            } else {
+                nameInput.value = '';
+                nameInput.disabled = false;
+                contentArea.value = '';
+            }
+            overlay.classList.add('active');
+            overlay.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeRuleEditor() {
+            const overlay = document.getElementById('rule-editor-overlay');
+            if (overlay) {
+                overlay.classList.remove('active');
+                overlay.setAttribute('aria-hidden', 'true');
+            }
+        }
+
+        async function saveRuleFromEditor() {
+            const nameInput = document.getElementById('rule-editor-name');
+            const contentArea = document.getElementById('rule-editor-content');
+            const name = editingRuleName || nameInput.value.trim();
+            const content = contentArea.value;
+            if (!name) { showToast(currentLang === 'zh' ? '请输入规则名' : 'Please enter a rule name', 'error'); return; }
+            const res = await apiCall('/api/instructions/save', { name, content });
+            if (res && res.success !== false) {
+                closeRuleEditor();
+            }
+        }
+
+        // Wire up editor overlay buttons + backdrop (once, on DOM ready)
+        (function initRuleEditor() {
+            function setup() {
+                const overlay = document.getElementById('rule-editor-overlay');
+                const saveBtn = document.getElementById('rule-editor-save');
+                const cancelBtn = document.getElementById('rule-editor-cancel');
+                if (!overlay) { setTimeout(setup, 200); return; }
+                if (saveBtn) saveBtn.addEventListener('click', saveRuleFromEditor);
+                if (cancelBtn) cancelBtn.addEventListener('click', closeRuleEditor);
+                overlay.addEventListener('click', (e) => { if (e.target === overlay) closeRuleEditor(); });
+                document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlay.classList.contains('active')) closeRuleEditor(); });
+            }
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setup);
+            else setup();
+        })();
 
         // --- Live Agent Search Filter logic (Crash-safe & TypeError proof) ---
         function filterAgents() {

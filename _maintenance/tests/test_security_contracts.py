@@ -1055,6 +1055,101 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn('"X-Frame-Options", "DENY"', ps_src)
 
     # -------------------------------------------------------------------------
+    # Instructions / Rules management (AGENTS.md modular rule library)
+    # -------------------------------------------------------------------------
+
+    def test_agents_json_has_instructions_fields(self):
+        """Every agent in agents.json must have mac/win instructions file paths.
+
+        The instructions feature reads these fields as its single source of
+        truth for where to write each agent's global instruction file.
+        """
+        import json
+        data = json.loads(read("_maintenance/agents.json"))
+        agents = data.get("agents", [])
+        self.assertGreater(len(agents), 30, "agents.json should have 30+ agents")
+        for a in agents:
+            with self.subTest(agent=a.get("name")):
+                self.assertIn("mac_instructions_file", a,
+                              f"{a.get('name')}: missing mac_instructions_file")
+                self.assertIn("win_instructions_file", a,
+                              f"{a.get('name')}: missing win_instructions_file")
+                self.assertTrue(a["mac_instructions_file"].strip())
+                self.assertTrue(a["win_instructions_file"].strip())
+
+    def test_instructions_apis_exist_in_both_backends(self):
+        """Both WebUI backends must expose the same set of instructions API
+        endpoints (GET + POST), keeping the cross-platform implementations
+        symmetric — just like the existing skills/agents endpoints.
+        """
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+
+        # GET endpoints
+        for endpoint in ('/api/instructions"', '/api/instructions/content/'):
+            self.assertIn(endpoint, py_src, f"webui.py missing GET {endpoint}")
+            self.assertIn(endpoint, ps_src, f"webui.ps1 missing GET {endpoint}")
+
+        # POST endpoints (must be present in both)
+        post_endpoints = [
+            "/api/instructions/save",
+            "/api/instructions/delete",
+            "/api/instructions/write-all",
+            "/api/instructions/remove-all",
+            "/api/instructions/write-one",
+            "/api/instructions/remove-one",
+        ]
+        for ep in post_endpoints:
+            self.assertIn(ep, py_src, f"webui.py missing POST {ep}")
+            self.assertIn(ep, ps_src, f"webui.ps1 missing POST {ep}")
+
+    def test_instructions_use_managed_block_markers(self):
+        """Write/remove must use clearly-marked managed blocks so removing the
+        injected rules never destroys the user's own content.
+
+        The begin/end markers must be identical across both backends.
+        """
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        # Python constants
+        self.assertIn("EASY_SKILLS_BEGIN", py_src)
+        self.assertIn("EASY_SKILLS_END", py_src)
+        self.assertIn("EasySkills:begin", py_src)
+        self.assertIn("EasySkills:end", py_src)
+        # PowerShell constants
+        self.assertIn("$EasySkillsBegin", ps_src)
+        self.assertIn("$EasySkillsEnd", ps_src)
+        self.assertIn("EasySkills:begin", ps_src)
+        self.assertIn("EasySkills:end", ps_src)
+
+    def test_instructions_name_validation_blocks_traversal(self):
+        """Rule filenames must be validated to prevent path traversal (e.g.
+        ../../etc/passwd.md). Both backends must reject '/', '\\', and null.
+        """
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        # Python validator
+        self.assertIn("def _validate_instruction_name", py_src)
+        self.assertIn('"/" in name', py_src)
+        self.assertIn('"\\\\" in name', py_src)
+        # PowerShell validator
+        self.assertIn("function Test-InstructionName", ps_src)
+        self.assertIn("Contains(", ps_src)
+
+    def test_instructions_tab_and_js_exist_in_frontend(self):
+        """The frontend must have the instructions nav tab, section, and JS
+        rendering function."""
+        html_src = read("_maintenance/webui/index.html")
+        self.assertIn('data-target="instructions"', html_src)
+        self.assertIn('id="instructions"', html_src)
+        self.assertIn('function renderInstructions', html_src)
+        self.assertIn("function writeAllInstructions", html_src)
+        self.assertIn("function removeAllInstructions", html_src)
+        self.assertIn("function openRuleEditor", html_src)
+        # i18n keys in both languages
+        self.assertIn("'t-instructions'", html_src)
+
+    # -------------------------------------------------------------------------
     # Self-update / rollback: host allowlist + rename-recovery (Fix C/D/E)
     # -------------------------------------------------------------------------
 
