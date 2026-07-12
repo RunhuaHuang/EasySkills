@@ -5,12 +5,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#installation)
 [![Agents](https://img.shields.io/badge/Supported%20Agents-43+-orange.svg)](#supported-agents)
-[![Version](https://img.shields.io/badge/Version-2.2.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Version](https://img.shields.io/badge/Version-3.2.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
-**One skill library. Every agent. Always in sync.**
+**One central library, two sync channels, every Agent under control.**
 
-Drop a skill folder once into `~/EasySkills`.
-It appears in Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 43+ more agent targets — instantly, through native links.
+Drop a skill or instruction rule once into `~/EasySkills`.
+It syncs to Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 43+ more agent environments — instantly, through native links and non-destructive managed blocks.
 
 Local-first &bull; Zero idle CPU &bull; WebUI included
 
@@ -127,25 +127,35 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 
 ## How It Works
 
+EasySkills provides two synchronization channels to manage and distribute capabilities across all your AI assistants:
+
 ```
-~/EasySkills/                           ← your single skill library
+~/EasySkills/                           ← your central directory
 ├── _maintenance/                       ← engine (invisible to agents)
-├── MyAwesomeSkill/                     ← drop it here once
-├── CodeReviewSkill/
+│
+├── instructions/                       ← [Channel 02] Modular Agent Rules (.md files)
+│   ├── rule1.md
+│   └── rule2.md
+│           │
+│           ▼ Safe compiled Managed Block Injection
+│   ┌──────────────────────────────────────────────┐
+│   │ ~/.claude/CLAUDE.md      ──→ <!-- Managed -->│
+│   │ ~/.cursor/AGENTS.md      ──→ <!-- Managed -->│
+│   └──────────────────────────────────────────────┘
+│
+├── MyAwesomeSkill/                     ← [Channel 01] Shared Skills Folders
 └── DeployHelper/
-        │
-        ▼ symlink (macOS/Linux) / junction (Windows)
-┌─────────────────────────────────────────────┐
-│ ~/.claude/skills/MyAwesomeSkill  ──→  ✓     │
-│ ~/.cursor/skills/MyAwesomeSkill  ──→  ✓     │
-│ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
-│ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
-│ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
-│ ... 43+ targets, all in sync, all the time  │
-└─────────────────────────────────────────────┘
+            │
+            ▼ Symlinks (macOS/Linux) / Junctions (Windows)
+    ┌──────────────────────────────────────────────┐
+    │ ~/.claude/skills/MyAwesomeSkill  ──→  ✓      │
+    │ ~/.cursor/skills/MyAwesomeSkill  ──→  ✓      │
+    │ ... 43+ targets, all in sync, all the time   │
+    └──────────────────────────────────────────────┘
 ```
 
-EasySkills maps each shared skill into agent-specific folders with native links — not copies. Edit a file once, every agent sees the change immediately. The watcher auto-syncs when you add or remove top-level skill folders. Agent-owned private skills are never touched.
+* **Channel 01 (Skills Sync)** — Maps shared skills into agent-specific skill folders using native symlinks (macOS/Linux) or directory junctions (Windows). Edit a file once, every agent sees the change immediately.
+* **Channel 02 (Agent Rules Sync)** — Compiles and concatenates all Markdown rules in the `instructions/` folder and inserts them into global instruction files (e.g. `CLAUDE.md`, `AGENTS.md`) using non-destructive managed tags (`<!-- EasySkills:begin -->` / `<!-- EasySkills:end -->`). Manual edits outside this block are preserved.
 
 ---
 
@@ -153,7 +163,7 @@ EasySkills maps each shared skill into agent-specific folders with native links 
 
 Manage everything from a local-only dashboard at `http://127.0.0.1:6633`.
 
-Provides skill library import/delete, linked agents management, register unsupported agents by skills-folder path, manual sync, broken link cleanup, and update checks — all from one place.
+Provides skill library import/delete, modular Agent rules management, connected agents and path tracking, custom path registrations, manual synchronization, invalid link cleanup, and version checks.
 
 ```bash
 # macOS / Linux
@@ -178,11 +188,11 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 | | Feature | Details |
 |:---:|:---|:---|
 | **1** | **Skill library import/delete** | Import skill folders through the WebUI; delete with confirmation dialog. Manage linked agents visually |
-| **2** | **Agent auto-discovery** | Detects 43+ mainstream agents and only links paths that actually exist |
-| **3** | **Live mapping** | Watcher syncs skill additions/removals within seconds |
-| **4** | **Non-invasive** | Shared skills sit beside agent-specific skills — private skills keep working |
-| **5** | **Zero-privilege Windows** | NTFS directory junctions — no admin mode or Developer Mode needed |
-| **6** | **Silent watcher** | `launchd` + `WatchPaths` (macOS) &bull; `systemd` path unit (Linux) &bull; Scheduled Task + hidden `FileSystemWatcher` (Windows) |
+| **2** | **Agent rules / Agents.md sync** | Safe, non-destructive managed block injection (`<!-- EasySkills:begin/end -->`) into global instruction files |
+| **3** | **Agent auto-discovery** | Detects 43+ mainstream agents and only links paths that actually exist |
+| **4** | **Dual-channel live mapping** | Watcher daemon automatically syncs top-level folder changes and updates instruction files |
+| **5** | **Non-invasive** | Shared skills sit beside agent-specific skills — private skills keep working |
+| **6** | **Zero-privilege Windows** | NTFS directory junctions — no admin mode or Developer Mode needed |
 | **7** | **Local-first safety** | Skips existing real folders, uses file locks, listens on `127.0.0.1` only |
 | **8** | **Concurrency protection** | PID lock (macOS) / named mutex (Windows) prevents overlapping syncs |
 
@@ -202,7 +212,7 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
 |---|---|
 | *(none)* / `--sync` | Sync all skills to all agents |
 | `--list` | List all active mappings |
-| `--add <path>` | Add & persist a custom agent path |
+| `--add <path>` | Register unsupported agents by skills-folder path (add & persist a custom agent path) |
 | `--remove <path>` | Remove a persisted custom path |
 | `--watch` | Install background watcher |
 | `--unwatch` | Uninstall background watcher |
@@ -274,6 +284,8 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
 ---
 
 ## Notes
+
+**Custom paths** — The 43+ built-in targets cover mainstream agents. To register unsupported agents by skills-folder path, use `--add <path>` (CLI), the **Agents** tab (WebUI), or just tell your assistant in chat. Custom paths persist across syncs and updates.
 
 **Windows Defender** — The installer can automatically add a Defender exclusion via UAC prompt. You can also manually whitelist `%USERPROFILE%\EasySkills` in Windows Security settings.
 

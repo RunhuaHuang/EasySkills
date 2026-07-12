@@ -137,13 +137,19 @@ try {
             }
 
             if ($PortAlive -and -not $ProcAlive) {
-                # Port responds but we don't own the process — adopt the orphan
-                # by tracking it again via WMI. If it's ours from a previous
-                # supervisor instance, leave it alone.
+                # Port responds but we don't own the process. Two cases:
+                #  (a) it's our own webui.ps1 from a previous supervisor instance
+                #      → adopt it (track by PID so we stop relaunching);
+                #  (b) it's a foreign process holding the port → do NOT relaunch,
+                #      because a new backend can only fail to bind and would burn
+                #      through the restart-storm throttle without ever recovering.
+                #      Wait for the external owner to leave (mirrors webui-service.sh).
                 $Existing = Get-StaleWebUIProcesses
                 if ($Existing.Count -gt 0) {
                     Write-ServiceLog "Port up, adopting existing webui.ps1 (pid=$($Existing[0].ProcessId))."
                     try { $CurrentProc = [System.Diagnostics.Process]::GetProcessById($Existing[0].ProcessId) } catch {}
+                } else {
+                    Write-ServiceLog "Port $Port is already in use by a non-EasySkills process; waiting."
                 }
                 Start-Sleep -Seconds 5
                 continue

@@ -5,12 +5,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#安装方式)
 [![Agents](https://img.shields.io/badge/支持Agent-43+-orange.svg)](#支持的-agent-列表)
-[![Version](https://img.shields.io/badge/版本-2.2.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Version](https://img.shields.io/badge/版本-3.2.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
-**一个技能库，所有 Agent，始终同步。**
+**一个中央库、两条同步通道，统一管理所有 Agent。**
 
-只需将技能文件夹放入 `~/EasySkills` 一次，
-它就会通过原生链接，自动出现在 Claude Code、Codex、Cursor、Gemini、Copilot、Windsurf、Trae 等 43+ Agent 的技能目录中。
+只需将技能或指令规则放入 `~/EasySkills`，
+它就会通过原生链接与非破坏性标记，自动同步至 Claude Code、Codex、Cursor、Gemini、Copilot、Windsurf、Trae 等 43+ Agent 的运行环境中。
 
 本地优先 &bull; 空闲零 CPU &bull; 自带 WebUI
 
@@ -107,11 +107,11 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
 ```
 
-### 更新方式
+### 更新
 
-推荐使用 WebUI 的「检查更新 / 立即更新」按钮。更新会保留自定义 Agent 路径、已断开的目标、WebUI token，并保留上一版 `_maintenance.bak` 供回滚。
+推荐：在 WebUI 中使用 **检查更新 / 立即更新**。更新会保留自定义 Agent 路径、已断开的连接目标和 WebUI token，并保留上一份 `_maintenance.bak` 以便回滚。
 
-也可以重新执行安装命令覆盖升级：
+也可以重新运行安装器原地升级：
 
 ```bash
 # macOS / Linux
@@ -127,25 +127,35 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 
 ## 工作原理
 
+EasySkills 提供两条同步通道，帮助您统一交付智能体的各项能力：
+
 ```
-~/EasySkills/                           ← 你的统一技能库
+~/EasySkills/                           ← 您的中央管理目录
 ├── _maintenance/                       ← 引擎（对 Agent 不可见）
-├── MyAwesomeSkill/                     ← 放进来一次
-├── CodeReviewSkill/
+│
+├── instructions/                       ← [通道二] 模块化 Agent 规则（.md 文件）
+│   ├── rule1.md
+│   └── rule2.md
+│           │
+│           ▼ 托管块安全合并写入（非破坏性）
+│   ┌──────────────────────────────────────────────┐
+│   │ ~/.claude/CLAUDE.md      ──→ <!-- Managed -->│
+│   │ ~/.cursor/AGENTS.md      ──→ <!-- Managed -->│
+│   └──────────────────────────────────────────────┘
+│
+├── MyAwesomeSkill/                     ← [通道一] 共享技能文件夹
 └── DeployHelper/
-        │
-        ▼ 软链接 (macOS/Linux) / 目录联结 (Windows)
-┌─────────────────────────────────────────────┐
-│ ~/.claude/skills/MyAwesomeSkill  ──→  ✓     │
-│ ~/.cursor/skills/MyAwesomeSkill  ──→  ✓     │
-│ ~/.gemini/config/skills/MyAwesomeSkill ──→ ✓│
-│ ~/.codex/skills/MyAwesomeSkill   ──→  ✓     │
-│ ~/.copilot/skills/MyAwesomeSkill ──→  ✓     │
-│ ... 43+ 个目标，全部同步，始终一致         │
-└─────────────────────────────────────────────┘
+            │
+            ▼ 软链接 (macOS/Linux) / 目录联结 (Windows)
+    ┌──────────────────────────────────────────────┐
+    │ ~/.claude/skills/MyAwesomeSkill  ──→  ✓      │
+    │ ~/.cursor/skills/MyAwesomeSkill  ──→  ✓      │
+    │ ... 43+ 个目标，全部同步，始终一致           │
+    └──────────────────────────────────────────────┘
 ```
 
-EasySkills 使用原生链接（而非复制）将共享技能映射到各 Agent 的 skills 目录。修改一处，所有 Agent 即时看到。后台监听在顶层技能文件夹增删时自动同步。Agent 自己的专属技能不受影响。
+* **通道一 (技能同步)** — 使用原生软链接（macOS/Linux）或目录联结（Windows）将共享技能映射到各个 AI 工具的技能目录中。修改一处，所有 Agent 即时生效，不破坏专属技能。
+* **通道二 (规则同步)** — 自动编译合并 `instructions/` 目录下的所有 Markdown 规则文件，并通过 `<!-- EasySkills:begin -->` / `<!-- EasySkills:end -->` 托管块插入各 Agent 的全局指令规则文件（如 `CLAUDE.md`, `AGENTS.md`）。更新时只替换块内内容，块外您自定义的修改完全保留。
 
 ---
 
@@ -153,7 +163,7 @@ EasySkills 使用原生链接（而非复制）将共享技能映射到各 Agent
 
 通过本地控制台 `http://127.0.0.1:6633` 管理一切。
 
-提供技能库导入/删除、Agent 连接管理、为默认未支持的 Agent 注册 skills 文件夹路径、手动同步、无效链接清理和版本更新检查——全部在一个页面完成。
+提供技能库导入/删除、模块化 Agent 规则编辑、Agent 连接与路径管理、自定义路径注册、手动同步、无效链接清理和版本更新检查。
 
 ```bash
 # macOS / Linux
@@ -178,11 +188,11 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 | | 特性 | 说明 |
 |:---:|:---|:---|
 | **1** | **技能库导入/删除** | 通过 WebUI 导入技能文件夹；删除时弹窗确认 |
-| **2** | **Agent 自动检测** | 自动识别 43+ 主流 Agent，只为真实存在的路径建立连接 |
-| **3** | **实时映射** | 监听服务在几秒内同步技能增删 |
-| **4** | **非侵入式** | 共享技能与 Agent 专属技能并列存在——原有 skills 不受影响 |
-| **5** | **Windows 免提权** | 使用 NTFS 目录联结，无需管理员权限或开发者模式 |
-| **6** | **静默监听** | macOS: `launchd` + `WatchPaths` &bull; Linux: `systemd` path unit &bull; Windows: 计划任务 + 隐藏 `FileSystemWatcher` |
+| **2** | **Agent 规则同步** | 支持非破坏性托管块（`<!-- EasySkills:begin/end -->`）安全写入全局指令规则文件，保留用户手写内容 |
+| **3** | **Agent 自动检测** | 自动识别 43+ 主流 Agent，只为真实存在的路径建立连接 |
+| **4** | **双通道静默监听** | 后台监听顶层技能增删并自动重写已连接 Agent 的指令规则 |
+| **5** | **非侵入式** | 共享技能与 Agent 专属技能并列存在——原有 skills 不受影响 |
+| **6** | **Windows 免提权** | 使用 NTFS 目录联结，无需管理员权限或开发者模式 |
 | **7** | **本地优先安全** | 跳过已有真实目录，使用文件锁，仅监听 `127.0.0.1` |
 | **8** | **并发安全** | macOS PID 锁 / Windows 命名互斥锁，防止同步重入 |
 
@@ -202,7 +212,7 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [选项]
 |---|---|
 | *（无）* / `--sync` | 同步所有技能到所有 Agent |
 | `--list` | 列出所有活跃映射 |
-| `--add <路径>` | 添加并持久化自定义 Agent 路径 |
+| `--add <路径>` | 为默认未支持的 Agent 注册 skills 文件夹路径（添加并持久化自定义 Agent 路径） |
 | `--remove <路径>` | 移除已持久化的自定义路径 |
 | `--watch` | 安装后台监听 |
 | `--unwatch` | 卸载后台监听 |

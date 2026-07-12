@@ -22,6 +22,32 @@ $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $CentralDir = Split-Path -Path $ScriptDir -Parent
 $CustomTargetsFile = Join-Path -Path $ScriptDir -ChildPath "custom-targets.txt"
 
+function Write-Utf8NoBom([string]$Path, [string]$Content) {
+  # Atomic replace: write to a temp file in the same directory, then move it
+  # over the target. A direct WriteAllText truncates-then-writes the target, so
+  # an interruption (power loss, hard kill during --add/--remove) can leave
+  # custom-targets.txt / disabled-targets.txt truncated and silently drop every
+  # persisted custom agent path. This mirrors the temp+mv pattern deploy.sh
+  # uses for the same files. [System.IO.File]::Move throws if the destination
+  # exists on older runtimes, so delete the stale target first.
+  $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  $Dir = [System.IO.Path]::GetDirectoryName($Path)
+  $Tmp = [System.IO.Path]::Combine($Dir, "." + [System.IO.Path]::GetFileName($Path) + "." + [System.IO.Path]::GetRandomFileName() + ".tmp")
+  [System.IO.File]::WriteAllText($Tmp, $Content, $Utf8NoBom)
+  try {
+    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
+    [System.IO.File]::Move($Tmp, $Path)
+  } catch {
+    if (Test-Path -LiteralPath $Tmp) { Remove-Item -LiteralPath $Tmp -Force }
+    throw
+  }
+}
+
+function Append-Utf8NoBom([string]$Path, [string]$Content) {
+  $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::AppendAllText($Path, $Content, $Utf8NoBom)
+}
+
 function Start-BackgroundPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
   # Prefer wscript.exe + run-hidden.vbs (GUI subsystem = no console window).
   # Fall back to direct Start-Process if the .vbs bootstrap is missing.
@@ -49,7 +75,7 @@ if (Test-Path $LegacyRootTargets) {
     $Existing = @(Get-Content $CustomTargetsFile -ErrorAction SilentlyContinue)
     foreach ($Line in $LegacyLines) {
       if ($Existing -notcontains $Line) {
-        Add-Content -Path $CustomTargetsFile -Value $Line
+        Append-Utf8NoBom $CustomTargetsFile "$Line`r`n"
       }
     }
   }
@@ -165,9 +191,19 @@ $script:DeployMutex = $null
 
 function Acquire-Lock {
   $script:DeployMutex = New-Object System.Threading.Mutex($false, "Global\EasySkillsDeploy")
-  if (-not $script:DeployMutex.WaitOne(0)) {
-    Write-Host "Another deploy is already running, skipping."
-    exit 0
+  try {
+    if (-not $script:DeployMutex.WaitOne(0)) {
+      Write-Host "Another deploy is already running, skipping."
+      exit 0
+    }
+  } catch [System.Threading.AbandonedMutexException] {
+    # The previous holder was killed without releasing (Task Manager kill,
+    # hard reboot mid-sync). .NET transfers ownership to us on this exception,
+    # so we hold the mutex and can proceed — mirroring the self-healing PID
+    # recovery in deploy.sh. Without this catch the exception is unhandled
+    # (the call site is before the outer try/finally), the process terminates
+    # while now owning the mutex, re-abandoning it, and bricking every
+    # subsequent deploy until a reboot.
   }
 }
 
@@ -280,7 +316,7 @@ function Remove-DisabledTarget([string]$Path) {
         $LinePath -ne $AbsPath
       }
     }
-    Set-Content -Path $DisabledTargetsFile -Value $NewContent
+    Write-Utf8NoBom $DisabledTargetsFile ($NewContent -join "`r`n")
   }
 }
 
@@ -300,10 +336,16 @@ function Get-AgentName ([string]$Path) {
     return "Proma Workspace"
   }
   # Fallback: prefix-based matching (precise, avoids substring false positives)
+  # NOTE: $env:APPDATA (e.g. C:\Users\<user>\AppData\Roaming) is itself under
+  # $Home (C:\Users\<user>), so it MUST be tested first — otherwise a Trae
+  # AppData path matches "$Home\" and becomes "AppData\Roaming\Trae\skills",
+  # which hits the default branch and gets mislabelled "Custom Agent".
   $Rel = $Path
-  if ($Path.StartsWith("$Home\")) { $Rel = $Path.Substring($Home.Length + 1) }
-  elseif ($Path.StartsWith("$env:APPDATA\")) { $Rel = $Path.Substring($env:APPDATA.Length + 1) }
+  if ($Path.StartsWith("$env:APPDATA\")) { $Rel = $Path.Substring($env:APPDATA.Length + 1) }
+  elseif ($Path.StartsWith("$Home\")) { $Rel = $Path.Substring($Home.Length + 1) }
   switch -Wildcard ($Rel) {
+    "Trae-CN\*"                { return "Trae CN" }
+    "Trae\*"                   { return "Trae (Global)" }
     ".gemini\antigravity\*"    { return "Antigravity IDE" }
     ".gemini\*"                { return "Antigravity CLI" }
     ".codex\*"                 { return "Codex" }
@@ -422,7 +464,7 @@ function Run-Sync {
   foreach ($Entry in $CentralEntries) {
     if (-not ($Entry.Attributes -match "ReparsePoint")) { continue }
     $EName = $Entry.Name
-    if ($EName -eq "node_modules" -or $EName -eq ".git" -or $EName -eq "dist" -or $EName -eq "docs" -or $EName -eq "_maintenance" -or $EName -like "_*") { continue }
+    if ($EName -eq "node_modules" -or $EName -eq ".git" -or $EName -eq "dist" -or $EName -eq "docs" -or $EName -eq "_maintenance" -or $EName -eq "instructions" -or $EName -like "_*") { continue }
     # Test-Path follows the reparse point: False => dangling, True => external.
     if (-not (Test-Path $Entry.FullName)) {
       # Delete the dead link itself, not any target it may still partially
@@ -444,7 +486,7 @@ function Run-Sync {
 
   foreach ($SkillDir in $SkillDirs) {
     $SkillName = $SkillDir.Name
-    if ($SkillName -eq "node_modules" -or $SkillName -eq ".git" -or $SkillName -eq "dist" -or $SkillName -eq "docs" -or $SkillName -eq "_maintenance" -or $SkillName -like "_*") {
+    if ($SkillName -eq "node_modules" -or $SkillName -eq ".git" -or $SkillName -eq "dist" -or $SkillName -eq "docs" -or $SkillName -eq "_maintenance" -or $SkillName -eq "instructions" -or $SkillName -like "_*") {
       continue
     }
 
@@ -493,6 +535,13 @@ function Run-Sync {
         $script:SuccessfulInjections += $Target
       }
     }
+  }
+
+  # PART C: Compile and synchronize Agent Rules
+  $WebUIScript = Join-Path $ScriptDir "webui.ps1"
+  if (Test-Path $WebUIScript) {
+    Write-Host "   Syncing Agent rules..."
+    powershell -NoProfile -ExecutionPolicy Bypass -File "$WebUIScript" -SyncRules
   }
 
   Write-Host "==========================================================" -ForegroundColor Cyan
@@ -555,7 +604,7 @@ function Add-Target ([string]$Path) {
   if ($Content -contains $AbsPath) {
     Write-Host "Path is already persisted: $AbsPath" -ForegroundColor Gray
   } else {
-    Add-Content -Path $CustomTargetsFile -Value $AbsPath
+    Append-Utf8NoBom $CustomTargetsFile "$AbsPath`r`n"
     Write-Host "Successfully persisted custom target: $AbsPath" -ForegroundColor Green
   }
   Remove-DisabledTarget $Path
@@ -580,7 +629,7 @@ function Remove-Target ([string]$Path) {
       if ($_.Contains("=")) { $LinePath = $_.Split("=", 2)[1].Trim() }
       $LinePath -ne $AbsPath
     }
-    Set-Content -Path $CustomTargetsFile -Value $NewContent
+    Write-Utf8NoBom $CustomTargetsFile ($NewContent -join "`r`n")
     Remove-DisabledTarget $Path
     Write-Host "Successfully removed path: $AbsPath" -ForegroundColor Green
     Run-Sync
@@ -668,7 +717,7 @@ function Run-Status {
   foreach ($Entry in $StatusEntries) {
     if (-not ($Entry.Attributes -match "ReparsePoint")) { continue }
     $EName = $Entry.Name
-    if ($EName -eq "node_modules" -or $EName -eq ".git" -or $EName -eq "dist" -or $EName -eq "docs" -or $EName -eq "_maintenance" -or $EName -like "_*") { continue }
+    if ($EName -eq "node_modules" -or $EName -eq ".git" -or $EName -eq "dist" -or $EName -eq "docs" -or $EName -eq "_maintenance" -or $EName -eq "instructions" -or $EName -like "_*") { continue }
     if (-not (Test-Path $Entry.FullName)) { $DanglingCount++ } else { $ExternalCount++ }
   }
   if ($DanglingCount -gt 0 -or $ExternalCount -gt 0) {

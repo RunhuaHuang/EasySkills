@@ -65,6 +65,7 @@ elif (HOME_CENTRAL_DIR.exists() and HOME_CENTRAL_DIR.is_dir()
 
 CUSTOM_TARGETS_FILE = SCRIPT_DIR / "custom-targets.txt"
 DISABLED_TARGETS_FILE = SCRIPT_DIR / "disabled-targets.txt"
+AGENT_PATH_CONFIG_FILE = CENTRAL_DIR / ".easyskills-agent-paths.json"
 
 def _add_to_disabled_targets(path_str: str):
     if not path_str or not path_str.strip():
@@ -79,7 +80,7 @@ def _add_to_disabled_targets(path_str: str):
     if DISABLED_TARGETS_FILE.exists():
         try:
             lines = DISABLED_TARGETS_FILE.read_text(encoding="utf-8").splitlines()
-        except OSError:
+        except (OSError, UnicodeError):
             pass
 
     exists = False
@@ -114,7 +115,7 @@ def _remove_from_disabled_targets(path_str: str):
     lines = []
     try:
         lines = DISABLED_TARGETS_FILE.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeError):
         return
 
     new_lines = []
@@ -136,7 +137,7 @@ def _remove_from_disabled_targets(path_str: str):
     if updated:
         try:
             DISABLED_TARGETS_FILE.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeError):
             pass
 
 def _get_disabled_targets() -> set[str]:
@@ -163,7 +164,13 @@ if not WEBUI_DIR.exists():
 # Modular rule files live here; "write to all agents" concatenates them into a
 # single managed block injected into each agent's global instruction file.
 INSTRUCTIONS_DIR = CENTRAL_DIR / "instructions"
-EASY_SKILLS_BEGIN = "<!-- EasySkills:begin (managed block — do not edit manually) -->"
+INSTRUCTION_SYNC_STATE_FILE = CENTRAL_DIR / ".easyskills-instruction-state.json"
+EASY_SKILLS_BEGIN = "<!-- EasySkills:begin -->"
+EASY_SKILLS_BEGIN_ALIASES = (
+    EASY_SKILLS_BEGIN,
+    "<!-- EasySkills:begin (managed block — do not edit manually) -->",
+    "<!-- EasySkills:begin (managed block - do not edit manually) -->",
+)
 EASY_SKILLS_END = "<!-- EasySkills:end -->"
 # WebUI listen port — SINGLE SOURCE OF TRUTH. Mirror any change in webui.ps1
 # ($Port) and webui-service.ps1 ($Port); display strings referencing 6633 in the
@@ -207,7 +214,7 @@ def _load_or_create_token() -> str:
                 candidate = TOKEN_FILE.read_text(encoding="utf-8").strip()
                 if len(candidate) >= 16:
                     return candidate
-            except OSError:
+            except (OSError, UnicodeError):
                 pass
             import time
             time.sleep(0.05)
@@ -308,6 +315,26 @@ def _load_default_agents() -> list[tuple[str, Path]]:
 
 DEFAULT_AGENTS = _load_default_agents()
 
+
+def _load_default_instruction_paths() -> dict[str, str]:
+    """Load the platform-specific default global instruction file per Agent."""
+    result: dict[str, str] = {}
+    try:
+        data = json.loads(AGENTS_JSON_FILE.read_text(encoding="utf-8"))
+        for agent in data.get("agents", []):
+            name = str(agent.get("name", "")).strip()
+            raw = str(agent.get("mac_instructions_file", "")).strip()
+            if not name or not raw or name in result:
+                continue
+            expanded = str(Path.home()) + raw[1:] if raw == "~" or raw.startswith("~/") else raw
+            result[name] = str(Path(expanded).expanduser())
+    except (OSError, ValueError, TypeError):
+        pass
+    return result
+
+
+DEFAULT_INSTRUCTION_PATHS = _load_default_instruction_paths()
+
 # Ensure ~/.qoder-cn/skills exists — unlike other agents whose directories are
 # created by their respective tools, Qoder CN relies on EasySkills to create
 # the path if it does not already exist.
@@ -315,7 +342,7 @@ _qoder_cn_skills = Path.home() / ".qoder-cn" / "skills"
 if not _qoder_cn_skills.exists():
     _qoder_cn_skills.mkdir(parents=True, exist_ok=True)
 
-EXCLUDE_NAMES = {"_maintenance", ".git", "node_modules", "dist", "docs"}
+EXCLUDE_NAMES = {"_maintenance", ".git", "node_modules", "dist", "docs", "instructions"}
 
 # Module-level constant: built once, not re-allocated on every get_agent_name() call.
 _AGENT_PREFIX_MAP: list[tuple[str, str]] = [
@@ -477,11 +504,57 @@ def get_custom_targets():
     if not CUSTOM_TARGETS_FILE.exists():
         return []
     lines = []
-    for line in CUSTOM_TARGETS_FILE.read_text(encoding="utf-8").splitlines():
+    try:
+        content = CUSTOM_TARGETS_FILE.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return []
+    for line in content.splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
             lines.append(line)
     return lines
+
+
+def _normalize_local_path(path_str: str) -> str:
+    raw = str(path_str or "").strip()
+    if not raw:
+        return ""
+    path = Path(raw).expanduser()
+    try:
+        return str(path.resolve())
+    except (OSError, ValueError):
+        return str(path)
+
+
+def _load_agent_path_configs() -> list[dict]:
+    try:
+        data = json.loads(AGENT_PATH_CONFIG_FILE.read_text(encoding="utf-8"))
+        entries = data.get("agents", [])
+        if isinstance(entries, list):
+            return [entry for entry in entries if isinstance(entry, dict)]
+    except (OSError, ValueError, TypeError):
+        pass
+    return []
+
+
+def _save_agent_path_configs(entries: list[dict]) -> None:
+    payload = {"version": 1, "agents": entries}
+    _atomic_write_text(
+        AGENT_PATH_CONFIG_FILE,
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+    )
+
+
+def _instruction_path_for_agent(name: str, skills_path: str, configs: list[dict]) -> str:
+    normalized_skills = _normalize_local_path(skills_path)
+    for entry in configs:
+        if _normalize_local_path(str(entry.get("skills_path", ""))) != normalized_skills:
+            continue
+        configured = str(entry.get("instructions_path", "")).strip()
+        if configured:
+            return _normalize_local_path(configured)
+    default_path = DEFAULT_INSTRUCTION_PATHS.get(name, "")
+    return _normalize_local_path(default_path) if default_path else ""
 
 
 def is_mapped(target_path: str, disabled_set: set[str], has_skills: bool) -> bool:
@@ -546,12 +619,16 @@ def get_agents():
         if "=" in line:
             name, path = line.split("=", 1)
             name = name.strip()
-            path = path.strip()
+            path = _normalize_local_path(path)
+            if not path:
+                continue
             if is_proma_workspace_target(path):
                 continue
             custom_overrides[name] = path
         else:
-            path = line.strip()
+            path = _normalize_local_path(line)
+            if not path:
+                continue
             if is_proma_workspace_target(path):
                 continue
             name = get_agent_name(path)
@@ -561,20 +638,25 @@ def get_agents():
     agents = []
     disabled_set = _get_disabled_targets()
     has_skills = len(get_skills()) > 0
+    path_configs = _load_agent_path_configs()
 
     # 1. Add Default Agents (checking for overrides)
     for name, default_path in DEFAULT_AGENTS:
         path_str = custom_overrides.get(name, str(default_path))
-        if path_str in seen:
+        path_key = _normalize_local_path(path_str)
+        if path_key in seen:
             continue
-        seen.add(path_str)
+        seen.add(path_key)
         p = Path(path_str)
         agent_root = get_agent_root(p)
         active = agent_root.exists()
+        instructions_path = _instruction_path_for_agent(name, path_str, path_configs)
         
         agents.append({
             "name": name,
             "path": path_str,
+            "instructions_path": instructions_path,
+            "instructions_exists": bool(instructions_path and Path(instructions_path).is_file()),
             "active": active,
             "mapped": is_mapped(path_str, disabled_set, has_skills),
             "custom": name in custom_overrides,
@@ -582,15 +664,19 @@ def get_agents():
 
     # 2. Add Custom Agents (that don't match any default name override)
     for name, path_str in custom_list:
-        if path_str in seen:
+        path_key = _normalize_local_path(path_str)
+        if path_key in seen:
             continue
-        seen.add(path_str)
+        seen.add(path_key)
         p = Path(path_str)
         active = p.exists() or p.parent.exists()
+        instructions_path = _instruction_path_for_agent(name, path_str, path_configs)
 
         agents.append({
             "name": name,
             "path": path_str,
+            "instructions_path": instructions_path,
+            "instructions_exists": bool(instructions_path and Path(instructions_path).is_file()),
             "active": active,
             "mapped": is_mapped(path_str, disabled_set, has_skills),
             "custom": True,
@@ -621,35 +707,49 @@ def get_version():
 # ──────────────────────────────────────────────────────────────
 
 def _load_instruction_targets() -> list[tuple[str, Path]]:
-    """Return [(agent_name, instruction_file_path)] from agents.json.
-
-    Reads the ``mac_instructions_file`` field (Windows uses win_instructions_file,
-    handled by webui.ps1). De-duplicates so two agents sharing one instruction
-    file (e.g. Antigravity CLI + IDE both use ~/.gemini/GEMINI.md) are written once.
-    """
+    """Return configured instruction files for visible Agents, de-duplicated."""
     targets: list[tuple[str, Path]] = []
     seen: set[str] = set()
-    try:
-        if AGENTS_JSON_FILE.exists():
-            data = json.loads(AGENTS_JSON_FILE.read_text(encoding="utf-8"))
-            for a in data.get("agents", []):
-                raw = (a.get("mac_instructions_file") or "").strip()
-                if not raw:
-                    continue
-                expanded = str(Path.home()) + raw[1:] if raw.startswith("~") else raw
-                resolved = str(Path(expanded).resolve())
-                if resolved in seen:
-                    continue
-                seen.add(resolved)
-                targets.append((a.get("name", ""), Path(expanded)))
-    except Exception:
-        pass
+    for agent in get_visible_agents():
+        raw = str(agent.get("instructions_path", "")).strip()
+        if not raw:
+            continue
+        path = Path(raw).expanduser()
+        resolved = _normalize_local_path(raw)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        targets.append((str(agent.get("name", "")), path))
     return targets
+
+
+def _instruction_target_activity() -> dict[str, bool]:
+    """Return instruction-file activity, folding aliases that share one file."""
+    activity: dict[str, bool] = {}
+    for agent in get_visible_agents():
+        raw = str(agent.get("instructions_path", "")).strip()
+        if not raw:
+            continue
+        key = _normalize_local_path(raw)
+        activity[key] = activity.get(key, False) or bool(agent.get("active"))
+    return activity
+
+
+def _detected_instruction_targets() -> list[tuple[str, Path]]:
+    """Return de-duplicated instruction targets belonging to detected agents."""
+    activity = _instruction_target_activity()
+    return [
+        (name, path)
+        for name, path in _load_instruction_targets()
+        if activity.get(str(path.resolve()), False)
+    ]
 
 
 def _validate_instruction_name(name: str) -> tuple[bool, str]:
     """Validate a rule filename (must be safe, end with .md)."""
-    name = (name or "").strip()
+    if not isinstance(name, str):
+        return False, "Rule name must be text"
+    name = name.strip()
     if not name:
         return False, "Rule name cannot be empty"
     if "/" in name or "\\" in name or "\x00" in name or name in (".", ".."):
@@ -659,9 +759,87 @@ def _validate_instruction_name(name: str) -> tuple[bool, str]:
     return True, name
 
 
-def _build_managed_block(rules_text: str) -> str:
-    """Wrap concatenated rules in managed-block markers."""
-    return f"{EASY_SKILLS_BEGIN}\n{rules_text}\n{EASY_SKILLS_END}"
+def _build_managed_block(rules: dict[str, str], legacy_text: str = "") -> str:
+    """Build a context-minimal block with only the outer begin/end markers."""
+    parts = [rules[name].strip() for name in sorted(rules, key=str.casefold)]
+    if legacy_text.strip():
+        parts.append(legacy_text.strip())
+    return f"{EASY_SKILLS_BEGIN}\n" + "\n\n".join(parts) + f"\n{EASY_SKILLS_END}"
+
+
+def _managed_body(rules: dict[str, str], legacy_text: str = "") -> str:
+    """Return the exact marker-free body emitted by _build_managed_block."""
+    block = _build_managed_block(rules, legacy_text)
+    return block[len(EASY_SKILLS_BEGIN) + 1:-(len(EASY_SKILLS_END) + 1)]
+
+
+def _instruction_state_key(path: Path) -> str:
+    return str(path.expanduser().resolve())
+
+
+def _load_instruction_sync_state() -> dict:
+    try:
+        data = json.loads(INSTRUCTION_SYNC_STATE_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("targets"), list):
+            return data
+    except (OSError, ValueError, TypeError):
+        pass
+    return {"version": 1, "targets": []}
+
+
+def _save_instruction_sync_state(state: dict) -> None:
+    payload = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
+    _atomic_write_text(INSTRUCTION_SYNC_STATE_FILE, payload)
+
+
+def _instruction_state_entry(path: Path) -> dict | None:
+    key = _instruction_state_key(path)
+    for entry in _load_instruction_sync_state().get("targets", []):
+        if isinstance(entry, dict) and entry.get("path") == key:
+            return entry
+    return None
+
+
+def _set_instruction_state(path: Path, rules: dict[str, str], legacy_text: str = "") -> None:
+    state = _load_instruction_sync_state()
+    key = _instruction_state_key(path)
+    body = _managed_body(rules, legacy_text)
+    entry = {
+        "path": key,
+        "rules": [
+            {"name": name, "content": rules[name]}
+            for name in sorted(rules, key=str.casefold)
+        ],
+        "legacy": legacy_text,
+        "body_sha256": hashlib.sha256(body.strip().encode("utf-8")).hexdigest(),
+    }
+    targets = [
+        item for item in state.get("targets", [])
+        if not isinstance(item, dict) or item.get("path") != key
+    ]
+    targets.append(entry)
+    state["version"] = 1
+    state["targets"] = targets
+    _save_instruction_sync_state(state)
+
+
+def _remove_instruction_state(path: Path) -> None:
+    state = _load_instruction_sync_state()
+    key = _instruction_state_key(path)
+    targets = [
+        item for item in state.get("targets", [])
+        if not isinstance(item, dict) or item.get("path") != key
+    ]
+    if len(targets) == len(state.get("targets", [])):
+        return
+    state["targets"] = targets
+    if targets:
+        _save_instruction_sync_state(state)
+    else:
+        try:
+            INSTRUCTION_SYNC_STATE_FILE.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _inject_managed_block(existing: str, block: str) -> str:
@@ -671,10 +849,11 @@ def _inject_managed_block(existing: str, block: str) -> str:
     - Has managed block    → replace the old block with the new one.
     - No managed block     → append block (separated by a blank line).
     """
-    if EASY_SKILLS_BEGIN in existing and EASY_SKILLS_END in existing:
+    existing_begin = next((marker for marker in EASY_SKILLS_BEGIN_ALIASES if marker in existing), None)
+    if existing_begin and EASY_SKILLS_END in existing:
         import re
         pattern = re.compile(
-            re.escape(EASY_SKILLS_BEGIN) + r".*?" + re.escape(EASY_SKILLS_END),
+            re.escape(existing_begin) + r".*?" + re.escape(EASY_SKILLS_END),
             re.DOTALL,
         )
         return pattern.sub(lambda m: block, existing, count=1)
@@ -685,14 +864,154 @@ def _inject_managed_block(existing: str, block: str) -> str:
 
 def _strip_managed_block(content: str) -> str:
     """Remove the managed block from content, returning the remainder."""
-    if EASY_SKILLS_BEGIN not in content or EASY_SKILLS_END not in content:
+    existing_begin = next((marker for marker in EASY_SKILLS_BEGIN_ALIASES if marker in content), None)
+    if not existing_begin or EASY_SKILLS_END not in content:
         return content
     import re
     pattern = re.compile(
-        re.escape(EASY_SKILLS_BEGIN) + r".*?" + re.escape(EASY_SKILLS_END) + r"\n?",
+        re.escape(existing_begin) + r".*?" + re.escape(EASY_SKILLS_END) + r"\n?",
         re.DOTALL,
     )
     return pattern.sub("", content, count=1)
+
+
+def _rule_library(rule_names: list[str] | None = None) -> tuple[dict[str, str], str | None]:
+    """Load an explicit rule selection, returning a useful validation error."""
+    if rule_names is not None and (
+        not isinstance(rule_names, list)
+        or any(not isinstance(name, str) for name in rule_names)
+    ):
+        return {}, "Rules must be a list of rule names."
+    if rule_names is not None and not rule_names:
+        return {}, "Select at least one rule."
+    requested = None
+    if rule_names is not None:
+        requested = set()
+        for name in rule_names:
+            valid, clean = _validate_instruction_name(name)
+            if not valid:
+                return {}, clean
+            requested.add(clean)
+
+    rules: dict[str, str] = {}
+    if INSTRUCTIONS_DIR.exists():
+        for item in sorted(INSTRUCTIONS_DIR.iterdir()):
+            if item.is_file() and item.suffix == ".md" and (requested is None or item.name in requested):
+                try:
+                    rules[item.name] = item.read_text(encoding="utf-8").strip()
+                except (OSError, UnicodeError) as exc:
+                    return {}, f"Could not read rule {item.name}: {exc}"
+    if requested is not None:
+        missing = sorted(requested - set(rules))
+        if missing:
+            return {}, f"Rule(s) not found: {', '.join(missing)}"
+    return rules, None
+
+
+def _managed_rules(content: str, path: Path | None = None) -> tuple[dict[str, str], str]:
+    """Read state-backed or historical managed rules and preserve unknown content."""
+    import re
+    from urllib.parse import unquote
+
+    begin_pattern = "(?:" + "|".join(re.escape(marker) for marker in EASY_SKILLS_BEGIN_ALIASES) + ")"
+    outer = re.search(
+        begin_pattern + r"\r?\n?(.*?)\r?\n?" + re.escape(EASY_SKILLS_END),
+        content,
+        re.DOTALL,
+    )
+    if not outer:
+        return {}, ""
+
+    body = outer.group(1)
+    rules: dict[str, str] = {}
+
+    # Previous compact format: one label per rule. It remains readable so the
+    # next write can migrate it to the marker-free, state-backed format.
+    compact_marker = re.compile(
+        r"<!-- EasySkills:(rule ([^\r\n]+?)|legacy) -->\r?\n?"
+    )
+    compact_matches = list(compact_marker.finditer(body))
+    if compact_matches:
+        unmatched = []
+        prefix = body[:compact_matches[0].start()].strip()
+        if prefix:
+            unmatched.append(prefix)
+        for index, match in enumerate(compact_matches):
+            segment_end = (
+                compact_matches[index + 1].start()
+                if index + 1 < len(compact_matches)
+                else len(body)
+            )
+            segment = body[match.end():segment_end].strip()
+            if match.group(1) == "legacy":
+                if segment:
+                    unmatched.append(segment)
+            else:
+                rules[unquote(match.group(2))] = segment
+        return rules, "\n\n".join(unmatched)
+
+    # Historical verbose format.
+    verbose_marker = re.compile(
+        r"<!-- EasySkills:rule:begin ([^\r\n]+?) -->\r?\n?(.*?)\r?\n?<!-- EasySkills:rule:end -->",
+        re.DOTALL,
+    )
+    unmatched = []
+    cursor = 0
+    for match in verbose_marker.finditer(body):
+        gap = body[cursor:match.start()].strip()
+        if gap:
+            unmatched.append(gap)
+        rules[unquote(match.group(1))] = match.group(2).strip()
+        cursor = match.end()
+    tail = body[cursor:].strip()
+    if tail:
+        unmatched.append(tail)
+
+    legacy = "\n\n".join(unmatched)
+
+    # Current marker-free format: rule identities and snapshots live in a
+    # hidden EasySkills state file instead of consuming Agent context tokens.
+    if not rules and path is not None:
+        entry = _instruction_state_entry(path)
+        if entry:
+            expected_hash = entry.get("body_sha256", "")
+            actual_hash = hashlib.sha256(body.strip().encode("utf-8")).hexdigest()
+            state_rules = entry.get("rules", [])
+            if expected_hash == actual_hash and isinstance(state_rules, list):
+                restored: dict[str, str] = {}
+                valid = True
+                for item in state_rules:
+                    if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not isinstance(item.get("content"), str):
+                        valid = False
+                        break
+                    restored[item["name"]] = item["content"]
+                if valid:
+                    return restored, entry.get("legacy", "") if isinstance(entry.get("legacy", ""), str) else ""
+
+    if legacy and not rules:
+        # Recover rule identities from the old "---" concatenation whenever
+        # the content still matches files in the current library.
+        library, _ = _rule_library()
+        by_content: dict[str, list[str]] = {}
+        for name, rule_content in library.items():
+            by_content.setdefault(rule_content.strip(), []).append(name)
+        unresolved = []
+        for part in legacy.split("\n\n---\n\n"):
+            candidates = by_content.get(part.strip(), [])
+            name = next((n for n in candidates if n not in rules), None)
+            if name:
+                rules[name] = part.strip()
+            elif part.strip():
+                unresolved.append(part.strip())
+        legacy = "\n\n---\n\n".join(unresolved)
+    return rules, legacy
+
+
+def _managed_rule_count(content: str, path: Path | None = None) -> int:
+    """Count both labelled rules and unresolved rules from the legacy format."""
+    rules, legacy = _managed_rules(content, path)
+    legacy_parts = [part for part in legacy.replace("\r\n", "\n").split("\n\n---\n\n") if part.strip()]
+    return len(rules) + len(legacy_parts)
 
 
 def get_instructions() -> dict:
@@ -701,28 +1020,44 @@ def get_instructions() -> dict:
     if INSTRUCTIONS_DIR.exists():
         for item in sorted(INSTRUCTIONS_DIR.iterdir()):
             if item.is_file() and item.suffix == ".md":
-                content = item.read_text(encoding="utf-8")
+                read_error = ""
+                try:
+                    content = item.read_text(encoding="utf-8")
+                except (OSError, UnicodeError) as exc:
+                    content = ""
+                    read_error = str(exc)
                 rules.append({
                     "name": item.name,
                     "preview": content[:200],
                     "size": len(content),
+                    "read_error": read_error,
                 })
 
     targets = _load_instruction_targets()
+    target_activity = _instruction_target_activity()
     agents_status = []
     for name, path in targets:
         has_block = False
-        exists = path.exists()
+        managed_rules = []
+        managed_rule_count = 0
+        exists = path.is_file()
         if exists:
             try:
-                has_block = EASY_SKILLS_BEGIN in path.read_text(encoding="utf-8")
-            except OSError:
+                text = path.read_text(encoding="utf-8")
+                has_block = any(marker in text for marker in EASY_SKILLS_BEGIN_ALIASES)
+                if has_block:
+                    managed_rules = list(_managed_rules(text, path)[0])
+                    managed_rule_count = _managed_rule_count(text, path)
+            except (OSError, UnicodeError):
                 pass
         agents_status.append({
             "name": name,
             "path": str(path),
             "exists": exists,
+            "active": target_activity.get(str(path.resolve()), False),
             "has_managed_block": has_block,
+            "managed_rules": managed_rules,
+            "managed_rule_count": managed_rule_count,
         })
 
     return {
@@ -738,9 +1073,11 @@ def save_instruction(name: str, content: str) -> dict:
     valid, clean = _validate_instruction_name(name)
     if not valid:
         return {"success": False, "message": clean}
+    if not isinstance(content, str):
+        return {"success": False, "message": "Rule content must be text"}
     try:
         INSTRUCTIONS_DIR.mkdir(parents=True, exist_ok=True)
-        (INSTRUCTIONS_DIR / clean).write_text(content or "", encoding="utf-8")
+        _atomic_write_text(INSTRUCTIONS_DIR / clean, content)
     except OSError as e:
         return {"success": False, "message": f"Save failed: {e}"}
     return {"success": True, "message": f"Saved rule: {clean}", "name": clean}
@@ -771,58 +1108,198 @@ def get_instruction_content(name: str) -> dict:
     target = INSTRUCTIONS_DIR / clean
     if not target.exists():
         return {"success": False, "message": f"Rule not found: {clean}"}
-    return {"success": True, "name": clean, "content": target.read_text(encoding="utf-8")}
-
-
-def _concat_rules() -> str:
-    """Concatenate all rule files (sorted by name) into one text block."""
-    parts = []
-    if INSTRUCTIONS_DIR.exists():
-        for item in sorted(INSTRUCTIONS_DIR.iterdir()):
-            if item.is_file() and item.suffix == ".md":
-                parts.append(item.read_text(encoding="utf-8").strip())
-    return "\n\n---\n\n".join(parts)
-
-
-def _write_to_one(path: Path, rules_text: str) -> bool:
-    """Write (or refresh) the managed block in a single instruction file."""
-    block = _build_managed_block(rules_text)
     try:
+        content = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return {"success": False, "message": f"Read failed: {exc}"}
+    return {"success": True, "name": clean, "content": content}
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Replace a UTF-8 text file atomically without exposing partial content."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if path.exists():
+            shutil.copystat(path, temp_path)
+        os.replace(temp_path, path)
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _write_to_one(path: Path, rules: dict[str, str], *, replace: bool = False) -> bool:
+    """Add or refresh named rules in one instruction file."""
+    try:
+        path = path.resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
         existing = path.read_text(encoding="utf-8") if path.exists() else ""
-        path.write_text(_inject_managed_block(existing, block), encoding="utf-8")
+        current, legacy = _managed_rules(existing, path)
+        state_entry = _instruction_state_entry(path)
+        state_matches = bool(
+            state_entry
+            and state_entry.get("body_sha256")
+            == hashlib.sha256(legacy.strip().encode("utf-8")).hexdigest()
+        )
+        if (
+            not replace
+            and
+            EASY_SKILLS_BEGIN in existing
+            and "EasySkills:rule" not in existing
+            and legacy.strip()
+            and not current
+            and not state_matches
+        ):
+            return False
+        if replace:
+            current, legacy = {}, ""
+        current.update(rules)
+        block = _build_managed_block(current, legacy)
+        previous_state = _instruction_state_entry(path)
+        _set_instruction_state(path, current, legacy)
+        try:
+            _atomic_write_text(path, _inject_managed_block(existing, block))
+        except Exception:
+            if previous_state is None:
+                _remove_instruction_state(path)
+            else:
+                state = _load_instruction_sync_state()
+                key = _instruction_state_key(path)
+                state["targets"] = [
+                    item for item in state.get("targets", [])
+                    if not isinstance(item, dict) or item.get("path") != key
+                ] + [previous_state]
+                _save_instruction_sync_state(state)
+            raise
         return True
-    except OSError:
+    except (OSError, UnicodeError):
         return False
 
 
 def _remove_from_one(path: Path) -> bool:
     """Remove the managed block from a single instruction file."""
     try:
+        path = path.resolve()
         if not path.exists():
+            _remove_instruction_state(path)
             return True
-        remaining = _strip_managed_block(path.read_text(encoding="utf-8"))
+        existing = path.read_text(encoding="utf-8")
+        if not any(marker in existing for marker in EASY_SKILLS_BEGIN_ALIASES) or EASY_SKILLS_END not in existing:
+            _remove_instruction_state(path)
+            return True
+        remaining = _strip_managed_block(existing)
         if remaining.strip():
-            path.write_text(remaining, encoding="utf-8")
+            _atomic_write_text(path, remaining.rstrip() + "\n")
         else:
             path.unlink()
+        _remove_instruction_state(path)
         return True
-    except OSError:
+    except (OSError, UnicodeError):
         return False
+
+
+def _remove_rules_from_one(path: Path, rule_names: list[str]) -> bool:
+    """Remove only named rules while preserving other managed and handwritten content."""
+    try:
+        path = path.resolve()
+        if not path.exists():
+            _remove_instruction_state(path)
+            return True
+        existing = path.read_text(encoding="utf-8")
+        if not any(marker in existing for marker in EASY_SKILLS_BEGIN_ALIASES) or EASY_SKILLS_END not in existing:
+            _remove_instruction_state(path)
+            return True
+        current, legacy = _managed_rules(existing, path)
+        state_entry = _instruction_state_entry(path)
+        state_matches = bool(
+            state_entry
+            and state_entry.get("body_sha256")
+            == hashlib.sha256(legacy.strip().encode("utf-8")).hexdigest()
+        )
+        if (
+            EASY_SKILLS_BEGIN in existing
+            and "EasySkills:rule" not in existing
+            and legacy.strip()
+            and not current
+            and not state_matches
+        ):
+            return False
+        for name in rule_names:
+            current.pop(name, None)
+        if current or legacy.strip():
+            updated = _inject_managed_block(existing, _build_managed_block(current, legacy))
+            previous_state = _instruction_state_entry(path)
+            _set_instruction_state(path, current, legacy)
+        else:
+            updated = _strip_managed_block(existing)
+            previous_state = _instruction_state_entry(path)
+        if updated.strip():
+            if not current and not legacy.strip():
+                updated = updated.rstrip() + "\n"
+            try:
+                _atomic_write_text(path, updated)
+            except Exception:
+                if current or legacy.strip():
+                    if previous_state is None:
+                        _remove_instruction_state(path)
+                    else:
+                        state = _load_instruction_sync_state()
+                        key = _instruction_state_key(path)
+                        state["targets"] = [
+                            item for item in state.get("targets", [])
+                            if not isinstance(item, dict) or item.get("path") != key
+                        ] + [previous_state]
+                        _save_instruction_sync_state(state)
+                raise
+        else:
+            path.unlink()
+        if not current and not legacy.strip():
+            _remove_instruction_state(path)
+        return True
+    except (OSError, UnicodeError):
+        return False
+
+
+def _known_instruction_target(path_str: str) -> Path | None:
+    """Resolve an API path only when it belongs to a declared Agent target."""
+    if not isinstance(path_str, str) or not path_str.strip():
+        return None
+    try:
+        requested = str(Path(path_str).expanduser().resolve())
+    except (OSError, ValueError):
+        return None
+    for _, candidate in _load_instruction_targets():
+        try:
+            if str(candidate.resolve()) == requested:
+                return candidate
+        except (OSError, ValueError):
+            continue
+    return None
 
 
 @_writes_locked
 def write_instructions_to_all() -> dict:
-    """Concatenate every rule and write the managed block into ALL agent files."""
-    rules_text = _concat_rules()
-    if not rules_text.strip():
+    """Write every library rule to every detected agent instruction file."""
+    rules, error = _rule_library()
+    if error or not rules:
         return {"success": False, "message": "No rules in the library. Add rules first."}
-    targets = _load_instruction_targets()
+    targets = _detected_instruction_targets()
     if not targets:
-        return {"success": False, "message": "No agent instruction targets found."}
+        return {"success": False, "message": "No detected agent instruction targets found."}
     written, failed = [], []
     for name, path in targets:
-        if _write_to_one(path, rules_text):
+        if _write_to_one(path, rules, replace=True):
             written.append(name)
         else:
             failed.append(f"{name} ({path})")
@@ -834,10 +1311,10 @@ def write_instructions_to_all() -> dict:
 
 @_writes_locked
 def remove_instructions_from_all() -> dict:
-    """Remove the managed block from ALL agent instruction files."""
-    targets = _load_instruction_targets()
+    """Remove the managed block from every detected agent instruction file."""
+    targets = _detected_instruction_targets()
     if not targets:
-        return {"success": False, "message": "No agent instruction targets found."}
+        return {"success": False, "message": "No detected agent instruction targets found."}
     removed, failed = [], []
     for name, path in targets:
         if _remove_from_one(path):
@@ -853,13 +1330,13 @@ def remove_instructions_from_all() -> dict:
 @_writes_locked
 def write_instructions_to_one(path_str: str) -> dict:
     """Write the managed block into a single agent's instruction file."""
-    if not path_str:
-        return {"success": False, "message": "Path cannot be empty"}
-    rules_text = _concat_rules()
-    if not rules_text.strip():
+    path = _known_instruction_target(path_str)
+    if path is None:
+        return {"success": False, "message": "Unknown agent instruction target"}
+    rules, error = _rule_library()
+    if error or not rules:
         return {"success": False, "message": "No rules in the library. Add rules first."}
-    path = Path(path_str).expanduser()
-    if _write_to_one(path, rules_text):
+    if _write_to_one(path, rules, replace=True):
         return {"success": True, "message": f"Wrote rules to {path}"}
     return {"success": False, "message": f"Write failed for {path}"}
 
@@ -867,50 +1344,42 @@ def write_instructions_to_one(path_str: str) -> dict:
 @_writes_locked
 def remove_instructions_from_one(path_str: str) -> dict:
     """Remove the managed block from a single agent's instruction file."""
-    if not path_str:
-        return {"success": False, "message": "Path cannot be empty"}
-    path = Path(path_str).expanduser()
+    path = _known_instruction_target(path_str)
+    if path is None:
+        return {"success": False, "message": "Unknown agent instruction target"}
     if _remove_from_one(path):
         return {"success": True, "message": f"Removed managed block from {path}"}
     return {"success": False, "message": f"Remove failed for {path}"}
 
 
-def _concat_selected_rules(rule_names: list[str]) -> str:
-    """Concatenate only the named rule files (sorted)."""
-    if not rule_names:
-        return _concat_rules()  # empty list = all rules
-    parts = []
-    if INSTRUCTIONS_DIR.exists():
-        for name in sorted(rule_names):
-            clean = _validate_instruction_name(name)
-            if not clean[0]:
-                continue
-            f = INSTRUCTIONS_DIR / clean[1]
-            if f.exists():
-                parts.append(f.read_text(encoding="utf-8").strip())
-    return "\n\n---\n\n".join(parts)
-
-
 @_writes_locked
 def write_selected_instructions(rules: list[str] | None = None, agents: list[str] | None = None) -> dict:
-    """Write selected rules to selected agent instruction files.
-
-    If ``rules`` is None or empty → all rules. If ``agents`` is None or empty → all targets.
-    """
-    rules_text = _concat_selected_rules(rules or [])
-    if not rules_text.strip():
-        return {"success": False, "message": "No rules selected or rule library is empty."}
+    """Add or refresh exactly the selected rules on exactly the selected agents."""
+    if (
+        not isinstance(rules, list)
+        or any(not isinstance(name, str) for name in rules)
+        or not isinstance(agents, list)
+        or any(not isinstance(path, str) for path in agents)
+    ):
+        return {"success": False, "message": "Rules and agents must be lists of names and paths."}
+    if not rules or not agents:
+        return {"success": False, "message": "Select at least one rule and one agent."}
+    selected_rules, error = _rule_library(rules)
+    if error or not selected_rules:
+        return {"success": False, "message": error or "No selected rules found."}
     targets = _load_instruction_targets()
     if not targets:
         return {"success": False, "message": "No agent instruction targets found."}
-    if agents:
+    try:
         agents_set = {str(Path(a).expanduser().resolve()) for a in agents}
-        targets = [(n, p) for n, p in targets if str(p.resolve()) in agents_set]
+    except (OSError, ValueError):
+        return {"success": False, "message": "One or more selected Agent paths are invalid."}
+    targets = [(n, p) for n, p in targets if str(p.resolve()) in agents_set]
     if not targets:
         return {"success": False, "message": "No matching agent targets. Check the selected paths."}
     written, failed = [], []
     for name, path in targets:
-        if _write_to_one(path, rules_text):
+        if _write_to_one(path, selected_rules):
             written.append(name)
         else:
             failed.append(f"{name} ({path})")
@@ -921,26 +1390,37 @@ def write_selected_instructions(rules: list[str] | None = None, agents: list[str
 
 
 @_writes_locked
-def remove_selected_instructions(agents: list[str] | None = None) -> dict:
-    """Remove the managed block from selected agent instruction files.
-
-    If ``agents`` is None or empty → all targets.
-    """
+def remove_selected_instructions(rules: list[str] | None = None, agents: list[str] | None = None) -> dict:
+    """Remove exactly the selected rules from exactly the selected agents."""
+    if (
+        not isinstance(rules, list)
+        or any(not isinstance(name, str) for name in rules)
+        or not isinstance(agents, list)
+        or any(not isinstance(path, str) for path in agents)
+    ):
+        return {"success": False, "message": "Rules and agents must be lists of names and paths."}
+    if not rules or not agents:
+        return {"success": False, "message": "Select at least one rule and one agent."}
+    selected_rules, error = _rule_library(rules)
+    if error or not selected_rules:
+        return {"success": False, "message": error or "No selected rules found."}
     targets = _load_instruction_targets()
     if not targets:
         return {"success": False, "message": "No agent instruction targets found."}
-    if agents:
+    try:
         agents_set = {str(Path(a).expanduser().resolve()) for a in agents}
-        targets = [(n, p) for n, p in targets if str(p.resolve()) in agents_set]
+    except (OSError, ValueError):
+        return {"success": False, "message": "One or more selected Agent paths are invalid."}
+    targets = [(n, p) for n, p in targets if str(p.resolve()) in agents_set]
     if not targets:
         return {"success": False, "message": "No matching agent targets. Check the selected paths."}
     removed, failed = [], []
     for name, path in targets:
-        if _remove_from_one(path):
+        if _remove_rules_from_one(path, list(selected_rules)):
             removed.append(name)
         else:
             failed.append(f"{name} ({path})")
-    msg = f"Removed managed block from {len(removed)} agent(s)."
+    msg = f"Removed {len(selected_rules)} rule(s) from {len(removed)} agent(s)."
     if failed:
         msg += f" Failed: {', '.join(failed)}"
     return {"success": len(failed) == 0, "message": msg, "removed": len(removed), "failed": failed}
@@ -1231,28 +1711,43 @@ def do_unmap(target_path: str) -> dict:
 
 
 @_writes_locked
-def update_agent_path(name: str, old_path: str, new_path: str) -> dict:
-    if not new_path:
-        return {"success": False, "message": "New path cannot be empty"}
+def update_agent_paths(
+    name: str,
+    old_skills_path: str,
+    skills_path: str,
+    instructions_path: str,
+) -> dict:
+    if not skills_path:
+        return {"success": False, "message": "Skills path cannot be empty"}
+    normalized_old = _normalize_local_path(old_skills_path)
+    current = next(
+        (
+            agent for agent in get_visible_agents()
+            if _normalize_local_path(str(agent.get("path", ""))) == normalized_old
+        ),
+        None,
+    )
+    if not instructions_path:
+        instructions_path = str((current or {}).get("instructions_path", "")).strip()
+        if not instructions_path:
+            return {"success": False, "message": "Instructions file path cannot be empty"}
 
     # Expand paths correctly
-    try:
-        new_path = str(Path(new_path).expanduser().resolve())
-    except Exception:
-        new_path = str(Path(new_path).expanduser())
+    new_path = _normalize_local_path(skills_path)
+    new_instructions_path = _normalize_local_path(instructions_path)
+    instructions_target = Path(new_instructions_path)
+    if instructions_target.exists() and instructions_target.is_dir():
+        return {"success": False, "message": "Instructions path must point to a file, not a directory"}
 
     # Normalize old_path the same way new_path and stored lines are normalized,
     # otherwise a `~`-form or dotted old_path silently fails to match the stored
     # absolute path, leaving a stale/duplicate entry behind.
-    if old_path:
-        try:
-            old_path = str(Path(old_path).expanduser().resolve())
-        except Exception:
-            old_path = str(Path(old_path).expanduser())
+    old_path = _normalize_local_path(old_skills_path)
 
     lines = []
     if CUSTOM_TARGETS_FILE.exists():
         lines = CUSTOM_TARGETS_FILE.read_text(encoding="utf-8").splitlines()
+    original_custom_content = "\n".join(lines) + ("\n" if lines else "")
 
     updated = False
     new_lines = []
@@ -1273,27 +1768,161 @@ def update_agent_path(name: str, old_path: str, new_path: str) -> dict:
             line_path = stripped
             line_name = get_agent_name(line_path)
 
-        if line_path == old_path or (line_name == name and name != "Custom Agent"):
-            new_lines.append(f"{name}={new_path}")
+        line_path_normalized = _normalize_local_path(line_path)
+        if line_path_normalized == old_path:
+            if not updated:
+                new_lines.append(f"{name}={new_path}")
             updated = True
         else:
             new_lines.append(line)
 
-    if not updated:
+    if not updated and new_path != old_path:
         new_lines.append(f"{name}={new_path}")
 
     # Save to custom-targets.txt (must succeed before creating symlinks)
     try:
-        CUSTOM_TARGETS_FILE.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        _atomic_write_text(CUSTOM_TARGETS_FILE, "\n".join(new_lines) + "\n")
     except OSError as e:
         return {"success": False, "message": f"Failed to write config: {e}"}
 
-    # Automatically symlink to the new configuration location
-    _remove_from_disabled_targets(old_path)
-    _remove_from_disabled_targets(new_path)
-    do_map(new_path)
+    path_configs = _load_agent_path_configs()
+    updated_configs = []
+    for entry in path_configs:
+        entry_path = _normalize_local_path(str(entry.get("skills_path", "")))
+        if entry_path in {old_path, new_path}:
+            continue
+        updated_configs.append(entry)
+    updated_configs.append({
+        "name": name,
+        "skills_path": new_path,
+        "instructions_path": new_instructions_path,
+    })
+    try:
+        _save_agent_path_configs(updated_configs)
+    except OSError as e:
+        try:
+            _atomic_write_text(CUSTOM_TARGETS_FILE, original_custom_content)
+        except OSError:
+            pass
+        return {"success": False, "message": f"Failed to write Agent path config: {e}"}
 
-    return {"success": True, "message": f"Updated {name} to {new_path}"}
+    # Preserve the Agent's connection state while moving its skills path.
+    _remove_from_disabled_targets(old_path)
+    if bool((current or {}).get("mapped")):
+        _remove_from_disabled_targets(new_path)
+        cleanup_warning = ""
+        if new_path != old_path:
+            map_result = do_map(new_path)
+            if not map_result.get("success"):
+                return {
+                    "success": False,
+                    "message": (
+                        f"Agent paths were saved, but the new skills path could not be mapped: "
+                        f"{map_result.get('message', 'unknown mapping error')}. "
+                        "The old skills links were preserved."
+                    ),
+                    "skills_path": new_path,
+                    "instructions_path": new_instructions_path,
+                    "partial": True,
+                }
+            cleanup_result = do_unmap(old_path)
+            _remove_from_disabled_targets(old_path)
+            if not cleanup_result.get("success"):
+                cleanup_warning = (
+                    f" Warning: old skills links at {old_path} could not be fully removed: "
+                    f"{cleanup_result.get('message', 'unknown cleanup error')}."
+                )
+    else:
+        _add_to_disabled_targets(new_path)
+        cleanup_warning = ""
+
+    return {
+        "success": True,
+        "message": f"Updated {name} skills and instructions paths.{cleanup_warning}",
+        "skills_path": new_path,
+        "instructions_path": new_instructions_path,
+    }
+
+
+def update_agent_path(name: str, old_path: str, new_path: str) -> dict:
+    """Backward-compatible single-path wrapper used by older callers."""
+    normalized_old = _normalize_local_path(old_path)
+    current = next(
+        (
+            agent for agent in get_visible_agents()
+            if _normalize_local_path(str(agent.get("path", ""))) == normalized_old
+        ),
+        None,
+    )
+    instructions_path = str((current or {}).get("instructions_path", "")).strip()
+    if not instructions_path:
+        instructions_path = str(Path(new_path).expanduser().parent / "AGENTS.md")
+    return update_agent_paths(name, old_path, new_path, instructions_path)
+
+
+@_writes_locked
+def register_custom_agent(skills_path: str, instructions_path: str) -> dict:
+    """Register a custom Agent with both skill and instruction channels."""
+    skills_path = _normalize_local_path(skills_path)
+    instructions_path = _normalize_local_path(instructions_path)
+    if not skills_path:
+        return {"success": False, "message": "Skills path cannot be empty"}
+    if not instructions_path:
+        return {"success": False, "message": "Instructions file path cannot be empty"}
+    instruction_target = Path(instructions_path)
+    if instruction_target.exists() and instruction_target.is_dir():
+        return {"success": False, "message": "Instructions path must point to a file, not a directory"}
+
+    was_registered = any(
+        _normalize_local_path(line.split("=", 1)[-1].strip()) == skills_path
+        for line in get_custom_targets()
+    )
+    deploy_result = run_deploy("--add", skills_path)
+    if not deploy_result.get("success"):
+        return deploy_result
+
+    entries = [
+        entry for entry in _load_agent_path_configs()
+        if _normalize_local_path(str(entry.get("skills_path", ""))) != skills_path
+    ]
+    entries.append({
+        "name": get_agent_name(skills_path),
+        "skills_path": skills_path,
+        "instructions_path": instructions_path,
+    })
+    try:
+        _save_agent_path_configs(entries)
+    except OSError as exc:
+        if not was_registered:
+            run_deploy("--remove", skills_path)
+        return {"success": False, "message": f"Failed to save Agent paths: {exc}"}
+
+    return {
+        "success": True,
+        "message": f"Registered Agent skills and instructions channels\n{deploy_result.get('message', '')}".strip(),
+        "skills_path": skills_path,
+        "instructions_path": instructions_path,
+    }
+
+
+@_writes_locked
+def remove_custom_agent(skills_path: str) -> dict:
+    skills_path = _normalize_local_path(skills_path)
+    result = run_deploy("--remove", skills_path)
+    if not result.get("success"):
+        return result
+    entries = [
+        entry for entry in _load_agent_path_configs()
+        if _normalize_local_path(str(entry.get("skills_path", ""))) != skills_path
+    ]
+    try:
+        _save_agent_path_configs(entries)
+    except OSError as exc:
+        return {
+            "success": True,
+            "message": f"{result.get('message', '')}\nWarning: stale Agent path metadata could not be removed: {exc}".strip(),
+        }
+    return result
 
 
 def _sha256_file(path: str) -> str:
@@ -1673,8 +2302,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except OSError:
                 pass
             return None  # Signal to caller: send 413
+        if length < 0:
+            return {}
         try:
-            return json.loads(self.rfile.read(length))
+            parsed = json.loads(self.rfile.read(length))
+            return parsed if isinstance(parsed, dict) else {}
         except (json.JSONDecodeError, ValueError):
             return {}
 
@@ -1724,13 +2356,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
             watcher = get_watcher_status()
             agents  = get_visible_agents()
             skills  = get_skills()
+            instructions = get_instructions()
+            instruction_agents = instructions.get("agents", [])
+            detected_instruction_agents = [
+                agent for agent in instruction_agents if agent.get("active")
+            ]
             link_warnings = get_central_dir_warnings()
             self._json({
                 "watcher":       watcher,
                 "central_dir":   str(CENTRAL_DIR),
                 "skills_count":  len(skills),
                 "agents_total":  len(agents),
+                "agents_detected": sum(1 for agent in agents if agent.get("active")),
                 "agents_mapped": sum(1 for a in agents if a["mapped"]),
+                "agent_instruction_paths_configured": sum(
+                    1 for agent in agents if agent.get("instructions_path")
+                ),
+                "agent_instruction_files_existing": sum(
+                    1 for agent in agents if agent.get("instructions_exists")
+                ),
+                "instruction_targets_total": len(instruction_agents),
+                "instruction_target_files_existing": sum(
+                    1 for agent in instruction_agents if agent.get("exists")
+                ),
+                "rules_count": len(instructions.get("rules", [])),
+                "instruction_agents_detected": len(detected_instruction_agents),
+                "instruction_agents_managed": sum(
+                    1 for agent in detected_instruction_agents
+                    if agent.get("managed_rule_count", 0) > 0
+                ),
+                "managed_rule_instances": sum(
+                    int(agent.get("managed_rule_count", 0) or 0)
+                    for agent in detected_instruction_agents
+                ),
                 "version":       get_version(),
                 "has_backup":    (CENTRAL_DIR / "_maintenance.bak").is_dir(),
                 # Link health: dangling links will be auto-pruned on next sync;
@@ -1797,9 +2455,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "/api/watcher/stop":         lambda: run_deploy("--unwatch"),
             "/api/agents/map":           lambda: do_map(body.get("path", "")),
             "/api/agents/unmap":         lambda: do_unmap(body.get("path", "")),
-            "/api/agents/update":        lambda: update_agent_path(body.get("name", ""), body.get("old_path", ""), body.get("new_path", "")),
-            "/api/agents/custom/add":    lambda: run_deploy("--add", body.get("path", "")),
-            "/api/agents/custom/remove": lambda: run_deploy("--remove", body.get("path", "")),
+            "/api/agents/update":        lambda: update_agent_paths(
+                body.get("name", ""),
+                body.get("old_skills_path", body.get("old_path", "")),
+                body.get("skills_path", body.get("new_path", "")),
+                body.get("instructions_path", ""),
+            ),
+            "/api/agents/custom/add":    lambda: register_custom_agent(
+                body.get("skills_path", body.get("path", "")),
+                body.get("instructions_path", ""),
+            ),
+            "/api/agents/custom/remove": lambda: remove_custom_agent(body.get("path", "")),
             "/api/skills/import":        lambda: import_skill_folder(body.get("name", ""), body.get("files", [])),
             "/api/skills/delete":        lambda: delete_skill(body.get("name", "")),
             "/api/instructions/save":    lambda: save_instruction(body.get("name", ""), body.get("content", "")),
@@ -1809,7 +2475,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "/api/instructions/write-one":    lambda: write_instructions_to_one(body.get("path", "")),
             "/api/instructions/remove-one":   lambda: remove_instructions_from_one(body.get("path", "")),
             "/api/instructions/write-selected":   lambda: write_selected_instructions(body.get("rules"), body.get("agents")),
-            "/api/instructions/remove-selected":  lambda: remove_selected_instructions(body.get("agents")),
+            "/api/instructions/remove-selected":  lambda: remove_selected_instructions(body.get("rules"), body.get("agents")),
             "/api/update":               lambda: do_self_update(),
             "/api/rollback":             lambda: do_rollback(),
         }
@@ -1873,6 +2539,11 @@ def _iter_agent_skill_dirs():
 # ──────────────────────────────────────────────────────────────
 
 def main():
+    if "--sync-rules" in _sys.argv:
+        res = write_instructions_to_all()
+        print(f"Rules Sync: {'Success' if res['success'] else 'Failed'} - {res['message']}")
+        _sys.exit(0 if res['success'] else 1)
+
     if _debug_enabled:
         logging.debug("Debug mode enabled (EASYSKILLS_DEBUG=1)")
         logging.debug("CENTRAL_DIR=%s SCRIPT_DIR=%s", CENTRAL_DIR, SCRIPT_DIR)

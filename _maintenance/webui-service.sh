@@ -104,13 +104,17 @@ own_webui_pid() {
   local match
   # Match any process whose command line contains our webui.py path.
   match=$(pgrep -f "${pattern}" 2>/dev/null | head -1)
-  # Defense in depth: confirm the candidate's command line actually references
-  # our path (guards against a coincidental match on a different webui.py).
+  # Defense in depth: confirm the candidate is a PYTHON interpreter running our
+  # script. A bare substring check would match editors/greps that happen to have
+  # the path on their command line (VS Code, vim, grep, ripgrep, a language
+  # server...) — and we would then SIGKILL them, destroying unsaved work.
+  # ps -o comm= gives the executable basename (e.g. "python3", "python3.11").
   if [ -n "$match" ]; then
-    local cmd
-    cmd=$(ps -p "$match" -o command= 2>/dev/null || true)
-    case "$cmd" in
-      *"$pattern"*) echo "$match" ;;
+    local comm base
+    comm=$(ps -p "$match" -o comm= 2>/dev/null || true)
+    base="${comm##*/}"
+    case "$base" in
+      python|python[0-9]*) echo "$match" ;;
     esac
   fi
 }

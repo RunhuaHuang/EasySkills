@@ -29,10 +29,22 @@ fi
 for webui_label in "${WEBUI_LABELS[@]}"; do
   launchctl remove "$webui_label" 2>/dev/null || true
 done
+# Kill lingering EasySkills backend processes before removing the install dir.
+# IMPORTANT: verify each match is actually the intended interpreter, NOT an
+# editor/grep with the file path on its command line (e.g. `code webui.py`,
+# `grep foo webui.py`) — killing those would destroy unsaved work.
 for pattern in "[E]asySkills/_maintenance/webui-service\\.sh" "[E]asySkills/_maintenance/webui\\.py"; do
   pids=$(pgrep -f "$pattern" 2>/dev/null || true)
   if [ -n "$pids" ]; then
-    echo "$pids" | while read -r p; do kill "$p" 2>/dev/null || true; done
+    echo "$pids" | while read -r p; do
+      comm=$(ps -p "$p" -o comm= 2>/dev/null || true)
+      base="${comm##*/}"
+      case "$base" in
+        bash|sh|python|python[0-9]*)
+          kill "$p" 2>/dev/null || true
+          ;;
+      esac
+    done
   fi
 done
 
@@ -55,7 +67,21 @@ move_to_trash() {
 }
 
 if [ -d "$HOME/EasySkills/_maintenance" ]; then
+  # Remove all EasySkills symlinks from agent directories BEFORE trashing the
+  # install dir. If this fails, the symlinks would become dangling pointers to
+  # a trashed target — warn loudly so the user can clean them up manually
+  # instead of being left with broken skill directories across every agent.
   bash "$HOME/EasySkills/_maintenance/deploy.sh" --cleanup
+  cleanup_rc=$?
+  if [ "$cleanup_rc" -ne 0 ]; then
+    echo "⚠️  WARNING: 'deploy.sh --cleanup' exited with code $cleanup_rc." >&2
+    echo "    Some EasySkills symlinks may still exist in your agent skill" >&2
+    echo "    directories and will become broken after ~/EasySkills is trashed." >&2
+    echo "    To find and remove them manually:" >&2
+    echo "      find ~/.claude/skills ~/.cursor/skills ~/.codex/skills -maxdepth 1 -type l -lname '*EasySkills*' -print -delete 2>/dev/null" >&2
+    echo "    (repeat for any other agent skills folders you use)" >&2
+    echo ""
+  fi
   move_to_trash "$HOME/EasySkills"
 fi
 

@@ -108,16 +108,26 @@ if /i "%CURRENT_DIR_STRIP%" neq "%PERM_DIR%" (
     )
   )
 
-  :: --- Version reporting ---
+  :: Set NEW_VERSION inside the block (stored correctly), but do NOT read it
+  :: here — %VAR% inside a parenthesized block expands once at parse time, so
+  :: the version report below would always print empty. The report is emitted
+  :: AFTER the block closes (at the :version_report label) where the variables
+  :: are already final and %VAR% expansion works correctly.
   set "NEW_VERSION=unknown"
   if exist "%PERM_DIR%\_maintenance\.version" (
     set /p NEW_VERSION=<"%PERM_DIR%\_maintenance\.version"
   )
-  if defined OLD_VERSION (
-    echo Upgraded: %OLD_VERSION% -^> %NEW_VERSION%
-  ) else (
-    echo Installed version: %NEW_VERSION%
-  )
+)
+
+:: --- Version reporting (MUST be outside the parenthesized block above) ---
+:: Here %OLD_VERSION% / %NEW_VERSION% are read AFTER the block that sets them,
+:: so CMD's parse-time expansion reflects their real values. OLD_VERSION is only
+:: defined on the upgrade path (set near the top of the block above).
+:version_report
+if defined OLD_VERSION (
+  echo Upgraded: %OLD_VERSION% -^> %NEW_VERSION%
+) else (
+  echo Installed version: %NEW_VERSION%
 )
 
 :: Validation failures jump here, skipping the service launch below.

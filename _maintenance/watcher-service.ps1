@@ -57,7 +57,7 @@ try {
 function New-Watcher {
     $w = New-Object System.IO.FileSystemWatcher
     $w.Path = $CentralDir
-    $w.IncludeSubdirectories = $false
+    $w.IncludeSubdirectories = $true
     $w.InternalBufferSize = 65536  # 64 KiB; max that doesn't hit the 64 KiB ceiling issue
     $w.EnableRaisingEvents = $true
     return $w
@@ -75,6 +75,13 @@ try {
             $Change = $Watcher.WaitForChanged([System.IO.WatcherChangeTypes]::All, $WaitTimeout)
 
             if (($Change.TimedOut -eq $false) -or ($PromaPollingEnabled -and $Change.TimedOut)) {
+                # Only sync on root-level changes or changes inside the 'instructions' directory.
+                # Skip changes inside skill folders.
+                $IsRelevant = ($null -eq $Change.Name) -or ($Change.Name -eq "") -or (($Change.Name -notlike "*\*") -and ($Change.Name -notlike "*/*")) -or $Change.Name.ToLower().StartsWith("instructions\") -or $Change.Name.ToLower().StartsWith("instructions/")
+                if (-not $IsRelevant) {
+                    continue
+                }
+
                 # Debounce: drain any further changes that arrived while we were
                 # busy, then run a single sync covering the whole burst. The old
                 # 500ms sleep fired one deploy per event; this coalesces them.

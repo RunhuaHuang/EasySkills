@@ -1,21 +1,14 @@
 # EasySkills — System & Operations Reference
 
-> **Version:** 2.1.0 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
+> **Version:** 3.2.0 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
 
-EasySkills is a cross-platform automated skills manager for macOS, Linux, and
-Windows. It creates one centralized skills directory (`~/EasySkills`), registers
-a background file watcher, and maps your custom skill folders — via native
-symlinks (macOS/Linux) or directory junctions (Windows) — into every installed
-agent's skills directory.
+EasySkills is a cross-platform automated skills and rules manager for macOS, Linux, and Windows. It establishes a centralized folder (`~/EasySkills`) and synchronizes capabilities through two distinct delivery channels:
+- **Channel 01 / Skills (Symlinks)**: Dynamically maps top-level folders inside `~/EasySkills` into every installed agent's skills directory using native symlinks (macOS/Linux) or directory junctions (Windows).
+- **Channel 02 / Agent Rules (Managed Blocks)**: Compiles all Markdown files from `~/EasySkills/instructions/` and injects them as a single concatenated prompt rule block (enclosed in `<!-- EasySkills:begin/end -->` comments) into agent global instruction files (e.g. `CLAUDE.md`, `AGENTS.md`).
 
-This document is operational reference material for the installed system. It is
-**not** an agent skill and is not mapped into any agent's skills directory;
-EasySkills installs as a standalone tool (CLI + local WebUI), not as a skill.
+This document is operational reference material for the installed system. It is **not** an agent skill and is not mapped into any agent's skills directory.
 
-> 🌐 **WebUI Dashboard:** EasySkills ships with a visual manager running locally
-> on port **6633** — [http://127.0.0.1:6633](http://127.0.0.1:6633). Import/delete
-> skills, connect/disconnect agents, register custom paths, sync, prune broken
-> links, and check for updates, all from one page.
+> 🌐 **WebUI Dashboard:** EasySkills ships with a visual manager running locally on port **6633** — [http://127.0.0.1:6633](http://127.0.0.1:6633). Import/delete skills, manage modular Agent rules, check connected agent status, edit custom instruction file paths, synchronize manually, prune invalid links, and trigger updates.
 
 ---
 
@@ -32,18 +25,13 @@ curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install
 irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
 ```
 
-**Double-click install:** clone or download the repo, then double-click
-`install_mac.command` (macOS) or `install_windows.bat` (Windows).
+**Double-click install:** clone or download the repo, then double-click `install_mac.command` (macOS) or `install_windows.bat` (Windows).
 
-The installer creates `~/EasySkills`, detects supported agents, maps shared
-skills, starts the background watcher, and launches the WebUI. User config
-(`custom-targets.txt`, `disabled-targets.txt`) and the WebUI token are preserved
-across upgrades.
+The installer creates `~/EasySkills`, detects supported agents, maps shared skills, compiles rules, starts the background watcher, and launches the WebUI. User config (`custom-targets.txt`, rule state, tokens) is preserved across upgrades.
 
 ### Windows Defender note
 
-If Windows Defender flags `~/EasySkills`, add an exclusion (a standard UAC prompt
-appears — click "Yes"):
+If Windows Defender flags `~/EasySkills`, add an exclusion (a standard UAC prompt appears — click "Yes"):
 
 ```powershell
 Start-Process powershell -Verb RunAs -Wait -ArgumentList "-NoProfile -Command `"Add-MpPreference -ExclusionPath '$env:USERPROFILE\EasySkills'; Write-Host 'Windows Defender exclusion added successfully.'; Start-Sleep -Seconds 2`""
@@ -55,34 +43,46 @@ You can also add the exclusion manually later via Windows Security settings.
 
 ## Operating the installed system
 
-`watch.sh` / `watch.ps1` internally run the initial sync and then register the
-background watcher — running the watch script alone handles everything. Run the
-commands below from the `~/EasySkills` root directory.
+### 1. Opening the WebUI & Starting Services
+EasySkills installs a background file watcher daemon (`launchd` on macOS, `systemd` on Linux, Task Scheduler on Windows) and a WebUI daemon on port 6633.
 
-### macOS / Linux
+#### Double-click Launchers (Simplest)
+Navigate to `~/EasySkills/_maintenance` and double-click:
+- **macOS**: `macOS/Start — 启动.command`
+- **Windows**: `Windows/Start — 启动.vbs`
 
+#### Terminal Commands
+Run these from the `~/EasySkills` root directory:
+**macOS / Linux:**
 ```bash
-bash ./_maintenance/watch.sh                       # install watcher + initial sync
-bash ./_maintenance/watch.sh "/path/to/agent/skills"  # also map a custom path
-bash ./_maintenance/deploy.sh --status             # health check
-bash ./_maintenance/deploy.sh --webui              # open the WebUI manager
+bash ./_maintenance/deploy.sh --webui              # Launch WebUI
+bash ./_maintenance/deploy.sh --watch              # Enable watcher
 ```
-
-### Windows
-
+**Windows (PowerShell):**
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\_maintenance\watch.ps1
-powershell -ExecutionPolicy Bypass -File .\_maintenance\watch.ps1 -CustomPath "C:\path\to\agent\skills"
-powershell -ExecutionPolicy Bypass -File .\_maintenance\deploy.ps1 -Status
 powershell -ExecutionPolicy Bypass -File .\_maintenance\deploy.ps1 -WebUI
+powershell -ExecutionPolicy Bypass -File .\_maintenance\deploy.ps1 -Watch
 ```
 
-### Adding custom agent paths
+### 2. Stopping & Restarting
+If you only close the browser tab, the background watcher keeps running. To restart or fully stop the service:
 
-If an agent lives in a non-standard location, register its skills folder via the
-WebUI **Agents** tab, or with `deploy.sh --add` / `deploy.ps1 -Add`. Custom paths
-persist in `_maintenance/custom-targets.txt`. The agent target list itself is
-defined in `_maintenance/agents.json` (the single source of truth).
+**macOS / Linux:**
+```bash
+# Stop watcher
+bash ./_maintenance/deploy.sh --unwatch
+# Stop WebUI service
+launchctl remove com.easyskills.webui 2>/dev/null || true
+pkill -f '[E]asySkills/_maintenance/webui.py' 2>/dev/null || true
+```
+**Windows (PowerShell):**
+```powershell
+# Stop watcher & WebUI task
+powershell -ExecutionPolicy Bypass -File .\_maintenance\deploy.ps1 -Unwatch
+```
+
+### 3. Adding custom agent paths
+If an agent lives in a non-standard location, configure its folders via the WebUI **Agent Config** tab, or with `deploy.sh --add <path>` / `deploy.ps1 -Add <path>`. Custom paths persist in `_maintenance/custom-targets.txt`. The default agent list itself is defined in `_maintenance/agents.json` (the single source of truth).
 
 ---
 

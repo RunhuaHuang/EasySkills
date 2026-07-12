@@ -448,7 +448,7 @@ run_sync() {
   for _entry in "$CENTRAL_DIR"/*; do
     [ -L "$_entry" ] || continue
     _e_name=$(basename "$_entry")
-    [[ "$_e_name" == node_modules || "$_e_name" == .git || "$_e_name" == dist || "$_e_name" == docs || "$_e_name" == _* ]] && continue
+    [[ "$_e_name" == node_modules || "$_e_name" == .git || "$_e_name" == dist || "$_e_name" == docs || "$_e_name" == instructions || "$_e_name" == _* ]] && continue
     if [ ! -e "$_entry" ]; then
       unlink "$_entry"
       dangling_removed=$((dangling_removed + 1))
@@ -467,7 +467,7 @@ run_sync() {
     [ -d "$skill_dir" ] || continue
     skill_name=$(basename "$skill_dir")
 
-    [[ "$skill_name" == "node_modules" || "$skill_name" == ".git" || "$skill_name" == "dist" || "$skill_name" == "docs" || "$skill_name" == "." || "$skill_name" == ".." || "$skill_name" == _* ]] && continue
+    [[ "$skill_name" == "node_modules" || "$skill_name" == ".git" || "$skill_name" == "dist" || "$skill_name" == "docs" || "$skill_name" == "instructions" || "$skill_name" == "." || "$skill_name" == ".." || "$skill_name" == _* ]] && continue
 
     echo "   Found skill: $skill_name"
 
@@ -498,6 +498,12 @@ run_sync() {
       injection_tracked "$target" || SUCCESSFUL_INJECTIONS+=("$target")
     done
   done
+
+  # PART C: Compile and synchronize Agent Rules
+  if command -v python3 >/dev/null 2>&1; then
+    echo "   Syncing Agent rules..."
+    python3 "$SCRIPT_DIR/webui.py" --sync-rules
+  fi
 
   echo "=========================================================="
   echo "EasySkills Sync completed successfully!"
@@ -651,7 +657,10 @@ run_status() {
       watcher_pid=""
     fi
   fi
-  if [ -n "$watcher_pid" ]; then
+  # launchctl prints "-" in the PID column when a job is loaded but not
+  # currently running; treat that as not-running (matches get_watcher_status
+  # in webui.py). Otherwise we'd falsely report "✅ Running (PID -)".
+  if [ -n "$watcher_pid" ] && [ "$watcher_pid" != "-" ]; then
     echo "   Watcher: ✅ Running (PID $watcher_pid)"
     watcher_running=true
   else
@@ -688,7 +697,7 @@ run_status() {
     for _entry in "$CENTRAL_DIR"/*; do
       [ -L "$_entry" ] || continue
       _e_name=$(basename "$_entry")
-      [[ "$_e_name" == node_modules || "$_e_name" == .git || "$_e_name" == dist || "$_e_name" == docs || "$_e_name" == _* ]] && continue
+      [[ "$_e_name" == node_modules || "$_e_name" == .git || "$_e_name" == dist || "$_e_name" == docs || "$_e_name" == instructions || "$_e_name" == _* ]] && continue
       if [ ! -e "$_entry" ]; then
         dangling_count=$((dangling_count + 1))
       else
@@ -763,22 +772,38 @@ PY
   }
 
   own_webui_pid() {
-    pgrep -f "$SCRIPT_DIR/webui.py" 2>/dev/null | head -1
+    local pid comm base
+    # Anchor on the webui.py path, then confirm the executable is a Python
+    # interpreter. A bare pgrep -f match would also hit editors/greps/language
+    # servers that have the path on their command line, and stop_own_webui would
+    # then kill them (losing unsaved work).
+    for pid in $(pgrep -f "$SCRIPT_DIR/webui.py" 2>/dev/null || true); do
+      comm=$(ps -p "$pid" -o comm= 2>/dev/null || true)
+      base="${comm##*/}"
+      case "$base" in python|python[0-9]*) echo "$pid"; return 0;; esac
+    done
+    return 1
   }
 
   stop_own_webui() {
-    local pid
+    local pid comm base
     if command -v lsof &>/dev/null; then
       for pid in $(lsof -tiTCP:6633 -sTCP:LISTEN 2>/dev/null); do
         local cmdline
         cmdline=$(ps -p "$pid" -o command= 2>/dev/null || true)
+        comm=$(ps -p "$pid" -o comm= 2>/dev/null || true)
+        base="${comm##*/}"
+        # Require BOTH the webui.py path AND a python interpreter so we never
+        # kill an editor/grep that merely references the file.
         if [[ "$cmdline" == *"$SCRIPT_DIR/webui.py"* ]]; then
-          kill "$pid" 2>/dev/null || true
+          case "$base" in python|python[0-9]*) kill "$pid" 2>/dev/null || true;; esac
         fi
       done
     fi
     for pid in $(pgrep -f "$SCRIPT_DIR/webui.py" 2>/dev/null || true); do
-      kill "$pid" 2>/dev/null || true
+      comm=$(ps -p "$pid" -o comm= 2>/dev/null || true)
+      base="${comm##*/}"
+      case "$base" in python|python[0-9]*) kill "$pid" 2>/dev/null || true;; esac
     done
     for _ in 1 2 3 4 5 6 7 8 9 10; do
       [ -z "$(own_webui_pid)" ] && ! port_ready && break

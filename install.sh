@@ -41,25 +41,25 @@ fi
 
 # Preserve user custom-targets.txt before wiping _maintenance/
 CUSTOM_BACKUP=""
+# Preserve the user's custom agent paths VERBATIM (cp, not cat/echo) so paths
+# containing backslashes (Windows-style), glob chars (* ? [), or a leading '-'
+# survive the round-trip unchanged. cat-into-a-var + echo-out mangles such
+# paths and would silently break skill sync to those targets.
 CUSTOM_FILE="$PERM_DIR/_maintenance/custom-targets.txt"
-if [ -f "$CUSTOM_FILE" ]; then
-  CUSTOM_BACKUP=$(cat "$CUSTOM_FILE")
-fi
-# Preserve other per-machine runtime files (unmapped targets + WebUI token)
 DISABLED_FILE="$PERM_DIR/_maintenance/disabled-targets.txt"
 TOKEN_FILE="$PERM_DIR/_maintenance/.easyskills-token"
 PRESERVE_DIR="$TMP_DIR/preserve"
 mkdir -p "$PRESERVE_DIR"
+[ -f "$CUSTOM_FILE" ] && cp "$CUSTOM_FILE" "$PRESERVE_DIR/custom-targets.txt"
 [ -f "$DISABLED_FILE" ] && cp "$DISABLED_FILE" "$PRESERVE_DIR/disabled-targets.txt"
 [ -f "$TOKEN_FILE" ] && cp "$TOKEN_FILE" "$PRESERVE_DIR/.easyskills-token"
-# Also migrate from legacy root location (older installs)
+# Also migrate from legacy root location (older installs). Capture non-comment
+# lines into a separate file so the verbatim copy above is not disturbed.
 LEGACY_ROOT_CT="$PERM_DIR/custom-targets.txt"
+LEGACY_MERGE="$PRESERVE_DIR/custom-targets.legacy.txt"
+: > "$LEGACY_MERGE"
 if [ -f "$LEGACY_ROOT_CT" ]; then
-  LEGACY_LINES=$(grep -v -E '^\s*(#|$)' "$LEGACY_ROOT_CT" 2>/dev/null || true)
-  if [ -n "$LEGACY_LINES" ]; then
-    CUSTOM_BACKUP="$CUSTOM_BACKUP
-$LEGACY_LINES"
-  fi
+  grep -v -E '^\s*(#|$)' "$LEGACY_ROOT_CT" > "$LEGACY_MERGE" 2>/dev/null || : > "$LEGACY_MERGE"
   rm -f "$LEGACY_ROOT_CT"
 fi
 
@@ -116,9 +116,29 @@ cp "$SRC_DIR/README_SYSTEM.md" "$PERM_DIR/README_SYSTEM.md"
 # Remove legacy SKILL.md left by older installations to avoid ambiguity
 rm -f "$PERM_DIR/SKILL.md"
 
-# Restore user custom-targets.txt
-if [ -n "$CUSTOM_BACKUP" ]; then
-  echo "$CUSTOM_BACKUP" > "$CUSTOM_FILE"
+# Restore user custom-targets.txt verbatim. Append any non-comment lines from
+# the legacy root location (deduped against the verbatim copy) so nothing is
+# lost, without round-tripping through a shell variable that mangles special
+# path characters.
+mkdir -p "$PERM_DIR/_maintenance"
+if [ -f "$PRESERVE_DIR/custom-targets.txt" ]; then
+  cp "$PRESERVE_DIR/custom-targets.txt" "$CUSTOM_FILE"
+else
+  rm -f "$CUSTOM_FILE"
+fi
+if [ -s "$LEGACY_MERGE" ]; then
+  # Append legacy non-comment lines that are not already present (normalize for
+  # comparison only; write the original line verbatim).
+  while IFS= read -r _line; do
+    [ -z "$_line" ] && continue
+    case "$_line" in \#*) continue;; esac
+    if [ -f "$CUSTOM_FILE" ]; then
+      grep -Fxq -- "$_line" "$CUSTOM_FILE" 2>/dev/null && continue
+      printf '%s\n' "$_line" >> "$CUSTOM_FILE"
+    else
+      printf '%s\n' "$_line" >> "$CUSTOM_FILE"
+    fi
+  done < "$LEGACY_MERGE"
 fi
 # Restore other preserved runtime files
 if [ -f "$PRESERVE_DIR/disabled-targets.txt" ]; then

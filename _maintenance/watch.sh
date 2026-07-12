@@ -43,12 +43,13 @@ if [ "$OS" = "Darwin" ]; then
     python3 - "$PLIST_PATH" "$LABEL" "$SCRIPT_DIR/deploy.sh" "$CENTRAL_DIR" "$PROMA_INTERVAL" "$@" <<'PY'
 import plistlib
 import sys
+import os
 
 plist_path, label, deploy_script, central_dir, proma_interval, *args = sys.argv[1:]
 plist = {
     "Label": label,
     "ProgramArguments": [deploy_script, *args],
-    "WatchPaths": [central_dir],
+    "WatchPaths": [central_dir, os.path.join(central_dir, "instructions")],
     "RunAtLoad": True,
 }
 if int(proma_interval):
@@ -69,6 +70,7 @@ PY
     done
     /usr/libexec/PlistBuddy -c "Add :WatchPaths array" "$PLIST_PATH"
     /usr/libexec/PlistBuddy -c "Add :WatchPaths:0 string $CENTRAL_DIR" "$PLIST_PATH"
+    /usr/libexec/PlistBuddy -c "Add :WatchPaths:1 string $CENTRAL_DIR/instructions" "$PLIST_PATH"
     /usr/libexec/PlistBuddy -c "Add :RunAtLoad bool true" "$PLIST_PATH"
     if [ "$PROMA_INTERVAL" -gt 0 ]; then
       /usr/libexec/PlistBuddy -c "Add :StartInterval integer $PROMA_INTERVAL" "$PLIST_PATH"
@@ -124,6 +126,7 @@ Description=EasySkills Watcher path trigger — monitors ~/EasySkills for change
 
 [Path]
 PathModified=$CENTRAL_DIR
+PathModified=$CENTRAL_DIR/instructions
 
 [Install]
 WantedBy=default.target

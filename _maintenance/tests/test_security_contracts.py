@@ -160,14 +160,14 @@ class SecurityContractsTest(unittest.TestCase):
         html_src = read("_maintenance/webui/index.html")
 
         self.assertIn("agent-register-note", html_src)
-        self.assertIn("t-agent-register-title", html_src)
-        self.assertIn("t-agent-register-desc", html_src)
+        self.assertIn("t-agent-config-title", html_src)
+        self.assertIn("t-agent-config-desc", html_src)
         self.assertIn("skills folder", html_src)
 
         self.assertIn("WebUI Quick Start", html_src)
         self.assertIn("WebUI Control Map", html_src)
         self.assertIn("Managing skills in the WebUI", html_src)
-        self.assertIn("Connecting agents in the WebUI", html_src)
+        self.assertIn("Connecting Agents and maintaining paths", html_src)
         self.assertIn("Advanced CLI fallback", html_src)
         self.assertIn("bash ~/EasySkills/_maintenance/deploy.sh --sync", html_src)
         self.assertIn('powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\\EasySkills\\_maintenance\\deploy.ps1" -Sync', html_src)
@@ -177,18 +177,19 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertNotIn("Agent Chat Commands</span>", html_src)
         self.assertNotIn("\\\\'", html_src)
 
-    def test_dashboard_explains_central_skill_library_drop_target(self):
+    def test_dashboard_exposes_dual_channel_control_plane(self):
         html_src = read("_maintenance/webui/index.html")
 
-        self.assertIn("central-directory-panel", html_src)
-        self.assertIn("central-directory-title", html_src)
-        self.assertIn("t-central-dir-eyebrow", html_src)
-        self.assertIn("Drop skills into the central skills folder", html_src)
-        self.assertIn("EasySkills will sync them to every linked agent", html_src)
-        self.assertIn("本机中央技能库目录", html_src)
-        self.assertIn("将Skills拖入中央技能文件夹", html_src)
-        self.assertIn("'t-central-dir-copy': ''", html_src)
-        self.assertIn(".central-directory-copy:empty", html_src)
+        self.assertIn("dashboard-control-plane", html_src)
+        self.assertIn("dashboard-channel-grid", html_src)
+        self.assertIn("t-dashboard-skills-channel", html_src)
+        self.assertIn("t-dashboard-rules-channel", html_src)
+        self.assertIn("dashboard-agent-infrastructure", html_src)
+        self.assertIn("One library, two synchronization channels", html_src)
+        self.assertIn("一个中央库、两条同步通道", html_src)
+        self.assertIn('id="dashboard-skill-progress-fill"', html_src)
+        self.assertIn('id="dashboard-rule-progress-fill"', html_src)
+        self.assertIn('id="stat-agent-paths"', html_src)
         dashboard_markup = html_src.split('<section id="dashboard"', 1)[1].split('<section id="skills"', 1)[0]
         self.assertNotIn("terminal-dots", dashboard_markup)
 
@@ -211,7 +212,7 @@ class SecurityContractsTest(unittest.TestCase):
         html_src = read("_maintenance/webui/index.html")
 
         self.assertIn("'t-skills': 'Skills'", html_src)
-        self.assertIn("'t-agents': 'Agents'", html_src)
+        self.assertIn("'t-agents': 'Agent Config'", html_src)
         self.assertIn("'t-mapped-agents': 'Linked Agents'", html_src)
         self.assertIn("'t-central-dir': 'Central Skill Library'", html_src)
         self.assertIn("'t-map': 'Link Agent'", html_src)
@@ -222,6 +223,42 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertNotIn("'t-agents': 'Bridges'", html_src)
         self.assertNotIn("'t-mapped-agents': 'Linked Bridges'", html_src)
         self.assertNotIn("connect bridge", html_src)
+
+    def test_skills_page_combines_library_and_agent_sync_targets(self):
+        html_src = read("_maintenance/webui/index.html")
+
+        skills_markup = html_src.split('<section id="skills"', 1)[1].split('<section id="agents"', 1)[0]
+        self.assertIn('id="skills-grid"', skills_markup)
+        self.assertIn('id="skills-agents-grid"', skills_markup)
+        self.assertLess(skills_markup.index('id="skills-grid"'), skills_markup.index('id="skills-agents-grid"'))
+        self.assertIn("t-skill-sync-context", skills_markup)
+        self.assertIn("function renderSkillAgents", html_src)
+        self.assertIn("renderSkillAgents(agents, skills)", html_src)
+        self.assertIn("Promise.all([", html_src)
+        self.assertIn("apiCall('/api/skills')", html_src)
+        self.assertIn("apiCall('/api/agents')", html_src)
+        self.assertIn("data-skill-agent-action=\"map\"", html_src)
+        self.assertIn("data-skill-agent-action=\"unmap\"", html_src)
+        self.assertIn("'/api/agents/map'", html_src)
+        self.assertIn("'/api/agents/unmap'", html_src)
+
+        agents_markup = html_src.split('<section id="agents"', 1)[1].split('<section id="instructions"', 1)[0]
+        self.assertIn("t-agent-config-title", agents_markup)
+        self.assertIn("t-agent-config-list", agents_markup)
+        self.assertIn("addCustomAgent", agents_markup)
+        self.assertIn('id="custom-agent-skills-path"', agents_markup)
+        self.assertIn('id="custom-agent-instructions-path"', agents_markup)
+
+        render_agents = html_src.split("function renderAgents(agents)", 1)[1].split("// ==================== Instructions / Rules", 1)[0]
+        self.assertNotIn('data-agent-action="map"', render_agents)
+        self.assertNotIn('data-agent-action="unmap"', render_agents)
+        self.assertIn('data-agent-action="edit"', render_agents)
+
+        nav_markup = html_src.split('<div class="nav-container">', 1)[1].split('<div class="sidebar-footer">', 1)[0]
+        self.assertLess(nav_markup.index('data-target="instructions"'), nav_markup.index('data-target="agents"'))
+        self.assertIn('id="modal-skills-path-input"', html_src)
+        self.assertIn('id="modal-instructions-path-input"', html_src)
+        self.assertIn("instructions_path: instructionsPath", html_src)
 
     def test_readmes_are_webui_first_and_use_current_terms(self):
         readme_cn = read("README.md")
@@ -553,9 +590,9 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("Start-ScheduledTask -TaskName \"EasySkills Watcher\"", ps_src)
         self.assertIn("Disable-ScheduledTask -TaskName \"EasySkills Watcher\"", ps_src)
         self.assertIn("function Quote-ProcessArgument", ps_src)
-        self.assertIn('Run-DeployCommand @("-Add", $BodyData["path"])', ps_src)
-        self.assertIn('Run-DeployCommand @("-Remove", $BodyData["path"])', ps_src)
-        self.assertNotIn('Run-DeployCommand @("-Add", "`"$($BodyData["path"])`"")', ps_src)
+        self.assertIn("Register-CustomAgent", ps_src)
+        self.assertIn('$BodyData["instructions_path"]', ps_src)
+        self.assertIn("Remove-CustomAgent", ps_src)
 
         # Legacy deploy/unwatch -KeepWebUI flag still wired up for the
         # fallback path and for the uninstaller.
@@ -568,6 +605,15 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("refreshEasySkillsToken", src)
         self.assertIn("res.status === 403", src)
         self.assertIn("retryOnForbidden", src)
+        agent_update = src.split("async function saveCustomModalEdit()", 1)[1].split(
+            "// --- Custom Agent Registration ---", 1
+        )[0]
+        self.assertIn("res.status === 403 && await refreshEasySkillsToken()", agent_update)
+
+    def test_all_inline_ui_helpers_are_defined(self):
+        src = read("_maintenance/webui/index.html")
+        self.assertIn('onclick="copyWebUiUrl()"', src)
+        self.assertIn("function copyWebUiUrl()", src)
 
     def test_macos_webui_launches_through_launchctl_with_loopback_url(self):
         for rel in ("_maintenance/deploy.sh", "_maintenance/macOS/Start — 启动.command"):
@@ -1017,12 +1063,259 @@ class SecurityContractsTest(unittest.TestCase):
         """
         py_src = read("_maintenance/webui.py")
         ps_src = read("_maintenance/webui.ps1")
-        # Python: both old_path and new_path go through expanduser().resolve().
-        self.assertIn("old_path = str(Path(old_path).expanduser().resolve())", py_src)
-        self.assertIn("new_path = str(Path(new_path).expanduser().resolve())", py_src)
-        # PowerShell: both OldPath and NewPath go through GetFullPath.
-        self.assertIn("$OldPath = [System.IO.Path]::GetFullPath($OldPath)", ps_src)
-        self.assertIn("$NewPath = [System.IO.Path]::GetFullPath($NewPath)", ps_src)
+        self.assertIn("old_path = _normalize_local_path(old_skills_path)", py_src)
+        self.assertIn("new_path = _normalize_local_path(skills_path)", py_src)
+        self.assertIn("$OldPath = Normalize-AgentPath $OldSkillsPath", ps_src)
+        self.assertIn("$NewPath = Normalize-AgentPath $SkillsPath", ps_src)
+        self.assertIn("line_path_normalized = _normalize_local_path(line_path)", py_src)
+        self.assertIn("$LinePathNormalized = Normalize-AgentPath $LinePath", ps_src)
+
+    def test_custom_agent_path_update_replaces_normalized_old_entry_without_duplicates(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_skills = root / "agent" / "skills"
+            dotted_old = root / "agent" / ".." / "agent" / "skills"
+            new_skills = root / "moved" / "skills"
+            instructions = root / "agent" / "AGENTS.md"
+            custom_targets = root / "custom-targets.txt"
+            agent_paths = root / ".agent-paths.json"
+            custom_targets.write_text(f"{dotted_old}\n", encoding="utf-8")
+
+            current = {
+                "name": "Custom Agent",
+                "path": str(old_skills),
+                "instructions_path": str(instructions),
+                "mapped": False,
+            }
+            with mock.patch.object(webui, "CUSTOM_TARGETS_FILE", custom_targets), \
+                 mock.patch.object(webui, "AGENT_PATH_CONFIG_FILE", agent_paths), \
+                 mock.patch.object(webui, "get_visible_agents", return_value=[current]), \
+                 mock.patch.object(webui, "_remove_from_disabled_targets"), \
+                 mock.patch.object(webui, "_add_to_disabled_targets"):
+                result = webui.update_agent_paths(
+                    "Custom Agent",
+                    str(old_skills),
+                    str(new_skills),
+                    str(instructions),
+                )
+
+            self.assertTrue(result["success"])
+            active_lines = [
+                line for line in custom_targets.read_text(encoding="utf-8").splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            ]
+            self.assertEqual(active_lines, [f"Custom Agent={new_skills.resolve()}"])
+
+    def test_moving_a_mapped_agent_cleans_old_skill_links_after_new_map_succeeds(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_skills = root / "old" / "skills"
+            new_skills = root / "new" / "skills"
+            alternate_skills = root / "alternate" / "skills"
+            instructions = root / "AGENTS.md"
+            custom_targets = root / "custom-targets.txt"
+            agent_paths = root / ".agent-paths.json"
+            custom_targets.write_text(
+                f"Test Agent={old_skills}\nTest Agent={alternate_skills}\n",
+                encoding="utf-8",
+            )
+            current = {
+                "name": "Test Agent",
+                "path": str(old_skills),
+                "instructions_path": str(instructions),
+                "mapped": True,
+            }
+            with mock.patch.object(webui, "CUSTOM_TARGETS_FILE", custom_targets), \
+                 mock.patch.object(webui, "AGENT_PATH_CONFIG_FILE", agent_paths), \
+                 mock.patch.object(webui, "get_visible_agents", return_value=[current]), \
+                 mock.patch.object(webui, "do_map", return_value={"success": True}) as do_map, \
+                 mock.patch.object(webui, "do_unmap", return_value={"success": True}) as do_unmap, \
+                 mock.patch.object(webui, "_remove_from_disabled_targets"), \
+                 mock.patch.object(webui, "_add_to_disabled_targets"):
+                result = webui.update_agent_paths(
+                    "Test Agent",
+                    str(old_skills),
+                    str(new_skills),
+                    str(instructions),
+                )
+
+            self.assertTrue(result["success"])
+            do_map.assert_called_once_with(str(new_skills.resolve()))
+            do_unmap.assert_called_once_with(str(old_skills.resolve()))
+            self.assertIn(
+                f"Test Agent={alternate_skills}",
+                custom_targets.read_text(encoding="utf-8"),
+            )
+
+        ps_src = read("_maintenance/webui.ps1")
+        self.assertIn("$MapResult = Do-Map $NewPath", ps_src)
+        self.assertIn("$CleanupResult = Do-Unmap $OldPath", ps_src)
+
+    def test_editing_only_instruction_path_does_not_remap_skills(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skills = root / "agent" / "skills"
+            old_instructions = root / "agent" / "AGENTS.md"
+            new_instructions = root / "agent" / "CUSTOM.md"
+            custom_targets = root / "custom-targets.txt"
+            agent_paths = root / ".agent-paths.json"
+            current = {
+                "name": "Test Agent",
+                "path": str(skills),
+                "instructions_path": str(old_instructions),
+                "mapped": True,
+            }
+            with mock.patch.object(webui, "CUSTOM_TARGETS_FILE", custom_targets), \
+                 mock.patch.object(webui, "AGENT_PATH_CONFIG_FILE", agent_paths), \
+                 mock.patch.object(webui, "get_visible_agents", return_value=[current]), \
+                 mock.patch.object(webui, "do_map") as do_map, \
+                 mock.patch.object(webui, "do_unmap") as do_unmap, \
+                 mock.patch.object(webui, "_remove_from_disabled_targets"), \
+                 mock.patch.object(webui, "_add_to_disabled_targets"):
+                result = webui.update_agent_paths(
+                    "Test Agent",
+                    str(skills),
+                    str(skills),
+                    str(new_instructions),
+                )
+
+            self.assertTrue(result["success"])
+            do_map.assert_not_called()
+            do_unmap.assert_not_called()
+
+    def test_agent_config_overrides_both_skills_and_instruction_paths(self):
+        webui = load_python_webui_module()
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        self.assertIn("AGENT_PATH_CONFIG_FILE", py_src)
+        self.assertIn("$AgentPathConfigFile", ps_src)
+        self.assertIn("function Update-AgentPaths", ps_src)
+        self.assertIn("instructions_path", py_src)
+        self.assertIn("instructions_path", ps_src)
+        self.assertIn("/.easyskills-agent-paths.json", read(".gitignore"))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_skills = root / "old-skills"
+            new_skills = root / "new-skills"
+            instructions = root / "config" / "AGENTS.md"
+            custom_targets = root / "custom-targets.txt"
+            agent_paths = root / ".agent-paths.json"
+
+            with mock.patch.object(webui, "CUSTOM_TARGETS_FILE", custom_targets), \
+                 mock.patch.object(webui, "AGENT_PATH_CONFIG_FILE", agent_paths), \
+                 mock.patch.object(webui, "do_map", return_value={"success": True}), \
+                 mock.patch.object(webui, "_remove_from_disabled_targets"), \
+                 mock.patch.object(webui, "_add_to_disabled_targets"):
+                result = webui.update_agent_paths(
+                    "Test Agent",
+                    str(old_skills),
+                    str(new_skills),
+                    str(instructions),
+                )
+
+            self.assertTrue(result["success"])
+            self.assertIn(f"Test Agent={new_skills.resolve()}", custom_targets.read_text(encoding="utf-8"))
+            saved = json.loads(agent_paths.read_text(encoding="utf-8"))
+            self.assertEqual(saved["agents"][0]["skills_path"], str(new_skills.resolve()))
+            self.assertEqual(saved["agents"][0]["instructions_path"], str(instructions.resolve()))
+
+    def test_custom_agent_registration_requires_and_persists_both_paths(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_file = root / ".agent-paths.json"
+            skills = root / "custom-agent" / "skills"
+            instructions = root / "custom-agent" / "AGENTS.md"
+            with mock.patch.object(webui, "AGENT_PATH_CONFIG_FILE", config_file), \
+                 mock.patch.object(webui, "run_deploy", return_value={"success": True, "message": "added"}):
+                missing = webui.register_custom_agent(str(skills), "")
+                result = webui.register_custom_agent(str(skills), str(instructions))
+
+            self.assertFalse(missing["success"])
+            self.assertTrue(result["success"])
+            saved = json.loads(config_file.read_text(encoding="utf-8"))
+            self.assertEqual(saved["agents"][0]["skills_path"], str(skills.resolve()))
+            self.assertEqual(saved["agents"][0]["instructions_path"], str(instructions.resolve()))
+
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        html_src = read("_maintenance/webui/index.html")
+        self.assertIn("def register_custom_agent", py_src)
+        self.assertIn("function Register-CustomAgent", ps_src)
+        self.assertIn("skills_path: skillsPath", html_src)
+        self.assertIn("instructions_path: instructionsPath", html_src)
+
+    def test_custom_agent_registration_failure_does_not_remove_preexisting_target(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skills = root / "custom-agent" / "skills"
+            instructions = root / "custom-agent" / "AGENTS.md"
+            deploy = mock.Mock(return_value={"success": True, "message": "already added"})
+            with mock.patch.object(webui, "get_custom_targets", return_value=[str(skills)]), \
+                 mock.patch.object(webui, "run_deploy", deploy), \
+                 mock.patch.object(webui, "_save_agent_path_configs", side_effect=OSError("disk full")):
+                result = webui.register_custom_agent(str(skills), str(instructions))
+
+            self.assertFalse(result["success"])
+            deploy.assert_called_once_with("--add", str(skills.resolve()))
+
+        ps_src = read("_maintenance/webui.ps1")
+        self.assertIn("$WasRegistered = $false", ps_src)
+        self.assertIn("if (-not $WasRegistered)", ps_src)
+
+    def test_instruction_targets_follow_agent_path_config(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skills = root / "skills"
+            rules_file = root / "custom" / "AGENTS.md"
+            config_file = root / ".agent-paths.json"
+            config_file.write_text(json.dumps({
+                "version": 1,
+                "agents": [{
+                    "name": "Test Agent",
+                    "skills_path": str(skills),
+                    "instructions_path": str(rules_file),
+                }],
+            }), encoding="utf-8")
+
+            with mock.patch.object(webui, "AGENT_PATH_CONFIG_FILE", config_file), \
+                 mock.patch.object(webui, "DEFAULT_AGENTS", [("Test Agent", skills)]), \
+                 mock.patch.object(webui, "DEFAULT_INSTRUCTION_PATHS", {"Test Agent": str(root / "default.md")}), \
+                 mock.patch.object(webui, "CUSTOM_TARGETS_FILE", root / "missing-targets.txt"), \
+                 mock.patch.object(webui, "DISABLED_TARGETS_FILE", root / "missing-disabled.txt"), \
+                 mock.patch.object(webui, "get_skills", return_value=[]):
+                agents = webui.get_visible_agents()
+                targets = webui._load_instruction_targets()
+
+            self.assertEqual(agents[0]["instructions_path"], str(rules_file.resolve()))
+            self.assertEqual(targets, [("Test Agent", rules_file.resolve())])
+
+    def test_instruction_status_does_not_report_a_directory_as_an_existing_file(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            target_directory = Path(tmp) / "AGENTS.md"
+            target_directory.mkdir()
+            with mock.patch.object(
+                webui,
+                "_load_instruction_targets",
+                return_value=[("Broken Agent", target_directory)],
+            ), mock.patch.object(
+                webui,
+                "_instruction_target_activity",
+                return_value={str(target_directory.resolve()): True},
+            ):
+                data = webui.get_instructions()
+
+            self.assertFalse(data["agents"][0]["exists"])
+
+        ps_src = read("_maintenance/webui.ps1")
+        self.assertIn("$Exists = (Test-Path $T.Path -PathType Leaf)", ps_src)
 
     def test_windows_process_termination_scoped_to_install_path(self):
         """install.ps1, unwatch.ps1, register-tasks.ps1 must scope process
@@ -1124,6 +1417,215 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("EasySkills:begin", ps_src)
         self.assertIn("EasySkills:end", ps_src)
 
+    def test_managed_rules_use_only_outer_markers_and_read_older_formats(self):
+        """Agent files contain only outer markers; rule identity lives in the
+        hidden state file while both older labelled formats remain readable.
+        """
+        webui = load_python_webui_module()
+        rules = {"rule-a.md": "123", "规则 b.md": "321"}
+
+        marker_free = webui._build_managed_block(rules)
+        self.assertEqual(marker_free.count("<!-- EasySkills:"), 2)
+        self.assertNotIn("EasySkills:rule", marker_free)
+
+        verbose = (
+            f"{webui.EASY_SKILLS_BEGIN}\n"
+            "<!-- EasySkills:rule:begin rule-a.md -->\n123\n"
+            "<!-- EasySkills:rule:end -->\n\n"
+            "<!-- EasySkills:rule:begin %E8%A7%84%E5%88%99%20b.md -->\n321\n"
+            "<!-- EasySkills:rule:end -->\n"
+            f"{webui.EASY_SKILLS_END}"
+        )
+        self.assertEqual(webui._managed_rules(verbose), (rules, ""))
+        migrated = webui._build_managed_block(*webui._managed_rules(verbose))
+        self.assertEqual(migrated.count("<!-- EasySkills:"), 2)
+
+        previous_compact = (
+            f"{webui.EASY_SKILLS_BEGIN}\n"
+            "<!-- EasySkills:rule rule-a.md -->\n123\n\n"
+            "<!-- EasySkills:rule %E8%A7%84%E5%88%99%20b.md -->\n321\n"
+            f"{webui.EASY_SKILLS_END}"
+        )
+        self.assertEqual(webui._managed_rules(previous_compact), (rules, ""))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "AGENTS.md"
+            state_file = Path(tmp) / ".state.json"
+            with mock.patch.object(webui, "INSTRUCTION_SYNC_STATE_FILE", state_file):
+                webui._set_instruction_state(target, rules)
+                self.assertEqual(webui._managed_rules(marker_free, target), (rules, ""))
+
+    def test_marker_free_managed_rules_preserve_unresolved_legacy_content_in_state(self):
+        webui = load_python_webui_module()
+        rules = {"rule-a.md": "123"}
+        block = webui._build_managed_block(rules, "unresolved text")
+        self.assertEqual(block.count("<!-- EasySkills:"), 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "AGENTS.md"
+            with mock.patch.object(webui, "INSTRUCTION_SYNC_STATE_FILE", Path(tmp) / ".state.json"):
+                webui._set_instruction_state(target, rules, "unresolved text")
+                self.assertEqual(
+                    webui._managed_rules(block, target),
+                    (rules, "unresolved text"),
+                )
+
+    def test_labelled_managed_block_migrates_to_two_outer_markers_on_write(self):
+        webui = load_python_webui_module()
+        old_block = (
+            f"{webui.EASY_SKILLS_BEGIN}\n"
+            "<!-- EasySkills:rule:begin old.md -->\nold content\n"
+            "<!-- EasySkills:rule:end -->\n"
+            f"{webui.EASY_SKILLS_END}\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "AGENTS.md"
+            target.write_text(old_block, encoding="utf-8")
+            with mock.patch.object(webui, "INSTRUCTION_SYNC_STATE_FILE", Path(tmp) / ".state.json"):
+                self.assertTrue(webui._write_to_one(target, {"new.md": "new content"}))
+                migrated = target.read_text(encoding="utf-8")
+                self.assertEqual(migrated.count("<!-- EasySkills:"), 2)
+                self.assertNotIn("EasySkills:rule", migrated)
+                self.assertEqual(
+                    webui._managed_rules(migrated, target)[0],
+                    {"old.md": "old content", "new.md": "new content"},
+                )
+
+    def test_marker_free_state_hash_prevents_using_stale_rule_metadata(self):
+        webui = load_python_webui_module()
+        rules = {"rule.md": "managed"}
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "AGENTS.md"
+            state_file = Path(tmp) / ".state.json"
+            with mock.patch.object(webui, "INSTRUCTION_SYNC_STATE_FILE", state_file):
+                webui._set_instruction_state(target, rules)
+                edited = webui._build_managed_block(rules).replace("managed", "manually edited")
+                parsed_rules, legacy = webui._managed_rules(edited, target)
+                self.assertEqual(parsed_rules, {})
+                self.assertIn("manually edited", legacy)
+                target.write_text(edited, encoding="utf-8")
+                self.assertFalse(webui._write_to_one(target, {"other.md": "other"}))
+                self.assertEqual(target.read_text(encoding="utf-8"), edited)
+
+    def test_instruction_single_target_apis_reject_unknown_paths(self):
+        webui = load_python_webui_module()
+        with mock.patch.object(webui, "_load_instruction_targets", return_value=[]):
+            self.assertFalse(webui.write_instructions_to_one("/tmp/not-an-agent.md")["success"])
+            self.assertFalse(webui.remove_instructions_from_one("/tmp/not-an-agent.md")["success"])
+
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        self.assertIn("def _known_instruction_target", py_src)
+        self.assertIn("function Resolve-KnownInstructionTarget", ps_src)
+
+    def test_instruction_selection_rejects_scalar_payloads(self):
+        webui = load_python_webui_module()
+        result = webui.write_selected_instructions("rule-a.md", "/tmp/AGENTS.md")
+        self.assertFalse(result["success"])
+        result = webui.remove_selected_instructions("rule-a.md", "/tmp/AGENTS.md")
+        self.assertFalse(result["success"])
+
+    def test_instruction_selection_rejects_invalid_agent_paths_without_crashing(self):
+        webui = load_python_webui_module()
+        with mock.patch.object(webui, "_rule_library", return_value=({"rule-a.md": "content"}, None)), \
+             mock.patch.object(webui, "_load_instruction_targets", return_value=[("Agent", Path("/tmp/AGENTS.md"))]):
+            write_result = webui.write_selected_instructions(
+                ["rule-a.md"],
+                ["invalid\x00path"],
+            )
+            remove_result = webui.remove_selected_instructions(
+                ["rule-a.md"],
+                ["invalid\x00path"],
+            )
+        self.assertFalse(write_result["success"])
+        self.assertFalse(remove_result["success"])
+
+    def test_selected_rule_sync_changes_only_selected_rules_and_agents(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rules_dir = root / "instructions"
+            rules_dir.mkdir()
+            (rules_dir / "rule-a.md").write_text("AAA", encoding="utf-8")
+            (rules_dir / "rule-b.md").write_text("BBB", encoding="utf-8")
+            (rules_dir / "rule-c.md").write_text("CCC", encoding="utf-8")
+            first = root / "first" / "AGENTS.md"
+            second = root / "second" / "AGENTS.md"
+            state_file = root / ".instruction-state.json"
+            targets = [("First", first), ("Second", second)]
+
+            with mock.patch.object(webui, "INSTRUCTIONS_DIR", rules_dir), \
+                 mock.patch.object(webui, "INSTRUCTION_SYNC_STATE_FILE", state_file), \
+                 mock.patch.object(webui, "_load_instruction_targets", return_value=targets):
+                write_result = webui.write_selected_instructions(
+                    ["rule-a.md", "rule-c.md"],
+                    [str(first)],
+                )
+                self.assertTrue(write_result["success"])
+                self.assertTrue(first.exists())
+                self.assertFalse(second.exists())
+                first_text = first.read_text(encoding="utf-8")
+                self.assertIn("AAA", first_text)
+                self.assertIn("CCC", first_text)
+                self.assertNotIn("BBB", first_text)
+
+                remove_result = webui.remove_selected_instructions(
+                    ["rule-a.md"],
+                    [str(first)],
+                )
+                self.assertTrue(remove_result["success"])
+                first_text = first.read_text(encoding="utf-8")
+                self.assertNotIn("AAA", first_text)
+                self.assertIn("CCC", first_text)
+
+    def test_unreadable_rule_content_is_reported_without_breaking_the_rules_page(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            rules_dir = Path(tmp) / "instructions"
+            rules_dir.mkdir()
+            broken = rules_dir / "broken.md"
+            broken.write_bytes(b"\xff\xfe\x00")
+            with mock.patch.object(webui, "INSTRUCTIONS_DIR", rules_dir), \
+                 mock.patch.object(webui, "_load_instruction_targets", return_value=[]), \
+                 mock.patch.object(webui, "_instruction_target_activity", return_value={}):
+                listing = webui.get_instructions()
+                content = webui.get_instruction_content("broken.md")
+                rules, error = webui._rule_library(["broken.md"])
+
+            self.assertTrue(listing["success"])
+            self.assertTrue(listing["rules"][0]["read_error"])
+            self.assertFalse(content["success"])
+            self.assertEqual(rules, {})
+            self.assertIn("Could not read rule", error)
+
+        html_src = read("_maintenance/webui/index.html")
+        ps_src = read("_maintenance/webui.ps1")
+        self.assertIn("r.read_error", html_src)
+        self.assertIn("data.success === false", html_src)
+        self.assertIn("Could not read rule", ps_src)
+
+    def test_atomic_instruction_write_keeps_old_file_when_replace_fails(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "AGENTS.md"
+            target.write_text("handwritten", encoding="utf-8")
+            with mock.patch.object(webui.os, "replace", side_effect=OSError("simulated")):
+                with self.assertRaises(OSError):
+                    webui._atomic_write_text(target, "replacement")
+            self.assertEqual(target.read_text(encoding="utf-8"), "handwritten")
+            self.assertEqual(list(target.parent.glob(".AGENTS.md.*.tmp")), [])
+
+        self.assertIn("function Write-Utf8Atomic", read("_maintenance/webui.ps1"))
+
+    def test_removing_appended_managed_block_does_not_leave_extra_blank_line(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "AGENTS.md"
+            target.write_text("handwritten\n", encoding="utf-8")
+            with mock.patch.object(webui, "INSTRUCTION_SYNC_STATE_FILE", Path(tmp) / ".state.json"):
+                self.assertTrue(webui._write_to_one(target, {"rule.md": "managed"}))
+                self.assertTrue(webui._remove_from_one(target))
+                self.assertEqual(target.read_text(encoding="utf-8"), "handwritten\n")
+
     def test_instructions_name_validation_blocks_traversal(self):
         """Rule filenames must be validated to prevent path traversal (e.g.
         ../../etc/passwd.md). Both backends must reject '/', '\\', and null.
@@ -1150,6 +1652,27 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("function openRuleEditor", html_src)
         # i18n keys in both languages
         self.assertIn("'t-instructions'", html_src)
+
+    def test_dashboard_exposes_rule_library_and_agent_coverage(self):
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        html_src = read("_maintenance/webui/index.html")
+        for field in (
+            "rules_count",
+            "agents_detected",
+            "agent_instruction_paths_configured",
+            "instruction_targets_total",
+            "instruction_target_files_existing",
+            "instruction_agents_detected",
+            "instruction_agents_managed",
+            "managed_rule_instances",
+        ):
+            self.assertIn(field, py_src)
+            self.assertIn(field, ps_src)
+            self.assertIn(field, html_src)
+        self.assertIn('id="stat-rules"', html_src)
+        self.assertIn('id="dashboard-rule-progress-fill"', html_src)
+        self.assertIn("navigateToSection('instructions')", html_src)
 
     # -------------------------------------------------------------------------
     # Self-update / rollback: host allowlist + rename-recovery (Fix C/D/E)

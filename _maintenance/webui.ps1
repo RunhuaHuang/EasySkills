@@ -6,10 +6,16 @@
 # ==============================================================================
 
 Param(
-    [Parameter(Mandatory=$false)][switch]$NoBrowser
+    [Parameter(Mandatory=$false)][switch]$NoBrowser,
+    [Parameter(Mandatory=$false)][switch]$SyncRules
 )
 
 $ErrorActionPreference = 'Continue'
+
+function Write-Utf8NoBom([string]$Path, [string]$Content) {
+    $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Content, $Utf8NoBom)
+}
 
 # Port must match webui.py:PORT (the single source of truth for the server).
 $Port = 6633
@@ -81,10 +87,17 @@ if ((Test-Path $HomeCentralDir) -and -not (Test-Path $RepoGitDir)) {
 
 $CustomTargetsFile = Join-Path -Path $ScriptDir -ChildPath "custom-targets.txt"
 $DisabledTargetsFile = Join-Path -Path $ScriptDir -ChildPath "disabled-targets.txt"
+$AgentPathConfigFile = Join-Path $CentralDir ".easyskills-agent-paths.json"
 
 # --- Instruction-rule library (AGENTS.md / CLAUDE.md management) ---
 $InstructionsDir = Join-Path $CentralDir "instructions"
-$EasySkillsBegin = "<!-- EasySkills:begin (managed block - do not edit manually) -->"
+$InstructionSyncStateFile = Join-Path $CentralDir ".easyskills-instruction-state.json"
+$EasySkillsBegin = "<!-- EasySkills:begin -->"
+$EasySkillsBeginAliases = @(
+    $EasySkillsBegin,
+    "<!-- EasySkills:begin (managed block - do not edit manually) -->",
+    "<!-- EasySkills:begin (managed block — do not edit manually) -->"
+)
 $EasySkillsEnd = "<!-- EasySkills:end -->"
 
 function Add-DisabledTarget([string]$Path) {
@@ -110,7 +123,7 @@ function Add-DisabledTarget([string]$Path) {
     if (-not $Exists) {
         $Lines += $AbsPath
         try {
-            $Lines -join "`n" | Set-Content -Path $DisabledTargetsFile -Encoding UTF8 -Force
+            Write-Utf8NoBom $DisabledTargetsFile (($Lines -join "`n") + "`n")
         } catch {}
     }
 }
@@ -139,7 +152,7 @@ function Remove-DisabledTarget([string]$Path) {
 
     if ($Updated) {
         try {
-            $NewLines -join "`n" | Set-Content -Path $DisabledTargetsFile -Encoding UTF8 -Force
+            Write-Utf8NoBom $DisabledTargetsFile (($NewLines -join "`n") + "`n")
         } catch {}
     }
 }
@@ -232,6 +245,62 @@ function Load-DefaultAgents {
 }
 $DefaultAgents = Load-DefaultAgents
 
+function Get-DefaultInstructionPaths {
+    $Result = @{}
+    if (Test-Path $AgentsJsonFile) {
+        try {
+            $Data = Get-Content $AgentsJsonFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($Agent in $Data.agents) {
+                $Name = [string]$Agent.name
+                $Raw = [string]$Agent.win_instructions_file
+                if (-not $Name -or -not $Raw -or $Result.ContainsKey($Name)) { continue }
+                $Expanded = $Raw -replace '%USERPROFILE%', $Home -replace '%APPDATA%', $env:APPDATA
+                $Result[$Name] = $Expanded
+            }
+        } catch {}
+    }
+    return $Result
+}
+$DefaultInstructionPaths = Get-DefaultInstructionPaths
+
+function Normalize-AgentPath([string]$PathStr) {
+    if (-not $PathStr -or -not $PathStr.Trim()) { return "" }
+    $Clean = $PathStr.Trim() -replace '%USERPROFILE%', $Home -replace '%APPDATA%', $env:APPDATA
+    try { return [System.IO.Path]::GetFullPath($Clean) } catch { return $Clean }
+}
+
+function Get-AgentPathConfigs {
+    if (-not (Test-Path $AgentPathConfigFile)) { return @() }
+    try {
+        $Data = Get-Content $AgentPathConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        return @($Data.agents)
+    } catch {
+        return @()
+    }
+}
+
+function Save-AgentPathConfigs($Entries) {
+    $Payload = [ordered]@{
+        version = 1
+        agents = @($Entries)
+    }
+    $Json = $Payload | ConvertTo-Json -Depth 6
+    Write-Utf8Atomic $AgentPathConfigFile ($Json + "`n")
+}
+
+function Resolve-AgentInstructionPath([string]$Name, [string]$SkillsPath, $Configs) {
+    $NormalizedSkills = Normalize-AgentPath $SkillsPath
+    foreach ($Entry in @($Configs)) {
+        if ((Normalize-AgentPath ([string]$Entry.skills_path)) -ne $NormalizedSkills) { continue }
+        $Configured = Normalize-AgentPath ([string]$Entry.instructions_path)
+        if ($Configured) { return $Configured }
+    }
+    if ($DefaultInstructionPaths.ContainsKey($Name)) {
+        return (Normalize-AgentPath ([string]$DefaultInstructionPaths[$Name]))
+    }
+    return ""
+}
+
 # Ensure ~/.qoder-cn/skills exists — Qoder CN relies on EasySkills to
 # create the path if it does not already exist.
 $qoderCnSkillsDir = Join-Path $Home ".qoder-cn\skills"
@@ -239,7 +308,7 @@ if (-not (Test-Path $qoderCnSkillsDir)) {
     New-Item -Path $qoderCnSkillsDir -ItemType Directory -Force | Out-Null
 }
 
-$ExcludeNames = @("_maintenance", ".git", "node_modules", "dist", "docs")
+$ExcludeNames = @("_maintenance", ".git", "node_modules", "dist", "docs", "instructions")
 $GitHubRepo = "RunhuaHuang/EasySkills"
 $GitHubApiLatestRelease = "https://api.github.com/repos/$GitHubRepo/releases/latest"
 $GitHubLatestRelease = "https://github.com/$GitHubRepo/releases/latest"
@@ -504,6 +573,7 @@ function Get-AgentsData {
     $Seen = @{}
     $DisabledSet = Get-DisabledTargets
     $HasSkills = @(Get-SkillsData).Count -gt 0
+    $PathConfigs = @(Get-AgentPathConfigs)
 
     $CustomTargets = Get-CustomTargets
     $CustomOverrides = @{}
@@ -513,11 +583,13 @@ function Get-AgentsData {
         if ($Ct.Contains("=")) {
             $Parts = $Ct.Split("=", 2)
             $CtName = $Parts[0].Trim()
-            $CtPath = $Parts[1].Trim()
+            $CtPath = Normalize-AgentPath $Parts[1]
+            if (-not $CtPath) { continue }
             if (Is-PromaWorkspaceTarget $CtPath) { continue }
             $CustomOverrides[$CtName] = $CtPath
         } else {
-            $CtPath = $Ct.Trim()
+            $CtPath = Normalize-AgentPath $Ct
+            if (-not $CtPath) { continue }
             if (Is-PromaWorkspaceTarget $CtPath) { continue }
             $CtName = Get-AgentNameFromPath $CtPath
             $CustomList += @{ Name = $CtName; Path = $CtPath }
@@ -530,15 +602,19 @@ function Get-AgentsData {
         if ($CustomOverrides.ContainsKey($Def.Name)) {
             $Path = $CustomOverrides[$Def.Name]
         }
-        if ($Seen.ContainsKey($Path)) { continue }
-        $Seen[$Path] = $true
+        $PathKey = Normalize-AgentPath $Path
+        if ($Seen.ContainsKey($PathKey)) { continue }
+        $Seen[$PathKey] = $true
 
         $Root = Get-AgentRoot $Path
         $Active = Test-Path $Root
+        $InstructionsPath = Resolve-AgentInstructionPath $Def.Name $Path $PathConfigs
 
         $Agents += @{
             name = $Def.Name
             path = $Path
+            instructions_path = $InstructionsPath
+            instructions_exists = [bool]($InstructionsPath -and (Test-Path $InstructionsPath -PathType Leaf))
             active = $Active
             mapped = if ($Active) { Is-Mapped $Path $DisabledSet $HasSkills } else { $false }
             custom = $CustomOverrides.ContainsKey($Def.Name)
@@ -547,15 +623,19 @@ function Get-AgentsData {
 
     # 2. Add Custom Agents (that don't match any default name override)
     foreach ($Ct in $CustomList) {
-        if ($Seen.ContainsKey($Ct.Path)) { continue }
-        $Seen[$Ct.Path] = $true
+        $PathKey = Normalize-AgentPath $Ct.Path
+        if ($Seen.ContainsKey($PathKey)) { continue }
+        $Seen[$PathKey] = $true
 
         $Root = Get-AgentRoot $Ct.Path
         $Active = Test-Path $Root
+        $InstructionsPath = Resolve-AgentInstructionPath $Ct.Name $Ct.Path $PathConfigs
 
         $Agents += @{
             name = $Ct.Name
             path = $Ct.Path
+            instructions_path = $InstructionsPath
+            instructions_exists = [bool]($InstructionsPath -and (Test-Path $InstructionsPath -PathType Leaf))
             active = $Active
             mapped = if ($Active) { Is-Mapped $Ct.Path $DisabledSet $HasSkills } else { $false }
             custom = $true
@@ -710,25 +790,40 @@ function Run-DeployCommand([string[]]$ArgsArr) {
     }
 }
 
-function Update-AgentPath([string]$Name, [string]$OldPath, [string]$NewPath) {
-    if (-not $NewPath) {
-        return @{ success = $false; message = "New path cannot be empty" }
+function Update-AgentPaths(
+    [string]$Name,
+    [string]$OldSkillsPath,
+    [string]$SkillsPath,
+    [string]$InstructionsPath
+) {
+    if (-not $SkillsPath) {
+        return @{ success = $false; message = "Skills path cannot be empty" }
     }
-    $NewPath = $NewPath.Trim()
-    try { $NewPath = [System.IO.Path]::GetFullPath($NewPath) } catch {}
+    $Current = @(Get-VisibleAgentsData | Where-Object {
+        (Normalize-AgentPath ([string]$_.path)) -eq (Normalize-AgentPath $OldSkillsPath)
+    } | Select-Object -First 1)
+    if (-not $InstructionsPath) {
+        if ($Current.Count -gt 0) { $InstructionsPath = [string]$Current[0].instructions_path }
+        if (-not $InstructionsPath) {
+            return @{ success = $false; message = "Instructions file path cannot be empty" }
+        }
+    }
+    $NewPath = Normalize-AgentPath $SkillsPath
+    $NewInstructionsPath = Normalize-AgentPath $InstructionsPath
+    if ((Test-Path $NewInstructionsPath) -and -not (Test-Path $NewInstructionsPath -PathType Leaf)) {
+        return @{ success = $false; message = "Instructions path must point to a file, not a directory" }
+    }
 
     # Normalize OldPath the same way as NewPath and the stored lines, otherwise
     # a `~`-form or dotted OldPath silently fails to match the stored absolute
     # path, leaving a stale/duplicate entry behind. Mirrors webui.py.
-    if ($OldPath) {
-        $OldPath = $OldPath.Trim()
-        try { $OldPath = [System.IO.Path]::GetFullPath($OldPath) } catch {}
-    }
+    $OldPath = Normalize-AgentPath $OldSkillsPath
 
     $Lines = @()
     if (Test-Path $CustomTargetsFile) {
         $Lines = @(Get-Content $CustomTargetsFile -Encoding UTF8 -ErrorAction SilentlyContinue)
     }
+    $OriginalCustomContent = if ($Lines.Count -gt 0) { ($Lines -join "`n") + "`n" } else { "" }
 
     $Updated = $false
     $NewLines = @()
@@ -748,27 +843,155 @@ function Update-AgentPath([string]$Name, [string]$OldPath, [string]$NewPath) {
             $LinePath = $Stripped
             $LineName = Get-AgentNameFromPath $LinePath
         }
-        if ($LinePath -eq $OldPath -or ($LineName -eq $Name -and $Name -ne "Custom Agent")) {
-            $NewLines += "$Name=$NewPath"
+        $LinePathNormalized = Normalize-AgentPath $LinePath
+        if ($LinePathNormalized -eq $OldPath) {
+            if (-not $Updated) { $NewLines += "$Name=$NewPath" }
             $Updated = $true
         } else {
             $NewLines += $Line
         }
     }
-    if (-not $Updated) {
+    if (-not $Updated -and $NewPath -ne $OldPath) {
         $NewLines += "$Name=$NewPath"
     }
 
     try {
-        $NewLines -join "`n" | Set-Content -Path $CustomTargetsFile -Encoding UTF8 -Force
+        Write-Utf8NoBom $CustomTargetsFile (($NewLines -join "`n") + "`n")
     } catch {
         return @{ success = $false; message = "Failed to write config: $_" }
     }
 
+    $UpdatedConfigs = @()
+    foreach ($Entry in @(Get-AgentPathConfigs)) {
+        $EntryPath = Normalize-AgentPath ([string]$Entry.skills_path)
+        if ($EntryPath -eq $OldPath -or $EntryPath -eq $NewPath) { continue }
+        $UpdatedConfigs += $Entry
+    }
+    $UpdatedConfigs += [ordered]@{
+        name = $Name
+        skills_path = $NewPath
+        instructions_path = $NewInstructionsPath
+    }
+    try {
+        Save-AgentPathConfigs $UpdatedConfigs
+    } catch {
+        try { Write-Utf8Atomic $CustomTargetsFile $OriginalCustomContent } catch {}
+        return @{ success = $false; message = "Failed to write Agent path config: $_" }
+    }
+
     Remove-DisabledTarget $OldPath
-    Remove-DisabledTarget $NewPath
-    Do-Map $NewPath | Out-Null
-    return @{ success = $true; message = "Updated $Name to $NewPath" }
+    $WasMapped = $Current.Count -gt 0 -and [bool]$Current[0].mapped
+    if ($WasMapped) {
+        Remove-DisabledTarget $NewPath
+        $CleanupWarning = ""
+        if ($NewPath -ne $OldPath) {
+            $MapResult = Do-Map $NewPath
+            if (-not $MapResult.success) {
+                return @{
+                    success = $false
+                    message = "Agent paths were saved, but the new skills path could not be mapped: $($MapResult.message). The old skills links were preserved."
+                    skills_path = $NewPath
+                    instructions_path = $NewInstructionsPath
+                    partial = $true
+                }
+            }
+            $CleanupResult = Do-Unmap $OldPath
+            Remove-DisabledTarget $OldPath
+            if (-not $CleanupResult.success) {
+                $CleanupWarning = " Warning: old skills links at $OldPath could not be fully removed: $($CleanupResult.message)."
+            }
+        }
+    } else {
+        Add-DisabledTarget $NewPath
+        $CleanupWarning = ""
+    }
+    return @{
+        success = $true
+        message = "Updated $Name skills and instructions paths.$CleanupWarning"
+        skills_path = $NewPath
+        instructions_path = $NewInstructionsPath
+    }
+}
+
+function Update-AgentPath([string]$Name, [string]$OldPath, [string]$NewPath) {
+    $Current = @(Get-VisibleAgentsData | Where-Object {
+        (Normalize-AgentPath ([string]$_.path)) -eq (Normalize-AgentPath $OldPath)
+    } | Select-Object -First 1)
+    $InstructionsPath = if ($Current.Count -gt 0) { [string]$Current[0].instructions_path } else { "" }
+    if (-not $InstructionsPath) {
+        $InstructionsPath = Join-Path (Split-Path -Parent $NewPath) "AGENTS.md"
+    }
+    return (Update-AgentPaths $Name $OldPath $NewPath $InstructionsPath)
+}
+
+function Register-CustomAgent([string]$SkillsPath, [string]$InstructionsPath) {
+    $SkillsPath = Normalize-AgentPath $SkillsPath
+    $InstructionsPath = Normalize-AgentPath $InstructionsPath
+    if (-not $SkillsPath) {
+        return @{ success = $false; message = "Skills path cannot be empty" }
+    }
+    if (-not $InstructionsPath) {
+        return @{ success = $false; message = "Instructions file path cannot be empty" }
+    }
+    if ((Test-Path $InstructionsPath) -and -not (Test-Path $InstructionsPath -PathType Leaf)) {
+        return @{ success = $false; message = "Instructions path must point to a file, not a directory" }
+    }
+
+    $WasRegistered = $false
+    foreach ($Target in @(Get-CustomTargets)) {
+        $TargetPath = if ($Target.Contains("=")) { $Target.Split("=", 2)[1].Trim() } else { $Target.Trim() }
+        if ((Normalize-AgentPath $TargetPath) -eq $SkillsPath) {
+            $WasRegistered = $true
+            break
+        }
+    }
+    $DeployResult = Run-DeployCommand @("-Add", $SkillsPath)
+    if (-not $DeployResult.success) { return $DeployResult }
+
+    $Entries = @()
+    foreach ($Entry in @(Get-AgentPathConfigs)) {
+        if ((Normalize-AgentPath ([string]$Entry.skills_path)) -eq $SkillsPath) { continue }
+        $Entries += $Entry
+    }
+    $Entries += [ordered]@{
+        name = Get-AgentNameFromPath $SkillsPath
+        skills_path = $SkillsPath
+        instructions_path = $InstructionsPath
+    }
+    try {
+        Save-AgentPathConfigs $Entries
+    } catch {
+        if (-not $WasRegistered) {
+            Run-DeployCommand @("-Remove", $SkillsPath) | Out-Null
+        }
+        return @{ success = $false; message = "Failed to save Agent paths: $_" }
+    }
+    return @{
+        success = $true
+        message = "Registered Agent skills and instructions channels`n$($DeployResult.message)".Trim()
+        skills_path = $SkillsPath
+        instructions_path = $InstructionsPath
+    }
+}
+
+function Remove-CustomAgent([string]$SkillsPath) {
+    $SkillsPath = Normalize-AgentPath $SkillsPath
+    $Result = Run-DeployCommand @("-Remove", $SkillsPath)
+    if (-not $Result.success) { return $Result }
+    $Entries = @()
+    foreach ($Entry in @(Get-AgentPathConfigs)) {
+        if ((Normalize-AgentPath ([string]$Entry.skills_path)) -eq $SkillsPath) { continue }
+        $Entries += $Entry
+    }
+    try {
+        Save-AgentPathConfigs $Entries
+    } catch {
+        return @{
+            success = $true
+            message = "$($Result.message)`nWarning: stale Agent path metadata could not be removed: $_"
+        }
+    }
+    return $Result
 }
 
 function Do-Map([string]$TargetPath) {
@@ -930,25 +1153,46 @@ function Delete-Skill([string]$Name) {
 # Instruction-rule library: modular AGENTS.md / CLAUDE.md management
 # --------------------------------------------------------------
 
-# Read win_instructions_file targets from agents.json (de-duplicated).
+# Read configured instruction-file targets from the unified Agent model.
 function Get-InstructionTargets {
     $Targets = @()
     $Seen = @{}
-    if (Test-Path $AgentsJsonFile) {
-        try {
-            $Data = Get-Content $AgentsJsonFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($Agent in $Data.agents) {
-                $Raw = [string]$Agent.win_instructions_file
-                if (-not $Raw) { continue }
-                $Expanded = $Raw -replace '%USERPROFILE%', $Home -replace '%APPDATA%', $env:APPDATA
-                try { $Resolved = ([System.IO.Path]::GetFullPath($Expanded)) } catch { $Resolved = $Expanded }
-                if ($Seen.ContainsKey($Resolved)) { continue }
-                $Seen[$Resolved] = $true
-                $Targets += @{ Name = $Agent.name; Path = $Expanded }
-            }
-        } catch {}
+    foreach ($Agent in @(Get-VisibleAgentsData)) {
+        $Expanded = Normalize-AgentPath ([string]$Agent.instructions_path)
+        if (-not $Expanded -or $Seen.ContainsKey($Expanded)) { continue }
+        $Seen[$Expanded] = $true
+        $Targets += @{ Name = $Agent.name; Path = $Expanded }
     }
     return $Targets
+}
+
+function Get-InstructionTargetActivity {
+    $Activity = @{}
+    foreach ($Agent in @(Get-VisibleAgentsData)) {
+        $Resolved = Normalize-AgentPath ([string]$Agent.instructions_path)
+        if (-not $Resolved) { continue }
+        $WasActive = $Activity.ContainsKey($Resolved) -and $Activity[$Resolved]
+        $Activity[$Resolved] = $WasActive -or [bool]$Agent.active
+    }
+    return $Activity
+}
+
+function Get-DetectedInstructionTargets {
+    $Activity = Get-InstructionTargetActivity
+    return @(Get-InstructionTargets | Where-Object {
+        try { $Resolved = [System.IO.Path]::GetFullPath($_.Path) } catch { $Resolved = $_.Path }
+        $Activity.ContainsKey($Resolved) -and $Activity[$Resolved]
+    })
+}
+
+function Resolve-KnownInstructionTarget([string]$PathStr) {
+    if (-not $PathStr) { return $null }
+    try { $Requested = [System.IO.Path]::GetFullPath($PathStr) } catch { return $null }
+    foreach ($Target in @(Get-InstructionTargets)) {
+        try { $Candidate = [System.IO.Path]::GetFullPath([string]$Target.Path) } catch { continue }
+        if ($Candidate -eq $Requested) { return [string]$Target.Path }
+    }
+    return $null
 }
 
 function Test-InstructionName([string]$Name) {
@@ -963,8 +1207,9 @@ function Test-InstructionName([string]$Name) {
 
 # Replace or insert the managed block within an instruction file's content.
 function Inject-ManagedBlock([string]$Existing, [string]$Block) {
-    if ($Existing.Contains($EasySkillsBegin) -and $Existing.Contains($EasySkillsEnd)) {
-        $Pattern = [regex]::Escape($EasySkillsBegin) + ".*?" + [regex]::Escape($EasySkillsEnd)
+    $ExistingBegin = @($EasySkillsBeginAliases | Where-Object { $Existing.Contains($_) } | Select-Object -First 1)
+    if ($ExistingBegin.Count -gt 0 -and $Existing.Contains($EasySkillsEnd)) {
+        $Pattern = [regex]::Escape([string]$ExistingBegin[0]) + ".*?" + [regex]::Escape($EasySkillsEnd)
         return [regex]::Replace($Existing, $Pattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $Block }, [System.Text.RegularExpressions.RegexOptions]::Singleline, 1)
     }
     if ($Existing.Trim()) {
@@ -975,8 +1220,9 @@ function Inject-ManagedBlock([string]$Existing, [string]$Block) {
 
 # Remove the managed block from content.
 function Strip-ManagedBlock([string]$Content) {
-    if (-not ($Content.Contains($EasySkillsBegin)) -or -not ($Content.Contains($EasySkillsEnd))) { return $Content }
-    $Pattern = [regex]::Escape($EasySkillsBegin) + ".*?" + [regex]::Escape($EasySkillsEnd) + "`n?"
+    $ExistingBegin = @($EasySkillsBeginAliases | Where-Object { $Content.Contains($_) } | Select-Object -First 1)
+    if ($ExistingBegin.Count -eq 0 -or -not ($Content.Contains($EasySkillsEnd))) { return $Content }
+    $Pattern = [regex]::Escape([string]$ExistingBegin[0]) + ".*?" + [regex]::Escape($EasySkillsEnd) + "`n?"
     return [regex]::Replace($Content, $Pattern, "", [System.Text.RegularExpressions.RegexOptions]::Singleline, 1)
 }
 
@@ -986,27 +1232,135 @@ function Get-InstructionsData {
         $Files = Get-ChildItem -Path $InstructionsDir -Filter "*.md" -File -ErrorAction SilentlyContinue | Sort-Object Name
         foreach ($File in $Files) {
             $Content = ""
-            try { $Content = [System.IO.File]::ReadAllText($File.FullName, [System.Text.Encoding]::UTF8) } catch {}
+            $ReadError = ""
+            try {
+                $Content = [System.IO.File]::ReadAllText($File.FullName, [System.Text.Encoding]::UTF8)
+            } catch {
+                $ReadError = $_.Exception.Message
+            }
             $Preview = if ($Content.Length -gt 200) { $Content.Substring(0, 200) } else { $Content }
-            $Rules += @{ name = $File.Name; preview = $Preview; size = $Content.Length }
+            $Rules += @{ name = $File.Name; preview = $Preview; size = $Content.Length; read_error = $ReadError }
         }
     }
 
     $Targets = Get-InstructionTargets
+    $TargetActivity = Get-InstructionTargetActivity
     $AgentsStatus = @()
     foreach ($T in $Targets) {
         $HasBlock = $false
-        $Exists = (Test-Path $T.Path)
+        $ManagedRules = @()
+        $ManagedRuleCount = 0
+        $Exists = (Test-Path $T.Path -PathType Leaf)
         if ($Exists) {
             try {
                 $Txt = [System.IO.File]::ReadAllText($T.Path, [System.Text.Encoding]::UTF8)
-                $HasBlock = $Txt.Contains($EasySkillsBegin)
+                $HasBlock = @($EasySkillsBeginAliases | Where-Object { $Txt.Contains($_) }).Count -gt 0
+                if ($HasBlock) {
+                    $Managed = Get-ManagedRules $Txt $T.Path
+                    $ManagedRules = @($Managed.Rules.Keys)
+                    $LegacyParts = @([regex]::Split(([string]$Managed.Legacy).Trim(), "\r?\n\r?\n---\r?\n\r?\n") | Where-Object { $_.Trim() })
+                    $ManagedRuleCount = $ManagedRules.Count + $LegacyParts.Count
+                }
             } catch {}
         }
-        $AgentsStatus += @{ name = $T.Name; path = $T.Path; exists = $Exists; has_managed_block = $HasBlock }
+        try { $ResolvedTarget = [System.IO.Path]::GetFullPath($T.Path) } catch { $ResolvedTarget = $T.Path }
+        $IsActive = $TargetActivity.ContainsKey($ResolvedTarget) -and $TargetActivity[$ResolvedTarget]
+        $AgentsStatus += @{ name = $T.Name; path = $T.Path; exists = $Exists; active = $IsActive; has_managed_block = $HasBlock; managed_rules = $ManagedRules; managed_rule_count = $ManagedRuleCount }
     }
 
     return @{ success = $true; rules = $Rules; agents = $AgentsStatus }
+}
+
+function Write-Utf8Atomic([string]$Path, [string]$Content) {
+    $Parent = Split-Path -Path $Path -Parent
+    if (-not (Test-Path $Parent)) { New-Item -ItemType Directory -Path $Parent -Force | Out-Null }
+    $Leaf = Split-Path -Path $Path -Leaf
+    $TempPath = Join-Path $Parent (".$Leaf.$([guid]::NewGuid().ToString('N')).tmp")
+    try {
+        $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($TempPath, $Content, $Utf8NoBom)
+        if (Test-Path $Path) {
+            [System.IO.File]::Replace($TempPath, $Path, $null)
+        } else {
+            [System.IO.File]::Move($TempPath, $Path)
+        }
+    } finally {
+        if (Test-Path $TempPath) { Remove-Item -LiteralPath $TempPath -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+function Get-ManagedBody($Rules, [string]$LegacyText = "") {
+    $Block = Build-ManagedBlock $Rules $LegacyText
+    $Start = $EasySkillsBegin.Length + 1
+    $Length = $Block.Length - $Start - $EasySkillsEnd.Length - 1
+    if ($Length -le 0) { return "" }
+    return $Block.Substring($Start, $Length)
+}
+
+function Get-BodySha256([string]$Body) {
+    $Sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $Bytes = [System.Text.Encoding]::UTF8.GetBytes($Body.Trim())
+        return ([System.BitConverter]::ToString($Sha.ComputeHash($Bytes))).Replace("-", "").ToLowerInvariant()
+    } finally {
+        $Sha.Dispose()
+    }
+}
+
+function Get-InstructionSyncState {
+    if (Test-Path $InstructionSyncStateFile) {
+        try {
+            $Data = Get-Content $InstructionSyncStateFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($Data -and $null -ne $Data.targets) { return $Data }
+        } catch {}
+    }
+    return [pscustomobject]@{ version = 1; targets = @() }
+}
+
+function Get-InstructionStateEntry([string]$PathStr) {
+    try { $Key = [System.IO.Path]::GetFullPath($PathStr) } catch { return $null }
+    $State = Get-InstructionSyncState
+    foreach ($Entry in @($State.targets)) {
+        if ([string]$Entry.path -eq $Key) { return $Entry }
+    }
+    return $null
+}
+
+function Save-InstructionSyncState($State) {
+    $Json = $State | ConvertTo-Json -Depth 8
+    Write-Utf8Atomic $InstructionSyncStateFile ($Json + "`n")
+}
+
+function Set-InstructionState([string]$PathStr, $Rules, [string]$LegacyText = "") {
+    $Key = [System.IO.Path]::GetFullPath($PathStr)
+    $State = Get-InstructionSyncState
+    $Targets = @($State.targets | Where-Object { [string]$_.path -ne $Key })
+    $RuleEntries = @()
+    foreach ($Name in @($Rules.Keys | Sort-Object)) {
+        $RuleEntries += [pscustomobject]@{ name = [string]$Name; content = [string]$Rules[$Name] }
+    }
+    $Targets += [pscustomobject]@{
+        path = $Key
+        rules = $RuleEntries
+        legacy = $LegacyText
+        body_sha256 = (Get-BodySha256 (Get-ManagedBody $Rules $LegacyText))
+    }
+    $State.version = 1
+    $State.targets = $Targets
+    Save-InstructionSyncState $State
+}
+
+function Remove-InstructionState([string]$PathStr) {
+    try { $Key = [System.IO.Path]::GetFullPath($PathStr) } catch { return }
+    $State = Get-InstructionSyncState
+    $Targets = @($State.targets | Where-Object { [string]$_.path -ne $Key })
+    if ($Targets.Count -eq @($State.targets).Count) { return }
+    if ($Targets.Count -gt 0) {
+        $State.targets = $Targets
+        Save-InstructionSyncState $State
+    } elseif (Test-Path $InstructionSyncStateFile) {
+        Remove-Item -LiteralPath $InstructionSyncStateFile -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Save-Instruction([string]$Name, [string]$Content) {
@@ -1015,7 +1369,7 @@ function Save-Instruction([string]$Name, [string]$Content) {
     $CleanName = $Check.value
     try {
         if (-not (Test-Path $InstructionsDir)) { New-Item -ItemType Directory -Path $InstructionsDir -Force | Out-Null }
-        [System.IO.File]::WriteAllText((Join-Path $InstructionsDir $CleanName), ($Content), [System.Text.Encoding]::UTF8)
+        Write-Utf8Atomic (Join-Path $InstructionsDir $CleanName) $Content
     } catch {
         return @{ success = $false; message = "Save failed: $_" }
     }
@@ -1046,63 +1400,269 @@ function Get-InstructionContent([string]$Name) {
     }
 }
 
-# Concatenate all rule files into one text block.
-function Get-ConcatenatedRules {
-    if (-not (Test-Path $InstructionsDir)) { return "" }
-    $Files = Get-ChildItem -Path $InstructionsDir -Filter "*.md" -File -ErrorAction SilentlyContinue | Sort-Object Name
-    $Parts = @()
-    foreach ($File in $Files) {
-        try {
-            $Txt = [System.IO.File]::ReadAllText($File.FullName, [System.Text.Encoding]::UTF8).Trim()
-            if ($Txt) { $Parts += $Txt }
-        } catch {}
+function Get-RuleMap([string[]]$RuleNames, [switch]$RequireSelection) {
+    if ($RequireSelection -and (-not $RuleNames -or $RuleNames.Count -eq 0)) {
+        return @{ success = $false; message = "Select at least one rule."; rules = @{} }
     }
-    return ($Parts -join "`n`n---`n`n")
+    $Requested = @{}
+    if ($RuleNames) {
+        foreach ($Name in $RuleNames) {
+            $Check = Test-InstructionName $Name
+            if (-not $Check.ok) { return @{ success = $false; message = $Check.value; rules = @{} } }
+            $Requested[$Check.value] = $true
+        }
+    }
+    $Rules = @{}
+    if (Test-Path $InstructionsDir) {
+        $Files = Get-ChildItem -Path $InstructionsDir -Filter "*.md" -File -ErrorAction SilentlyContinue | Sort-Object Name
+        foreach ($File in $Files) {
+            if ($Requested.Count -gt 0 -and -not $Requested.ContainsKey($File.Name)) { continue }
+            try {
+                $Rules[$File.Name] = [System.IO.File]::ReadAllText($File.FullName, [System.Text.Encoding]::UTF8).Trim()
+            } catch {
+                return @{ success = $false; message = "Could not read rule $($File.Name): $($_.Exception.Message)"; rules = @{} }
+            }
+        }
+    }
+    foreach ($Name in $Requested.Keys) {
+        if (-not $Rules.ContainsKey($Name)) { return @{ success = $false; message = "Rule not found: $Name"; rules = @{} } }
+    }
+    return @{ success = $true; message = ""; rules = $Rules }
 }
 
-function Write-InstructionsToOne([string]$PathStr) {
-    $RulesText = Get-ConcatenatedRules
-    if (-not $RulesText.Trim()) { return @{ success = $false; message = "No rules in the library. Add rules first." } }
-    $Block = "$EasySkillsBegin`n$RulesText`n$EasySkillsEnd"
+function Build-ManagedBlock($Rules, [string]$LegacyText = "") {
+    $Parts = @()
+    foreach ($Name in @($Rules.Keys | Sort-Object)) {
+        $Parts += ([string]$Rules[$Name]).Trim()
+    }
+    if ($LegacyText.Trim()) { $Parts += $LegacyText.Trim() }
+    return "$EasySkillsBegin`n$($Parts -join "`n`n")`n$EasySkillsEnd"
+}
+
+function Get-ManagedRules([string]$Content, [string]$PathStr = "") {
+    $Rules = @{}
+    $BeginPattern = "(?:" + (($EasySkillsBeginAliases | ForEach-Object { [regex]::Escape($_) }) -join "|") + ")"
+    $OuterPattern = $BeginPattern + "\r?\n?(.*?)\r?\n?" + [regex]::Escape($EasySkillsEnd)
+    $Outer = [regex]::Match($Content, $OuterPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    if (-not $Outer.Success) { return @{ Rules = $Rules; Legacy = "" } }
+    $Body = $Outer.Groups[1].Value
+
+    # Current compact format: one label starts each rule and the next label
+    # ends it. Historical begin/end pairs remain readable below for migration.
+    $CompactPattern = '<!-- EasySkills:(rule ([^\r\n]+?)|legacy) -->\r?\n?'
+    $CompactMatches = [regex]::Matches($Body, $CompactPattern)
+    if ($CompactMatches.Count -gt 0) {
+        $Unmatched = @()
+        $Prefix = $Body.Substring(0, $CompactMatches[0].Index).Trim()
+        if ($Prefix) { $Unmatched += $Prefix }
+        for ($Index = 0; $Index -lt $CompactMatches.Count; $Index++) {
+            $Match = $CompactMatches[$Index]
+            $SegmentStart = $Match.Index + $Match.Length
+            $SegmentEnd = if ($Index + 1 -lt $CompactMatches.Count) { $CompactMatches[$Index + 1].Index } else { $Body.Length }
+            $Segment = $Body.Substring($SegmentStart, $SegmentEnd - $SegmentStart).Trim()
+            if ($Match.Groups[1].Value -eq "legacy") {
+                if ($Segment) { $Unmatched += $Segment }
+            } else {
+                $Name = [System.Uri]::UnescapeDataString($Match.Groups[2].Value)
+                $Rules[$Name] = $Segment
+            }
+        }
+        return @{ Rules = $Rules; Legacy = ($Unmatched -join "`n`n") }
+    }
+
+    $MarkerPattern = '<!-- EasySkills:rule:begin ([^\r\n]+?) -->\r?\n?(.*?)\r?\n?<!-- EasySkills:rule:end -->'
+    $Matches = [regex]::Matches($Body, $MarkerPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    $Unmatched = @(); $Cursor = 0
+    foreach ($Match in $Matches) {
+        $Gap = $Body.Substring($Cursor, $Match.Index - $Cursor).Trim()
+        if ($Gap) { $Unmatched += $Gap }
+        $Name = [System.Uri]::UnescapeDataString($Match.Groups[1].Value)
+        $Rules[$Name] = $Match.Groups[2].Value.Trim()
+        $Cursor = $Match.Index + $Match.Length
+    }
+    $Tail = $Body.Substring($Cursor).Trim()
+    if ($Tail) { $Unmatched += $Tail }
+    $Legacy = $Unmatched -join "`n`n"
+
+    if ($Rules.Count -eq 0 -and $PathStr) {
+        $Entry = Get-InstructionStateEntry $PathStr
+        if ($Entry -and [string]$Entry.body_sha256 -eq (Get-BodySha256 $Body)) {
+            $Restored = @{}
+            $Valid = $true
+            foreach ($RuleEntry in @($Entry.rules)) {
+                if (-not $RuleEntry -or -not ([string]$RuleEntry.name)) { $Valid = $false; break }
+                $Restored[[string]$RuleEntry.name] = [string]$RuleEntry.content
+            }
+            if ($Valid) {
+                return @{ Rules = $Restored; Legacy = [string]$Entry.legacy }
+            }
+        }
+    }
+
+    if ($Legacy -and $Rules.Count -eq 0) {
+        $LibraryResult = Get-RuleMap
+        $Unresolved = @()
+        foreach ($Part in [regex]::Split($Legacy, "\r?\n\r?\n---\r?\n\r?\n")) {
+            $Found = $null
+            foreach ($Name in $LibraryResult.rules.Keys) {
+                if (-not $Rules.ContainsKey($Name) -and ([string]$LibraryResult.rules[$Name]).Trim() -eq $Part.Trim()) { $Found = $Name; break }
+            }
+            if ($Found) { $Rules[$Found] = $Part.Trim() } elseif ($Part.Trim()) { $Unresolved += $Part.Trim() }
+        }
+        $Legacy = $Unresolved -join "`n`n---`n`n"
+    }
+    return @{ Rules = $Rules; Legacy = $Legacy }
+}
+
+function Write-RulesToOne([string]$PathStr, $Rules, [bool]$Replace = $false) {
     try {
         $Resolved = [System.IO.Path]::GetFullPath($PathStr)
         $Parent = Split-Path -Path $Resolved -Parent
         if (-not (Test-Path $Parent)) { New-Item -ItemType Directory -Path $Parent -Force | Out-Null }
         $Existing = ""
         if (Test-Path $Resolved) { $Existing = [System.IO.File]::ReadAllText($Resolved, [System.Text.Encoding]::UTF8) }
+        $Current = Get-ManagedRules $Existing $Resolved
+        $StateEntry = Get-InstructionStateEntry $Resolved
+        $StateMatches = $StateEntry -and ([string]$StateEntry.body_sha256 -eq (Get-BodySha256 ([string]$Current.Legacy)))
+        if (
+            -not $Replace -and
+            $Existing.Contains($EasySkillsBegin) -and
+            -not $Existing.Contains("EasySkills:rule") -and
+            $Current.Legacy.Trim() -and
+            $Current.Rules.Count -eq 0 -and
+            -not $StateMatches
+        ) {
+            return @{ success = $false; message = "Rule sync state is missing or stale for $Resolved" }
+        }
+        if ($Replace) { $Current = @{ Rules = @{}; Legacy = "" } }
+        foreach ($Name in $Rules.Keys) { $Current.Rules[$Name] = $Rules[$Name] }
+        $Block = Build-ManagedBlock $Current.Rules $Current.Legacy
         $NewContent = Inject-ManagedBlock $Existing $Block
-        [System.IO.File]::WriteAllText($Resolved, $NewContent, [System.Text.Encoding]::UTF8)
+        $PreviousState = Get-InstructionStateEntry $Resolved
+        Set-InstructionState $Resolved $Current.Rules $Current.Legacy
+        try {
+            Write-Utf8Atomic $Resolved $NewContent
+        } catch {
+            if ($PreviousState) {
+                $PreviousRules = @{}
+                foreach ($Entry in @($PreviousState.rules)) { $PreviousRules[[string]$Entry.name] = [string]$Entry.content }
+                Set-InstructionState $Resolved $PreviousRules ([string]$PreviousState.legacy)
+            } else {
+                Remove-InstructionState $Resolved
+            }
+            throw
+        }
         return @{ success = $true; message = "Wrote rules to $Resolved" }
     } catch {
         return @{ success = $false; message = "Write failed for $PathStr: $_" }
     }
 }
 
+function Write-InstructionsToOne([string]$PathStr) {
+    $KnownPath = Resolve-KnownInstructionTarget $PathStr
+    if (-not $KnownPath) { return @{ success = $false; message = "Unknown agent instruction target" } }
+    $Library = Get-RuleMap
+    if (-not $Library.success -or $Library.rules.Count -eq 0) { return @{ success = $false; message = "No rules in the library. Add rules first." } }
+    return Write-RulesToOne $KnownPath $Library.rules $true
+}
+
 function Remove-InstructionsFromOne([string]$PathStr) {
     try {
-        $Resolved = [System.IO.Path]::GetFullPath($PathStr)
-        if (-not (Test-Path $Resolved)) { return @{ success = $true; message = "File does not exist: $Resolved" } }
+        $KnownPath = Resolve-KnownInstructionTarget $PathStr
+        if (-not $KnownPath) { return @{ success = $false; message = "Unknown agent instruction target" } }
+        $Resolved = [System.IO.Path]::GetFullPath($KnownPath)
+        if (-not (Test-Path $Resolved)) {
+            Remove-InstructionState $Resolved
+            return @{ success = $true; message = "File does not exist: $Resolved" }
+        }
         $Content = [System.IO.File]::ReadAllText($Resolved, [System.Text.Encoding]::UTF8)
+        $HasBegin = @($EasySkillsBeginAliases | Where-Object { $Content.Contains($_) }).Count -gt 0
+        if (-not $HasBegin -or -not $Content.Contains($EasySkillsEnd)) {
+            Remove-InstructionState $Resolved
+            return @{ success = $true; message = "No managed block in $Resolved" }
+        }
         $Remaining = Strip-ManagedBlock $Content
         if ($Remaining.Trim()) {
-            [System.IO.File]::WriteAllText($Resolved, $Remaining, [System.Text.Encoding]::UTF8)
+            Write-Utf8Atomic $Resolved ($Remaining.TrimEnd() + "`n")
         } else {
             Remove-Item -LiteralPath $Resolved -Force
         }
+        Remove-InstructionState $Resolved
         return @{ success = $true; message = "Removed managed block from $Resolved" }
     } catch {
         return @{ success = $false; message = "Remove failed for $PathStr: $_" }
     }
 }
 
+function Remove-RulesFromOne([string]$PathStr, [string[]]$RuleNames) {
+    try {
+        $Resolved = [System.IO.Path]::GetFullPath($PathStr)
+        if (-not (Test-Path $Resolved)) {
+            Remove-InstructionState $Resolved
+            return @{ success = $true; message = "File does not exist: $Resolved" }
+        }
+        $Existing = [System.IO.File]::ReadAllText($Resolved, [System.Text.Encoding]::UTF8)
+        $HasBegin = @($EasySkillsBeginAliases | Where-Object { $Existing.Contains($_) }).Count -gt 0
+        if (-not $HasBegin -or -not $Existing.Contains($EasySkillsEnd)) {
+            Remove-InstructionState $Resolved
+            return @{ success = $true; message = "No managed block in $Resolved" }
+        }
+        $Current = Get-ManagedRules $Existing $Resolved
+        $StateEntry = Get-InstructionStateEntry $Resolved
+        $StateMatches = $StateEntry -and ([string]$StateEntry.body_sha256 -eq (Get-BodySha256 ([string]$Current.Legacy)))
+        if (
+            $Existing.Contains($EasySkillsBegin) -and
+            -not $Existing.Contains("EasySkills:rule") -and
+            $Current.Legacy.Trim() -and
+            $Current.Rules.Count -eq 0 -and
+            -not $StateMatches
+        ) {
+            return @{ success = $false; message = "Rule sync state is missing or stale for $Resolved" }
+        }
+        foreach ($Name in $RuleNames) { [void]$Current.Rules.Remove($Name) }
+        $PreviousState = Get-InstructionStateEntry $Resolved
+        if ($Current.Rules.Count -gt 0 -or $Current.Legacy.Trim()) {
+            $Updated = Inject-ManagedBlock $Existing (Build-ManagedBlock $Current.Rules $Current.Legacy)
+            Set-InstructionState $Resolved $Current.Rules $Current.Legacy
+        } else {
+            $Updated = Strip-ManagedBlock $Existing
+        }
+        try {
+            if ($Updated.Trim()) {
+                if ($Current.Rules.Count -eq 0 -and -not $Current.Legacy.Trim()) {
+                    $Updated = $Updated.TrimEnd() + "`n"
+                }
+                Write-Utf8Atomic $Resolved $Updated
+            } else {
+                Remove-Item -LiteralPath $Resolved -Force
+            }
+        } catch {
+            if ($Current.Rules.Count -gt 0 -or $Current.Legacy.Trim()) {
+                if ($PreviousState) {
+                    $PreviousRules = @{}
+                    foreach ($Entry in @($PreviousState.rules)) { $PreviousRules[[string]$Entry.name] = [string]$Entry.content }
+                    Set-InstructionState $Resolved $PreviousRules ([string]$PreviousState.legacy)
+                } else {
+                    Remove-InstructionState $Resolved
+                }
+            }
+            throw
+        }
+        if ($Current.Rules.Count -eq 0 -and -not $Current.Legacy.Trim()) { Remove-InstructionState $Resolved }
+        return @{ success = $true; message = "Removed selected rules from $Resolved" }
+    } catch {
+        return @{ success = $false; message = "Remove failed for $PathStr: $_" }
+    }
+}
+
 function Write-InstructionsToAll {
-    $RulesText = Get-ConcatenatedRules
-    if (-not $RulesText.Trim()) { return @{ success = $false; message = "No rules in the library. Add rules first." } }
-    $Targets = Get-InstructionTargets
-    if ($Targets.Count -eq 0) { return @{ success = $false; message = "No agent instruction targets found." } }
+    $Library = Get-RuleMap
+    if (-not $Library.success -or $Library.rules.Count -eq 0) { return @{ success = $false; message = "No rules in the library. Add rules first." } }
+    $Targets = Get-DetectedInstructionTargets
+    if ($Targets.Count -eq 0) { return @{ success = $false; message = "No detected agent instruction targets found." } }
     $Written = @(); $Failed = @()
     foreach ($T in $Targets) {
-        $Result = Write-InstructionsToOne $T.Path
+        $Result = Write-RulesToOne $T.Path $Library.rules $true
         if ($Result.success) { $Written += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
     }
     $Msg = "Wrote rules to $($Written.Count) agent(s)."
@@ -1111,8 +1671,8 @@ function Write-InstructionsToAll {
 }
 
 function Remove-InstructionsFromAll {
-    $Targets = Get-InstructionTargets
-    if ($Targets.Count -eq 0) { return @{ success = $false; message = "No agent instruction targets found." } }
+    $Targets = Get-DetectedInstructionTargets
+    if ($Targets.Count -eq 0) { return @{ success = $false; message = "No detected agent instruction targets found." } }
     $Removed = @(); $Failed = @()
     foreach ($T in $Targets) {
         $Result = Remove-InstructionsFromOne $T.Path
@@ -1123,36 +1683,24 @@ function Remove-InstructionsFromAll {
 	    return @{ success = ($Failed.Count -eq 0); message = $Msg; removed = $Removed.Count; failed = $Failed }
 	}
 
-# Concat only the named rule files (empty = all rules).
-function Get-SelectedRules([string[]]$RuleNames) {
-    if (-not $RuleNames -or $RuleNames.Count -eq 0) { return Get-ConcatenatedRules }
-    $Parts = @()
-    foreach ($Name in $RuleNames) {
-        $Check = Test-InstructionName $Name
-        if (-not $Check.ok) { continue }
-        $File = Join-Path $InstructionsDir $Check.value
-        if (Test-Path $File) {
-            try { $Txt = [System.IO.File]::ReadAllText($File.FullName, [System.Text.Encoding]::UTF8).Trim(); if ($Txt) { $Parts += $Txt } } catch {}
-        }
-    }
-    return ($Parts -join "`n`n---`n`n")
-}
-
 function Write-SelectedInstructions {
     param([string[]]$Rules, [string[]]$Agents)
-    $RulesText = Get-SelectedRules $Rules
-    if (-not $RulesText.Trim()) { return @{ success = $false; message = "No rules selected or rule library is empty." } }
+    if (-not $Rules -or -not $Agents) { return @{ success = $false; message = "Select at least one rule and one agent." } }
+    $Library = Get-RuleMap $Rules -RequireSelection
+    if (-not $Library.success -or $Library.rules.Count -eq 0) { return @{ success = $false; message = $Library.message } }
     $Targets = Get-InstructionTargets
     if (-not $Targets) { return @{ success = $false; message = "No agent instruction targets found." } }
-    if ($Agents -and $Agents.Count -gt 0) {
-        $AgentSet = @{}
+    $AgentSet = @{}
+    try {
         foreach ($a in $Agents) { $AgentSet[([System.IO.Path]::GetFullPath($a))] = $true }
-        $Targets = @($Targets | Where-Object { $AgentSet.ContainsKey([System.IO.Path]::GetFullPath($_.Path)) })
+    } catch {
+        return @{ success = $false; message = "One or more selected Agent paths are invalid." }
     }
+    $Targets = @($Targets | Where-Object { $AgentSet.ContainsKey([System.IO.Path]::GetFullPath($_.Path)) })
     if (-not $Targets) { return @{ success = $false; message = "No matching agent targets. Check the selected paths." } }
     $Written = @(); $Failed = @()
     foreach ($T in $Targets) {
-        $Result = Write-InstructionsToOne $T.Path
+        $Result = Write-RulesToOne $T.Path $Library.rules
         if ($Result.success) { $Written += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
     }
     $Msg = "Wrote rules to $($Written.Count) agent(s)."
@@ -1161,21 +1709,26 @@ function Write-SelectedInstructions {
 }
 
 function Remove-SelectedInstructions {
-    param([string[]]$Agents)
+    param([string[]]$Rules, [string[]]$Agents)
+    if (-not $Rules -or -not $Agents) { return @{ success = $false; message = "Select at least one rule and one agent." } }
+    $Library = Get-RuleMap $Rules -RequireSelection
+    if (-not $Library.success -or $Library.rules.Count -eq 0) { return @{ success = $false; message = $Library.message } }
     $Targets = Get-InstructionTargets
     if (-not $Targets) { return @{ success = $false; message = "No agent instruction targets found." } }
-    if ($Agents -and $Agents.Count -gt 0) {
-        $AgentSet = @{}
+    $AgentSet = @{}
+    try {
         foreach ($a in $Agents) { $AgentSet[([System.IO.Path]::GetFullPath($a))] = $true }
-        $Targets = @($Targets | Where-Object { $AgentSet.ContainsKey([System.IO.Path]::GetFullPath($_.Path)) })
+    } catch {
+        return @{ success = $false; message = "One or more selected Agent paths are invalid." }
     }
+    $Targets = @($Targets | Where-Object { $AgentSet.ContainsKey([System.IO.Path]::GetFullPath($_.Path)) })
     if (-not $Targets) { return @{ success = $false; message = "No matching agent targets. Check the selected paths." } }
     $Removed = @(); $Failed = @()
     foreach ($T in $Targets) {
-        $Result = Remove-InstructionsFromOne $T.Path
+        $Result = Remove-RulesFromOne $T.Path @($Library.rules.Keys)
         if ($Result.success) { $Removed += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
     }
-    $Msg = "Removed managed block from $($Removed.Count) agent(s)."
+    $Msg = "Removed $($Library.rules.Count) rule(s) from $($Removed.Count) agent(s)."
     if ($Failed.Count -gt 0) { $Msg += " Failed: $($Failed -join ', ')" }
     return @{ success = ($Failed.Count -eq 0); message = $Msg; removed = $Removed.Count; failed = $Failed }
 }
@@ -1274,10 +1827,10 @@ function Run-SelfUpdate {
 
             try {
                 if ($null -ne $CustomBackup) {
-                    $CustomBackup | Set-Content -Path (Join-Path $NewMaintTmp "custom-targets.txt") -Encoding UTF8 -Force
+                    Write-Utf8NoBom (Join-Path $NewMaintTmp "custom-targets.txt") $CustomBackup
                 }
                 if ($null -ne $DisabledBackup) {
-                    $DisabledBackup | Set-Content -Path (Join-Path $NewMaintTmp "disabled-targets.txt") -Encoding UTF8 -Force
+                    Write-Utf8NoBom (Join-Path $NewMaintTmp "disabled-targets.txt") $DisabledBackup
                 }
                 # Preserve the auth token so existing browser sessions stay valid
                 # if the service restarts after the update.
@@ -1353,10 +1906,10 @@ function Do-Rollback {
         }
 
         if ($null -ne $CustomBackup) {
-            $CustomBackup | Set-Content -Path (Join-Path $RollbackTmp "custom-targets.txt") -Encoding UTF8 -Force
+            Write-Utf8NoBom (Join-Path $RollbackTmp "custom-targets.txt") $CustomBackup
         }
         if ($null -ne $DisabledBackup) {
-            $DisabledBackup | Set-Content -Path (Join-Path $RollbackTmp "disabled-targets.txt") -Encoding UTF8 -Force
+            Write-Utf8NoBom (Join-Path $RollbackTmp "disabled-targets.txt") $DisabledBackup
         }
         if (Test-Path $TokenFile) {
             try { Copy-Item $TokenFile (Join-Path $RollbackTmp ".easyskills-token") -Force } catch {}
@@ -1600,13 +2153,30 @@ function Invoke-WebUIRequest($Context) {
             $Skills = @(Get-SkillsData)
             $Agents = @(Get-VisibleAgentsData)
             $MappedCount = @($Agents | Where-Object { $_.mapped }).Count
+            $DetectedAgents = @($Agents | Where-Object { $_.active })
+            $ConfiguredInstructionPaths = @($Agents | Where-Object { $_.instructions_path })
+            $ExistingInstructionFiles = @($Agents | Where-Object { $_.instructions_exists })
+            $Instructions = Get-InstructionsData
+            $DetectedInstructionAgents = @($Instructions.agents | Where-Object { $_.active })
+            $ManagedInstructionAgents = @($DetectedInstructionAgents | Where-Object { [int]$_.managed_rule_count -gt 0 })
+            $ManagedRuleInstances = 0
+            foreach ($Agent in $DetectedInstructionAgents) { $ManagedRuleInstances += [int]$Agent.managed_rule_count }
             $LinkWarnings = Get-CentralDirWarnings
             $Data = @{
                 watcher = Get-WatcherStatus
                 central_dir = $CentralDir
                 skills_count = $Skills.Count
                 agents_total = $Agents.Count
+                agents_detected = $DetectedAgents.Count
                 agents_mapped = $MappedCount
+                agent_instruction_paths_configured = $ConfiguredInstructionPaths.Count
+                agent_instruction_files_existing = $ExistingInstructionFiles.Count
+                instruction_targets_total = @($Instructions.agents).Count
+                instruction_target_files_existing = @($Instructions.agents | Where-Object { $_.exists }).Count
+                rules_count = @($Instructions.rules).Count
+                instruction_agents_detected = $DetectedInstructionAgents.Count
+                instruction_agents_managed = $ManagedInstructionAgents.Count
+                managed_rule_instances = $ManagedRuleInstances
                 version = Get-EasySkillsVersion
                 has_backup = (Test-Path (Join-Path $CentralDir "_maintenance.bak") -PathType Container)
                 # Link health: dangling links will be auto-pruned on next sync;
@@ -1683,6 +2253,9 @@ function Invoke-WebUIRequest($Context) {
                     }
                 }
             }
+            if (-not ($BodyData -is [System.Collections.IDictionary])) {
+                $BodyData = @{}
+            }
         }
 
         if ($UrlPath -eq "/api/sync") {
@@ -1698,11 +2271,14 @@ function Invoke-WebUIRequest($Context) {
         } elseif ($UrlPath -eq "/api/agents/unmap") {
             Send-JsonResponse $Context (Do-Unmap $BodyData["path"])
         } elseif ($UrlPath -eq "/api/agents/update") {
-            Send-JsonResponse $Context (Update-AgentPath $BodyData["name"] $BodyData["old_path"] $BodyData["new_path"])
+            $OldSkillsPath = if ($BodyData.ContainsKey("old_skills_path")) { $BodyData["old_skills_path"] } else { $BodyData["old_path"] }
+            $SkillsPath = if ($BodyData.ContainsKey("skills_path")) { $BodyData["skills_path"] } else { $BodyData["new_path"] }
+            Send-JsonResponse $Context (Update-AgentPaths $BodyData["name"] $OldSkillsPath $SkillsPath $BodyData["instructions_path"])
         } elseif ($UrlPath -eq "/api/agents/custom/add") {
-            Send-JsonResponse $Context (Run-DeployCommand @("-Add", $BodyData["path"]))
+            $SkillsPath = if ($BodyData.ContainsKey("skills_path")) { $BodyData["skills_path"] } else { $BodyData["path"] }
+            Send-JsonResponse $Context (Register-CustomAgent $SkillsPath $BodyData["instructions_path"])
         } elseif ($UrlPath -eq "/api/agents/custom/remove") {
-            Send-JsonResponse $Context (Run-DeployCommand @("-Remove", $BodyData["path"]))
+            Send-JsonResponse $Context (Remove-CustomAgent $BodyData["path"])
         } elseif ($UrlPath -eq "/api/skills/import") {
             Send-JsonResponse $Context (Import-SkillFolder $BodyData["name"] $BodyData["files"])
         } elseif ($UrlPath -eq "/api/skills/delete") {
@@ -1722,7 +2298,7 @@ function Invoke-WebUIRequest($Context) {
         } elseif ($UrlPath -eq "/api/instructions/write-selected") {
             Send-JsonResponse $Context (Write-SelectedInstructions -Rules $BodyData["rules"] -Agents $BodyData["agents"])
         } elseif ($UrlPath -eq "/api/instructions/remove-selected") {
-            Send-JsonResponse $Context (Remove-SelectedInstructions -Agents $BodyData["agents"])
+            Send-JsonResponse $Context (Remove-SelectedInstructions -Rules $BodyData["rules"] -Agents $BodyData["agents"])
         } elseif ($UrlPath -eq "/api/update") {
             Send-JsonResponse $Context (Run-SelfUpdate)
         } elseif ($UrlPath -eq "/api/rollback") {
@@ -1743,6 +2319,12 @@ function Start-WebUIListener {
     $L.Prefixes.Add("http://127.0.0.1:$Port/")
     $L.Start()
     return $L
+}
+
+if ($SyncRules) {
+    $Res = Write-InstructionsToAll
+    Write-Host "Rules Sync: $(if ($Res.success) { 'Success' } else { 'Failed' }) - $($Res.message)"
+    exit (if ($Res.success) { 0 } else { 1 })
 }
 
 Write-WebUILog "webui.ps1 starting up."
