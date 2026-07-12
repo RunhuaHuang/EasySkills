@@ -34,8 +34,8 @@
       "name": "GitHub Copilot",
       "mac_path": "~/.copilot/skills",
       "win_path": "%USERPROFILE%\\.copilot\\skills",
-      "mac_instructions_file": "~/.copilot/AGENTS.md",
-      "win_instructions_file": "%USERPROFILE%\\.copilot\\AGENTS.md"
+      "mac_instructions_file": "~/.copilot/copilot-instructions.md",
+      "win_instructions_file": "%USERPROFILE%\\.copilot\\copilot-instructions.md"
     },
     {
       "name": "Pi",
@@ -55,8 +55,8 @@
       "name": "Kimi Code",
       "mac_path": "~/.kimi/skills",
       "win_path": "%USERPROFILE%\\.kimi\\skills",
-      "mac_instructions_file": "~/.kimi/KIMI.md",
-      "win_instructions_file": "%USERPROFILE%\\.kimi\\KIMI.md"
+      "mac_instructions_file": "~/.kimi/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.kimi\\AGENTS.md"
     },
     {
       "name": "ZCode",
@@ -179,8 +179,8 @@
       "name": "Continue",
       "mac_path": "~/.continue/skills",
       "win_path": "%USERPROFILE%\\.continue\\skills",
-      "mac_instructions_file": "~/.continue/AGENTS.md",
-      "win_instructions_file": "%USERPROFILE%\\.continue\\AGENTS.md"
+      "mac_instructions_file": "~/.continue/rules/easyskills-instructions.md",
+      "win_instructions_file": "%USERPROFILE%\\.continue\\rules\\easyskills-instructions.md"
     },
     {
       "name": "Goose",
