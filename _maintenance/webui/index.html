@@ -3432,7 +3432,7 @@
                     // Select-all row
                     parts.push(`<div style="grid-column: 1/-1; display: flex; align-items: center; gap: var(--space-sm); padding: 0 0 var(--space-xs) 0; font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-display);">
                         <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
-                            <input type="checkbox" id="rules-select-all" ${allChecked ? 'checked' : ''} onchange="toggleAllRules(this.checked)">
+                            <input type="checkbox" id="rules-select-all" ${allChecked ? 'checked' : ''}>
                             <span class="t-rules-select-all">Select All</span>
                         </label>
                     </div>`);
@@ -3442,7 +3442,7 @@
                         parts.push(`<div class="card" style="border-top: 2px solid var(--warning);">
                             <div class="card-header">
                                 <div class="card-title" style="gap: 6px;">
-                                    <input type="checkbox" data-rule-check="${escapeHtml(r.name)}" ${checked ? 'checked' : ''} onchange="onRuleCheckChange()">
+                                    <input type="checkbox" data-rule-check="${escapeHtml(r.name)}" ${checked ? 'checked' : ''}>
                                     <i class="fa-solid fa-file-lines" style="color: var(--warning);"></i><span>${escapeHtml(r.name)}</span>
                                 </div>
                             </div>
@@ -3462,6 +3462,14 @@
                             else if (action === 'delete') deleteRule(name, btn);
                         });
                     });
+                    // 规则 checkbox 事件绑定 (不再用内联 onchange)
+                    rulesGrid.querySelectorAll('[data-rule-check]').forEach(cb => {
+                        cb.addEventListener('change', onRuleCheckChange);
+                    });
+                    const rulesSelectAll = document.getElementById('rules-select-all');
+                    if (rulesSelectAll) {
+                        rulesSelectAll.addEventListener('change', () => toggleAllRules(rulesSelectAll.checked));
+                    }
                 }
             }
 
@@ -3473,7 +3481,7 @@
                 const parts = [];
                 parts.push(`<div style="grid-column: 1/-1; display: flex; align-items: center; gap: var(--space-sm); padding: 0 0 var(--space-xs) 0; font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-display);">
                     <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
-                        <input type="checkbox" id="agents-select-all" ${allAgentChecked ? 'checked' : ''} onchange="toggleAllAgents(this.checked)">
+                        <input type="checkbox" id="agents-select-all" ${allAgentChecked ? 'checked' : ''}>
                         <span class="t-rules-select-all">Select All</span>
                     </label>
                 </div>`);
@@ -3486,7 +3494,7 @@
                     parts.push(`<div class="card" style="opacity: ${a.exists ? '1' : '0.6'}; border-top: 2px solid ${written ? 'var(--success)' : 'var(--border-subtle)'};">
                         <div class="card-header">
                             <div class="card-title" style="gap: 6px;">
-                                <input type="checkbox" data-agent-check="${escapeHtml(a.path)}" ${checked ? 'checked' : ''} onchange="onAgentCheckChange()">
+                                <input type="checkbox" data-agent-check="${escapeHtml(a.path)}" ${checked ? 'checked' : ''}>
                                 <i class="fa-solid fa-${written ? 'check-circle' : 'circle'}" style="color: ${written ? 'var(--success)' : 'var(--text-muted)'};"></i><span>${escapeHtml(a.name)}</span>
                             </div>
                             ${badge}
@@ -3507,6 +3515,14 @@
                         apiCall(endpoint, { path }, btn);
                     });
                 });
+                // Agent checkbox 事件绑定
+                agentsGrid.querySelectorAll('[data-agent-check]').forEach(cb => {
+                    cb.addEventListener('change', onAgentCheckChange);
+                });
+                const agentsSelectAll = document.getElementById('agents-select-all');
+                if (agentsSelectAll) {
+                    agentsSelectAll.addEventListener('change', () => toggleAllAgents(agentsSelectAll.checked));
+                }
             }
         }
 
