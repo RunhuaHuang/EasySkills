@@ -848,6 +848,22 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertNotIn("$RuleFiles.Count -gt 0", ps_src)
         self.assertIn("Agent rule sync failed; skill junctions were still synchronized", ps_src)
 
+    def test_powershell_rule_cleanup_allows_state_tracked_historical_targets(self):
+        src = read("_maintenance/webui.ps1")
+        cleanup = src.split("function Remove-InstructionsFromOne", 1)[1].split(
+            "function Remove-RulesFromOne", 1
+        )[0]
+        self.assertIn("Get-InstructionStateEntry $PathStr", cleanup)
+        self.assertIn("$KnownPath = [string]$StateTarget.path", cleanup)
+
+    def test_powershell_mcp_version_requires_a_json_integer(self):
+        src = read("_maintenance/webui.ps1")
+        validation = src.split("function Test-MCPConfig", 1)[1].split(
+            "function Get-MCPConfigObject", 1
+        )[0]
+        self.assertIn("$version -isnot [int] -and $version -isnot [long]", validation)
+        self.assertNotIn("$version -isnot [double]", validation)
+
     def test_hardcoded_fallbacks_match_agents_json(self):
         """Hardcoded fallback arrays must contain the same paths as agents.json."""
         import json

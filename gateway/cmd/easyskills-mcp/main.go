@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/RunhuaHuang/EasySkills/gateway/internal/config"
 	gatewayruntime "github.com/RunhuaHuang/EasySkills/gateway/internal/gateway"
@@ -95,7 +98,55 @@ func serve(args []string) error {
 		&mcp.ServerOptions{Instructions: "Tools are routed through EasySkills."},
 	)
 	router.Register(server)
-	return server.Run(ctx, &mcp.StdioTransport{})
+
+	// Watch config file for hot-reloading
+	reloadDone := make(chan struct{})
+	go func() {
+		defer close(reloadDone)
+		getFileHash := func(path string) ([]byte, error) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil, err
+			}
+			h := sha256.Sum256(data)
+			return h[:], nil
+		}
+		var lastHash []byte
+		if h, err := getFileHash(*configPath); err == nil {
+			lastHash = h
+		}
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				h, err := getFileHash(*configPath)
+				if err != nil {
+					continue
+				}
+				if !bytes.Equal(h, lastHash) {
+					newCfg, err := config.Load(*configPath)
+					if err != nil {
+						logger.Warn("Failed to reload changed MCP config", "path", *configPath, "error", err)
+						continue
+					}
+					logger.Info("Reloading configuration...", "path", *configPath)
+					if err := router.Reload(ctx, newCfg, *profile, server); err != nil {
+						logger.Error("Failed to apply reloaded configuration", "error", err)
+					} else {
+						lastHash = h
+					}
+				}
+			}
+		}
+	}()
+
+	runErr := server.Run(ctx, &mcp.StdioTransport{})
+	stop()
+	<-reloadDone
+	return runErr
 }
 
 func validate(args []string) error {

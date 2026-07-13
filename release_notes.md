@@ -1,3 +1,58 @@
+## EasySkills 4.0.3
+
+A polish release hardening the MCP Gateway, the Windows WebUI backend, and
+the contract test suite. All changes are backward-compatible. All 120 Python
+security/contract tests and all Go unit and end-to-end routing tests pass.
+
+### MCP Gateway: Config Hot-Reload
+
+- The `serve` command now polls the config file for changes every 2 seconds
+  using a SHA-256 content hash and calls the new `Router.Reload` API on
+  change, updating downstream connections and tool registrations without
+  restarting the process.
+
+### MCP Gateway: Core Improvements
+
+- **`Router.Reload` API.** Adds, removes, and reconfigures downstream servers
+  in-place while the gateway is running. Servers whose config has not changed
+  are reused unchanged; removed servers are cleanly shut down.
+- **Tool-name deduplication.** `resolveToolName` resolves the clean original
+  name first and falls back to a namespaced `server__tool` form only on
+  collision, then appends a counter for further collisions. Previously all
+  names were namespaced unconditionally.
+- **Rollback on discover error.** Partially registered tools are removed from
+  the routing table when `ListTools` pagination fails mid-stream, preventing
+  phantom tool routes.
+- **Input/output schema validation.** `validateToolDefinition` rejects tools
+  whose `inputSchema` or `outputSchema` is not a JSON object, preventing
+  routing of tools that downstream clients cannot safely introspect.
+- **`downstream.cfg` field.** Each active session now stores its originating
+  `ServerConfig` so `Reload` can detect unchanged servers and skip
+  reconnection.
+- **Process resource cleanup (Windows).** `Test-MCPGateway` in `webui.ps1`
+  now wraps the helper process in a `finally` block that calls `Dispose()`,
+  preventing handle leaks.
+
+### Windows WebUI (`webui.ps1`)
+
+- **MCP version integer check.** `Test-MCPConfig` previously accepted
+  floating-point `version` values (e.g. `1.0`) as valid. The check now
+  requires a strict `[int]` or `[long]`, matching the JSON schema intent.
+- **Historical-target cleanup.** `Remove-InstructionsFromOne` falls back to
+  the instruction state file for custom Agent paths that were removed from the
+  current configuration after EasySkills wrote instructions to them, ensuring
+  bulk cleanup reaches all previously managed targets.
+
+### Validation
+
+- 2 new Python contract tests cover the PowerShell MCP version integer check
+  and the historical-target cleanup path in `Remove-InstructionsFromOne`.
+- 2 new Go unit tests cover `resolveToolName` collision semantics and
+  `validateToolDefinition` schema rejection.
+- 1 new Go integration test (`TestGatewayReload`) exercises the full
+  `Router.Reload` lifecycle: config-unchanged fast-path, tool-timeout change,
+  server addition, and server removal.
+
 ## EasySkills 4.0.0
 
 EasySkills now has a third capability channel: a cross-platform MCP Gateway.

@@ -126,7 +126,7 @@ function Test-MCPConfig($ConfigData) {
         }
     }
     $version = $ConfigData.version
-    if ($version -is [bool] -or ($version -isnot [int] -and $version -isnot [long] -and $version -isnot [double]) -or $version -ne 1) {
+    if ($version -is [bool] -or ($version -isnot [int] -and $version -isnot [long]) -or $version -ne 1) {
         return @{ success = $false; message = "version must be 1." }
     }
     if ($null -eq $ConfigData.servers) { return @{ success = $false; message = "servers must be a JSON object." } }
@@ -356,6 +356,7 @@ function Test-MCPGateway([string]$Profile = "default", [string]$ServerName = "")
     if (-not (Test-Path $MCPConfigFile -PathType Leaf)) { return @{ success = $false; message = "Save the MCP configuration before testing." } }
     if ($Profile -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') { return @{ success = $false; message = "Invalid profile name." } }
     if ($ServerName -and $ServerName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') { return @{ success = $false; message = "Invalid MCP server name." } }
+    $Process = $null
     try {
         $Arguments = @("test", "--config", $MCPConfigFile, "--profile", $Profile)
         if ($ServerName) { $Arguments += @("--server", $ServerName) }
@@ -400,6 +401,8 @@ function Test-MCPGateway([string]$Profile = "default", [string]$ServerName = "")
         return @{ success = $true; message = "MCP Gateway test completed."; summary = $Summary }
     } catch {
         return @{ success = $false; message = "Could not run MCP Gateway: $_" }
+    } finally {
+        if ($Process) { try { $Process.Dispose() } catch {} }
     }
 }
 
@@ -1931,7 +1934,16 @@ function Write-InstructionsToOne([string]$PathStr) {
 function Remove-InstructionsFromOne([string]$PathStr) {
     try {
         $KnownPath = Resolve-KnownInstructionTarget $PathStr
-        if (-not $KnownPath) { return @{ success = $false; message = "Unknown agent instruction target" } }
+        if (-not $KnownPath) {
+            # Bulk cleanup must also reach custom Agents that were removed from
+            # the current configuration after EasySkills wrote them. The state
+            # file is the trusted allow-list for those historical paths.
+            $StateTarget = Get-InstructionStateEntry $PathStr
+            if (-not $StateTarget -or -not ([string]$StateTarget.path)) {
+                return @{ success = $false; message = "Unknown agent instruction target" }
+            }
+            $KnownPath = [string]$StateTarget.path
+        }
         $Resolved = [System.IO.Path]::GetFullPath($KnownPath)
         if (-not (Test-Path $Resolved)) {
             Remove-InstructionState $Resolved

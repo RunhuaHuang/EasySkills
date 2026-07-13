@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -33,6 +34,7 @@ type Router struct {
 
 type downstream struct {
 	session *mcp.ClientSession
+	cfg     config.ServerConfig
 }
 
 type toolRoute struct {
@@ -90,7 +92,7 @@ func Open(ctx context.Context, cfg *config.Config, profileName string, logger *s
 			logger.Warn("MCP server unavailable", "server", name, "error", err)
 			continue
 		}
-		router.sessions[name] = &downstream{session: session}
+		router.sessions[name] = &downstream{session: session, cfg: serverCfg}
 		discoveryCtx, cancel := context.WithTimeout(ctx, time.Duration(serverCfg.StartupTimeout())*time.Second)
 		count, err := router.discover(discoveryCtx, name, serverCfg, session)
 		cancel()
@@ -173,22 +175,39 @@ func (t *headerTransport) RoundTrip(request *http.Request) (*http.Response, erro
 	return t.base.RoundTrip(clone)
 }
 
-func (r *Router) discover(ctx context.Context, serverName string, cfg config.ServerConfig, session *mcp.ClientSession) (int, error) {
+func (r *Router) discover(ctx context.Context, serverName string, cfg config.ServerConfig, session *mcp.ClientSession) (writtenCount int, err error) {
 	cursor := ""
 	count := 0
-	for {
-		result, err := session.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
+	var added []string
+	defer func() {
 		if err != nil {
+			r.mu.Lock()
+			for _, key := range added {
+				delete(r.tools, key)
+			}
+			r.mu.Unlock()
+		}
+	}()
+	for {
+		result, errVal := session.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
+		if errVal != nil {
+			err = errVal
 			return 0, err
 		}
 		for _, tool := range result.Tools {
 			if tool == nil || !toolAllowed(serverName, tool.Name, cfg, r.profile) {
 				continue
 			}
-			gatewayName := namespacedToolName(serverName, tool.Name)
-			if existing, exists := r.tools[gatewayName]; exists {
-				return 0, fmt.Errorf("tool name collision %q between %s.%s and %s.%s", gatewayName, existing.serverName, existing.toolName, serverName, tool.Name)
+			if validationErr := validateToolDefinition(tool); validationErr != nil {
+				err = fmt.Errorf("server %q tool %q: %w", serverName, tool.Name, validationErr)
+				return 0, err
 			}
+			r.mu.Lock()
+			occupied := make(map[string]string)
+			for gName, route := range r.tools {
+				occupied[gName] = route.serverName
+			}
+			gatewayName := resolveToolName(serverName, tool.Name, occupied)
 			r.tools[gatewayName] = toolRoute{
 				serverName: serverName,
 				toolName:   tool.Name,
@@ -196,6 +215,8 @@ func (r *Router) discover(ctx context.Context, serverName string, cfg config.Ser
 				session:    session,
 				timeout:    time.Duration(cfg.ToolTimeout()) * time.Second,
 			}
+			r.mu.Unlock()
+			added = append(added, gatewayName)
 			count++
 		}
 		if result.NextCursor == "" {
@@ -215,52 +236,299 @@ func (r *Router) Register(server *mcp.Server) {
 	}
 	sort.Strings(names)
 	for _, gatewayName := range names {
-		route := r.tools[gatewayName]
-		downstreamTool := route.definition
-		if downstreamTool == nil {
+		registerTool(server, gatewayName, r.tools[gatewayName])
+	}
+}
+
+func registerTool(server *mcp.Server, gatewayName string, route toolRoute) {
+	downstreamTool := route.definition
+	if downstreamTool == nil {
+		return
+	}
+	published := *downstreamTool
+	published.Name = gatewayName
+	if published.Title == "" {
+		published.Title = route.serverName + ": " + route.toolName
+	}
+	origin := "Provided by the " + route.serverName + " MCP server."
+	if published.Description == "" {
+		published.Description = origin
+	} else {
+		published.Description = origin + " " + published.Description
+	}
+	if published.InputSchema == nil {
+		published.InputSchema = map[string]any{"type": "object"}
+	}
+	routeCopy := route
+	server.AddTool(&published, func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		callCtx, cancel := context.WithTimeout(ctx, routeCopy.timeout)
+		defer cancel()
+		params := &mcp.CallToolParams{Name: routeCopy.toolName}
+		if request != nil && request.Params != nil {
+			params.Meta = request.Params.Meta
+			params.Arguments = request.Params.Arguments
+		}
+		result, err := routeCopy.session.CallTool(callCtx, params)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+				return nil, fmt.Errorf("%s.%s timed out", routeCopy.serverName, routeCopy.toolName)
+			}
+			return nil, fmt.Errorf("%s.%s: %w", routeCopy.serverName, routeCopy.toolName, err)
+		}
+		return result, nil
+	})
+}
+
+func (r *Router) Reload(ctx context.Context, cfg *config.Config, profileName string, server *mcp.Server) (err error) {
+	selected, profile, errVal := cfg.SelectedServers(profileName)
+	if errVal != nil {
+		return errVal
+	}
+
+	r.mu.Lock()
+	profileChanged := !reflect.DeepEqual(r.profile, profile)
+	existingServers := make(map[string]bool, len(r.sessions))
+	for name := range r.sessions {
+		existingServers[name] = true
+	}
+	previousToolNames := make(map[string]string, len(r.tools))
+	for gatewayName, route := range r.tools {
+		previousToolNames[toolIdentity(route.serverName, route.toolName)] = gatewayName
+	}
+
+	// Determine which existing servers to close
+	var toClose []string
+	for name, oldDS := range r.sessions {
+		newCfg, exists := selected[name]
+		if !exists || !reflect.DeepEqual(oldDS.cfg, newCfg) {
+			toClose = append(toClose, name)
+		}
+	}
+
+	// Determine which servers to re-evaluate
+	var toReevaluate []string
+	for name := range selected {
+		_, exists := r.sessions[name]
+		isClosed := false
+		for _, closedName := range toClose {
+			if closedName == name {
+				isClosed = true
+				break
+			}
+		}
+		if !exists || isClosed || profileChanged {
+			toReevaluate = append(toReevaluate, name)
+		}
+	}
+
+	// Determine which new/modified servers to connect
+	var toConnect []string
+	for name := range selected {
+		_, exists := r.sessions[name]
+		isClosed := false
+		for _, closedName := range toClose {
+			if closedName == name {
+				isClosed = true
+				break
+			}
+		}
+		if !exists || isClosed {
+			toConnect = append(toConnect, name)
+		}
+	}
+	r.mu.Unlock()
+
+	// Pre-flight Phase 1: Connect to new/modified servers
+	newSessions := make(map[string]*downstream)
+	connectionErrors := make(map[string]error)
+
+	defer func() {
+		if err != nil {
+			for _, ds := range newSessions {
+				ds.session.Close()
+			}
+		}
+	}()
+
+	for _, name := range toConnect {
+		serverCfg := selected[name]
+		session, connErr := connect(ctx, name, serverCfg, r.logger)
+		if connErr != nil {
+			r.logger.Warn("MCP server reload connection failed (pre-flight)", "server", name, "error", connErr)
+			connectionErrors[name] = connErr
+			if existingServers[name] {
+				err = fmt.Errorf("replacement server %q failed: %w", name, connErr)
+				return err
+			}
+			if serverCfg.Required {
+				err = fmt.Errorf("required server %q failed: %w", name, connErr)
+				return err
+			}
 			continue
 		}
-		published := *downstreamTool
-		published.Name = gatewayName
-		if published.Title == "" {
-			published.Title = route.serverName + ": " + route.toolName
-		}
-		origin := "Provided by the " + route.serverName + " MCP server."
-		if published.Description == "" {
-			published.Description = origin
-		} else {
-			published.Description = origin + " " + published.Description
-		}
-		if published.InputSchema == nil {
-			published.InputSchema = map[string]any{"type": "object"}
-		}
-		routeCopy := route
-		server.AddTool(&published, func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			callCtx, cancel := context.WithTimeout(ctx, routeCopy.timeout)
-			defer cancel()
-			params := &mcp.CallToolParams{Name: routeCopy.toolName}
-			if request != nil && request.Params != nil {
-				params.Meta = request.Params.Meta
-				params.Arguments = request.Params.Arguments
-			}
-			result, err := routeCopy.session.CallTool(callCtx, params)
-			if err != nil {
-				if errors.Is(err, context.DeadlineExceeded) || errors.Is(callCtx.Err(), context.DeadlineExceeded) {
-					return nil, fmt.Errorf("%s.%s timed out", routeCopy.serverName, routeCopy.toolName)
-				}
-				return nil, fmt.Errorf("%s.%s: %w", routeCopy.serverName, routeCopy.toolName, err)
-			}
-			return result, nil
-		})
+		newSessions[name] = &downstream{session: session, cfg: serverCfg}
 	}
+
+	// Pre-flight Phase 2: Run discovery for new sessions or existing sessions that need profile re-evaluation
+	discovered := make(map[string][]*mcp.Tool)
+
+	for _, name := range toReevaluate {
+		serverCfg, exists := selected[name]
+		if !exists {
+			continue
+		}
+
+		var session *mcp.ClientSession
+		if ds, ok := newSessions[name]; ok {
+			session = ds.session
+		} else {
+			r.mu.RLock()
+			if ds, ok := r.sessions[name]; ok {
+				session = ds.session
+			}
+			r.mu.RUnlock()
+		}
+
+		if session == nil {
+			continue
+		}
+
+		discoveryCtx, cancel := context.WithTimeout(ctx, time.Duration(serverCfg.StartupTimeout())*time.Second)
+		toolsList, discErr := r.discoverToolsLocal(discoveryCtx, name, serverCfg, session, profile)
+		cancel()
+
+		if discErr != nil {
+			r.logger.Warn("MCP server reload discovery failed (pre-flight)", "server", name, "error", discErr)
+			connectionErrors[name] = discErr
+			if ds, ok := newSessions[name]; ok {
+				ds.session.Close()
+				delete(newSessions, name)
+			}
+			if existingServers[name] {
+				err = fmt.Errorf("replacement server %q discovery failed: %w", name, discErr)
+				return err
+			}
+			if serverCfg.Required {
+				err = fmt.Errorf("required server %q discovery failed: %w", name, discErr)
+				return err
+			}
+			continue
+		}
+
+		discovered[name] = toolsList
+	}
+
+	// Commit Phase: Commit connections and register tools
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// 1. Remove tools for all re-evaluated servers
+	for _, name := range toReevaluate {
+		var toolNamesToRemove []string
+		for gName, route := range r.tools {
+			if route.serverName == name {
+				toolNamesToRemove = append(toolNamesToRemove, gName)
+			}
+		}
+		for _, gName := range toolNamesToRemove {
+			delete(r.tools, gName)
+		}
+		if len(toolNamesToRemove) > 0 {
+			server.RemoveTools(toolNamesToRemove...)
+		}
+	}
+
+	// 2. Close and remove old sessions
+	for _, name := range toClose {
+		oldDS, exists := r.sessions[name]
+		if exists {
+			delete(r.sessions, name)
+			oldDS.session.Close()
+		}
+	}
+
+	// 3. Commit new sessions
+	for name, ds := range newSessions {
+		r.sessions[name] = ds
+	}
+
+	// 4. Register newly discovered tools with dynamic collision resolution
+	discoveredNames := make([]string, 0, len(discovered))
+	for name := range discovered {
+		discoveredNames = append(discoveredNames, name)
+	}
+	sort.Strings(discoveredNames)
+	for _, name := range discoveredNames {
+		toolsList := discovered[name]
+		serverCfg := selected[name]
+		ds, exists := r.sessions[name]
+		if !exists {
+			continue
+		}
+
+		for _, tool := range toolsList {
+			occupied := make(map[string]string)
+			for gName, route := range r.tools {
+				occupied[gName] = route.serverName
+			}
+			gatewayName := ""
+			if previousName, ok := previousToolNames[toolIdentity(name, tool.Name)]; ok {
+				if _, occupiedNow := occupied[previousName]; !occupiedNow {
+					gatewayName = previousName
+				}
+			}
+			if gatewayName == "" {
+				gatewayName = resolveToolName(name, tool.Name, occupied)
+			}
+
+			route := toolRoute{
+				serverName: name,
+				toolName:   tool.Name,
+				definition: tool,
+				session:    ds.session,
+				timeout:    time.Duration(serverCfg.ToolTimeout()) * time.Second,
+			}
+			r.tools[gatewayName] = route
+			registerTool(server, gatewayName, route)
+		}
+	}
+
+	// 5. Update profiles and status
+	r.profile = profile
+	var newStatus []ServerStatus
+	names := make([]string, 0, len(selected))
+	for name := range selected {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		serverCfg := selected[name]
+		status := ServerStatus{Name: name, Transport: serverCfg.NormalizedTransport()}
+		if _, ok := r.sessions[name]; ok {
+			status.Connected = true
+			toolCount := 0
+			for _, route := range r.tools {
+				if route.serverName == name {
+					toolCount++
+				}
+			}
+			status.Tools = toolCount
+		} else if errVal, ok := connectionErrors[name]; ok {
+			status.Error = errVal.Error()
+		}
+		newStatus = append(newStatus, status)
+	}
+	r.status = newStatus
+
+	return nil
 }
 
 func (r *Router) Summary(profileName string) Summary {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	toolNames := make([]string, 0, len(r.tools))
-	for name := range r.tools {
-		toolNames = append(toolNames, name)
+	for name, route := range r.tools {
+		toolNames = append(toolNames, route.serverName+"."+name)
 	}
 	sort.Strings(toolNames)
 	statuses := append([]ServerStatus{}, r.status...)
@@ -310,6 +578,31 @@ func matchesAny(patterns []string, value string) bool {
 var invalidToolChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 func namespacedToolName(serverName, toolName string) string {
+	return cleanToolName(toolName)
+}
+
+func resolveToolName(serverName, toolName string, occupied map[string]string) string {
+	cleanName := cleanToolName(toolName)
+	if _, ok := occupied[cleanName]; !ok {
+		return cleanName
+	}
+	baseFallback := cleanToolName(serverName + "__" + toolName)
+	if _, ok := occupied[baseFallback]; !ok {
+		return baseFallback
+	}
+	for suffix := 2; ; suffix++ {
+		candidate := cleanToolName(fmt.Sprintf("%s_%d", baseFallback, suffix))
+		if _, ok := occupied[candidate]; !ok {
+			return candidate
+		}
+	}
+}
+
+func toolIdentity(serverName, toolName string) string {
+	return serverName + "\x00" + toolName
+}
+
+func cleanToolName(toolName string) string {
 	toolPart := strings.Trim(invalidToolChars.ReplaceAllString(toolName, "_"), "_")
 	if toolPart == "" {
 		toolPart = "tool"
@@ -321,6 +614,61 @@ func namespacedToolName(serverName, toolName string) string {
 	hash := sha256.Sum256([]byte(result))
 	suffix := "_" + hex.EncodeToString(hash[:4])
 	return result[:128-len(suffix)] + suffix
+}
+
+func (r *Router) discoverToolsLocal(ctx context.Context, serverName string, cfg config.ServerConfig, session *mcp.ClientSession, prof config.Profile) ([]*mcp.Tool, error) {
+	cursor := ""
+	var tools []*mcp.Tool
+	for {
+		result, err := session.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
+		if err != nil {
+			return nil, err
+		}
+		for _, tool := range result.Tools {
+			if tool == nil || !toolAllowed(serverName, tool.Name, cfg, prof) {
+				continue
+			}
+			if err := validateToolDefinition(tool); err != nil {
+				return nil, fmt.Errorf("server %q tool %q: %w", serverName, tool.Name, err)
+			}
+			tools = append(tools, tool)
+		}
+		if result.NextCursor == "" {
+			break
+		}
+		cursor = result.NextCursor
+	}
+	return tools, nil
+}
+
+func validateToolDefinition(tool *mcp.Tool) error {
+	if tool.InputSchema == nil {
+		return nil
+	}
+	if err := validateObjectSchema(tool.InputSchema, "input"); err != nil {
+		return err
+	}
+	if tool.OutputSchema != nil {
+		if err := validateObjectSchema(tool.OutputSchema, "output"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateObjectSchema(schema any, kind string) error {
+	data, err := json.Marshal(schema)
+	if err != nil {
+		return fmt.Errorf("%s schema is not JSON-serializable: %w", kind, err)
+	}
+	var object map[string]any
+	if err := json.Unmarshal(data, &object); err != nil {
+		return fmt.Errorf("%s schema must be a JSON object: %w", kind, err)
+	}
+	if object == nil || object["type"] != "object" {
+		return fmt.Errorf("%s schema must have type object", kind)
+	}
+	return nil
 }
 
 // DecodeArguments is kept small and exported for contract tests and future
