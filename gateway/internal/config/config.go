@@ -53,20 +53,7 @@ func boolPtr(v bool) *bool { return &v }
 func Default() *Config {
 	return &Config{
 		Version: CurrentVersion,
-		Servers: map[string]ServerConfig{
-			"prismstudio": {
-				Enabled:   boolPtr(false),
-				Transport: "stdio",
-				Command:   "npx",
-				Args:      []string{"-y", "prismstudio@latest"},
-			},
-			"visionpower": {
-				Enabled:   boolPtr(false),
-				Transport: "stdio",
-				Command:   "npx",
-				Args:      []string{"-y", "--package", "visionpower@latest", "visionpower"},
-			},
-		},
+		Servers: map[string]ServerConfig{},
 		Profiles: map[string]Profile{
 			"default": {Servers: []string{"*"}},
 		},
