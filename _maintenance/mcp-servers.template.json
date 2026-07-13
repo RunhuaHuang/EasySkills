@@ -1,10 +1,25 @@
 {
   "version": 1,
   "servers": {
-    "context7": {
+    "prismstudio": {
       "enabled": false,
-      "transport": "http",
-      "url": "https://mcp.context7.com/mcp"
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "prismstudio@latest"
+      ]
+    },
+    "visionpower": {
+      "enabled": false,
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--package",
+        "visionpower@latest",
+        "visionpower"
+      ]
     }
   },
   "profiles": {

@@ -54,10 +54,17 @@ func Default() *Config {
 	return &Config{
 		Version: CurrentVersion,
 		Servers: map[string]ServerConfig{
-			"context7": {
+			"prismstudio": {
 				Enabled:   boolPtr(false),
-				Transport: "http",
-				URL:       "https://mcp.context7.com/mcp",
+				Transport: "stdio",
+				Command:   "npx",
+				Args:      []string{"-y", "prismstudio@latest"},
+			},
+			"visionpower": {
+				Enabled:   boolPtr(false),
+				Transport: "stdio",
+				Command:   "npx",
+				Args:      []string{"-y", "--package", "visionpower@latest", "visionpower"},
 			},
 		},
 		Profiles: map[string]Profile{
