@@ -31,7 +31,7 @@ for script_name in webui-service.sh webui.py; do
       cmdline=$(ps -p "$p" -o command= 2>/dev/null || true)
       base="${comm##*/}"
       [[ "$cmdline" == *"$INSTALL_DIR/_maintenance/$script_name"* ]] || continue
-      case "$base" in bash|sh|python|python[0-9]*) kill "$p" 2>/dev/null || true;; esac
+      case "$base" in bash|sh|[Pp]ython|[Pp]ython[0-9]*) kill "$p" 2>/dev/null || true;; esac
     done
   fi
 done

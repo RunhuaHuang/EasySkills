@@ -43,7 +43,7 @@ for script_name in webui-service.sh webui.py; do
       base="${comm##*/}"
       [[ "$cmdline" == *"$HOME/EasySkills/_maintenance/$script_name"* ]] || continue
       case "$base" in
-        bash|sh|python|python[0-9]*)
+        bash|sh|[Pp]ython|[Pp]ython[0-9]*)
           kill "$p" 2>/dev/null || true
           ;;
       esac

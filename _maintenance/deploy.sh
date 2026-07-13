@@ -486,7 +486,7 @@ run_sync() {
   for _entry in "$CENTRAL_DIR"/*; do
     [ -L "$_entry" ] || continue
     _e_name=$(basename "$_entry")
-    [[ "$_e_name" == node_modules || "$_e_name" == .git || "$_e_name" == dist || "$_e_name" == docs || "$_e_name" == instructions || "$_e_name" == _* ]] && continue
+    [[ "$_e_name" == node_modules || "$_e_name" == .git || "$_e_name" == dist || "$_e_name" == docs || "$_e_name" == instructions || "$_e_name" == mcp || "$_e_name" == _* ]] && continue
     if [ ! -e "$_entry" ]; then
       unlink "$_entry"
       dangling_removed=$((dangling_removed + 1))
@@ -505,7 +505,7 @@ run_sync() {
     [ -d "$skill_dir" ] || continue
     skill_name=$(basename "$skill_dir")
 
-    [[ "$skill_name" == "node_modules" || "$skill_name" == ".git" || "$skill_name" == "dist" || "$skill_name" == "docs" || "$skill_name" == "instructions" || "$skill_name" == "." || "$skill_name" == ".." || "$skill_name" == _* ]] && continue
+    [[ "$skill_name" == "node_modules" || "$skill_name" == ".git" || "$skill_name" == "dist" || "$skill_name" == "docs" || "$skill_name" == "instructions" || "$skill_name" == "mcp" || "$skill_name" == "." || "$skill_name" == ".." || "$skill_name" == _* ]] && continue
 
     echo "   Found skill: $skill_name"
 
@@ -759,7 +759,7 @@ run_status() {
     for _entry in "$CENTRAL_DIR"/*; do
       [ -L "$_entry" ] || continue
       _e_name=$(basename "$_entry")
-      [[ "$_e_name" == node_modules || "$_e_name" == .git || "$_e_name" == dist || "$_e_name" == docs || "$_e_name" == instructions || "$_e_name" == _* ]] && continue
+      [[ "$_e_name" == node_modules || "$_e_name" == .git || "$_e_name" == dist || "$_e_name" == docs || "$_e_name" == instructions || "$_e_name" == mcp || "$_e_name" == _* ]] && continue
       if [ ! -e "$_entry" ]; then
         dangling_count=$((dangling_count + 1))
       else
@@ -842,7 +842,7 @@ PY
     for pid in $(pgrep -f "$SCRIPT_DIR/webui.py" 2>/dev/null || true); do
       comm=$(ps -p "$pid" -o comm= 2>/dev/null || true)
       base="${comm##*/}"
-      case "$base" in python|python[0-9]*) echo "$pid"; return 0;; esac
+      case "$base" in [Pp]ython|[Pp]ython[0-9]*) echo "$pid"; return 0;; esac
     done
     return 1
   }
@@ -858,14 +858,14 @@ PY
         # Require BOTH the webui.py path AND a python interpreter so we never
         # kill an editor/grep that merely references the file.
         if [[ "$cmdline" == *"$SCRIPT_DIR/webui.py"* ]]; then
-          case "$base" in python|python[0-9]*) kill "$pid" 2>/dev/null || true;; esac
+          case "$base" in [Pp]ython|[Pp]ython[0-9]*) kill "$pid" 2>/dev/null || true;; esac
         fi
       done
     fi
     for pid in $(pgrep -f "$SCRIPT_DIR/webui.py" 2>/dev/null || true); do
       comm=$(ps -p "$pid" -o comm= 2>/dev/null || true)
       base="${comm##*/}"
-      case "$base" in python|python[0-9]*) kill "$pid" 2>/dev/null || true;; esac
+      case "$base" in [Pp]ython|[Pp]ython[0-9]*) kill "$pid" 2>/dev/null || true;; esac
     done
     for _ in 1 2 3 4 5 6 7 8 9 10; do
       [ -z "$(own_webui_pid)" ] && ! port_ready && break

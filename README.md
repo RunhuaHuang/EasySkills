@@ -5,9 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#安装方式)
 [![Agents](https://img.shields.io/badge/支持Agent-43+-orange.svg)](#支持的-agent-列表)
-[![Version](https://img.shields.io/badge/版本-3.2.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Version](https://img.shields.io/badge/版本-4.0.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
-**一个中央库、两条同步通道，统一管理所有 Agent。**
+**一个中央库、三条能力通道，统一管理所有 Agent。**
 
 只需将技能或指令规则放入 `~/EasySkills`，
 它就会通过原生链接与非破坏性标记，自动同步至 Claude Code、Codex、Cursor、Gemini、Copilot、Windsurf、Trae 等 43+ Agent 的运行环境中。
@@ -45,7 +45,7 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 </tr>
 </table>
 
-安装器会创建 `~/EasySkills`，自动检测已安装的 Agent，映射共享技能，启动后台监听，并拉起本地 WebUI。
+安装器会创建 `~/EasySkills`，自动检测已安装的 Agent，映射共享技能、安装 MCP Gateway、启动后台监听，并拉起本地 WebUI。Gateway 安装失败不会影响 Skills 和 Rules。
 
 > **其他方式：** 克隆仓库后双击 `install_mac.command`（macOS）或 `install_windows.bat`（Windows）。
 
@@ -127,7 +127,7 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 
 ## 工作原理
 
-EasySkills 提供两条同步通道，帮助您统一交付智能体的各项能力：
+EasySkills 提供三条能力通道，帮助您统一交付智能体的各项能力：
 
 ```
 ~/EasySkills/                           ← 您的中央管理目录
@@ -143,6 +143,12 @@ EasySkills 提供两条同步通道，帮助您统一交付智能体的各项能
 │   │ ~/.cursor/AGENTS.md      ──→ <!-- Managed -->│
 │   └──────────────────────────────────────────────┘
 │
+├── mcp/servers.json                    ← [通道三] 下游 MCP 的统一 JSON 配置
+├── _runtime/easyskills-mcp             ← 单文件 MCP Gateway
+│           │
+│           ▼ Agent 只连接一次，Gateway 统一发现和路由工具
+│   context7__* / github__* / database__* / ...
+│
 ├── MyAwesomeSkill/                     ← [通道一] 共享技能文件夹
 └── DeployHelper/
             │
@@ -156,6 +162,15 @@ EasySkills 提供两条同步通道，帮助您统一交付智能体的各项能
 
 * **通道一 (技能同步)** — 使用原生软链接（macOS/Linux）或目录联结（Windows）将共享技能映射到各个 AI 工具的技能目录中。修改一处，所有 Agent 即时生效，不破坏专属技能。
 * **通道二 (规则同步)** — 自动编译合并 `instructions/` 目录下的所有 Markdown 规则文件，并通过 `<!-- EasySkills:begin -->` / `<!-- EasySkills:end -->` 托管块插入各 Agent 的全局指令规则文件（如 `CLAUDE.md`, `AGENTS.md`）。更新时只替换块内内容，块外您自定义的修改完全保留。
+* **通道三 (MCP Gateway)** — Agent 只安装一个 EasySkills MCP。Gateway 根据 `mcp/servers.json` 连接多个下游 MCP，并以 `服务名__工具名` 路由工具；支持 stdio、Streamable HTTP、SSE、Profile 和工具白/黑名单。
+
+### MCP Gateway 快速配置
+
+在 WebUI 的 **MCP** 页面点击“添加 MCP”，通过结构化表单填写名称、传输方式、地址或本地命令、Headers/环境变量和工具过滤规则。每个 MCP 都是独立模块，可单独编辑、测试、启停和删除，用户无需接触 JSON。
+
+然后在“只连接一次 Agent”区域选择 Claude/Cursor/Kiro、VS Code 或 Codex 并复制连接配置。以后新增 MCP、停用服务或更换 Key 都只在 EasySkills 中操作，无需逐个修改 Agent。
+
+> API Key、Token、Headers 和环境变量按设计以明文保存在本地 JSON 中。目录权限设为仅当前用户可访问，保存使用原子替换并保留 `servers.json.bak`；请勿分享或提交该文件。
 
 ---
 
@@ -163,7 +178,7 @@ EasySkills 提供两条同步通道，帮助您统一交付智能体的各项能
 
 通过本地控制台 `http://127.0.0.1:6633` 管理一切。
 
-提供技能库导入/删除、模块化 Agent 规则编辑、Agent 连接与路径管理、自定义路径注册、手动同步、无效链接清理和版本更新检查。
+提供技能库导入/删除、模块化 Agent 规则编辑、模块化 MCP 管理与逐项连通性测试、Agent 连接与路径管理、自定义路径注册、手动同步、无效链接清理和版本更新检查。
 
 ```bash
 # macOS / Linux
@@ -190,11 +205,12 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 | **1** | **技能库导入/删除** | 通过 WebUI 导入技能文件夹；删除时弹窗确认 |
 | **2** | **Agent 规则同步** | 支持非破坏性托管块（`<!-- EasySkills:begin/end -->`）安全写入全局指令规则文件，保留用户手写内容 |
 | **3** | **Agent 自动检测** | 自动识别 43+ 主流 Agent，只为真实存在的路径建立连接 |
-| **4** | **双通道静默监听** | 后台监听顶层技能增删并自动重写已连接 Agent 的指令规则 |
+| **4** | **MCP 中枢管理** | Agent 只连接一次；在 WebUI 中以独立模块管理所有下游 MCP、凭证与工具过滤 |
 | **5** | **非侵入式** | 共享技能与 Agent 专属技能并列存在——原有 skills 不受影响 |
 | **6** | **Windows 免提权** | 使用 NTFS 目录联结，无需管理员权限或开发者模式 |
 | **7** | **本地优先安全** | 跳过已有真实目录，使用文件锁，仅监听 `127.0.0.1` |
 | **8** | **并发安全** | macOS PID 锁 / Windows 命名互斥锁，防止同步重入 |
+| **9** | **跨平台单文件 Gateway** | Go 静态二进制覆盖 macOS、Linux、Windows 的 amd64/arm64，用户无需安装 Go |
 
 ---
 

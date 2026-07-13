@@ -35,6 +35,7 @@ import hmac
 import json
 import os
 import platform
+import re
 import secrets
 import shutil
 import subprocess
@@ -45,7 +46,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
+SCRIPT_DIR = Path(__file__).parent.absolute()
 CENTRAL_DIR = SCRIPT_DIR.parent
 
 # Dynamically resolve to official home directory installation if it exists.
@@ -159,13 +160,18 @@ def _get_disabled_targets() -> set[str]:
 AGENTS_JSON_FILE = SCRIPT_DIR / "agents.json"
 WEBUI_DIR = SCRIPT_DIR / "webui"
 if not WEBUI_DIR.exists():
-    WEBUI_DIR = Path(__file__).parent.resolve() / "webui"
+    WEBUI_DIR = Path(__file__).parent.absolute() / "webui"
 
 # --- Instruction-rule library (AGENTS.md / CLAUDE.md management) ---
 # Modular rule files live here; "write to all agents" concatenates them into a
 # single managed block injected into each agent's global instruction file.
 INSTRUCTIONS_DIR = CENTRAL_DIR / "instructions"
 INSTRUCTION_SYNC_STATE_FILE = CENTRAL_DIR / ".easyskills-instruction-state.json"
+MCP_DIR = CENTRAL_DIR / "mcp"
+MCP_CONFIG_FILE = MCP_DIR / "servers.json"
+MCP_CONFIG_BACKUP_FILE = MCP_DIR / "servers.json.bak"
+MCP_TEMPLATE_FILE = SCRIPT_DIR / "mcp-servers.template.json"
+MCP_GATEWAY_BINARY = CENTRAL_DIR / "_runtime" / ("easyskills-mcp.exe" if os.name == "nt" else "easyskills-mcp")
 EASY_SKILLS_BEGIN = "<!-- EasySkills:begin -->"
 EASY_SKILLS_BEGIN_ALIASES = (
     EASY_SKILLS_BEGIN,
@@ -340,7 +346,7 @@ _qoder_cn_skills = Path.home() / ".qoder-cn" / "skills"
 if not _qoder_cn_skills.exists():
     _qoder_cn_skills.mkdir(parents=True, exist_ok=True)
 
-EXCLUDE_NAMES = {"_maintenance", ".git", "node_modules", "dist", "docs", "instructions"}
+EXCLUDE_NAMES = {"_maintenance", ".git", "node_modules", "dist", "docs", "instructions", "mcp"}
 
 # Module-level constant: built once, not re-allocated on every get_agent_name() call.
 _AGENT_PREFIX_MAP: list[tuple[str, str]] = [
@@ -1437,6 +1443,267 @@ def remove_selected_instructions(rules: list[str] | None = None, agents: list[st
     return {"success": len(failed) == 0, "message": msg, "removed": len(removed), "failed": failed}
 
 
+# ──────────────────────────────────────────────────────────────
+# MCP Gateway JSON configuration
+# ──────────────────────────────────────────────────────────────
+
+_MCP_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_MCP_SERVER_FIELDS = {
+    "enabled", "required", "transport", "command", "args", "cwd", "env",
+    "url", "headers", "startup_timeout_seconds", "tool_timeout_seconds",
+    "enabled_tools", "disabled_tools",
+}
+_MCP_PROFILE_FIELDS = {"servers", "enabled_tools", "disabled_tools"}
+
+
+def _default_mcp_config() -> dict:
+    try:
+        data = json.loads(MCP_TEMPLATE_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        pass
+    return {"version": 1, "servers": {}, "profiles": {"default": {"servers": ["*"]}}}
+
+
+def _validate_string_list(value, field: str, problems: list[str]) -> None:
+    if value is not None and (
+        not isinstance(value, list) or any(not isinstance(item, str) for item in value)
+    ):
+        problems.append(f"{field} must be an array of strings")
+
+
+def _validate_mcp_config(config_data) -> tuple[bool, str]:
+    if not isinstance(config_data, dict):
+        return False, "MCP configuration must be a JSON object."
+    unknown_top = set(config_data) - {"version", "servers", "profiles"}
+    if unknown_top:
+        return False, f"Unknown top-level fields: {', '.join(sorted(unknown_top))}"
+    if config_data.get("version") != 1:
+        return False, "version must be 1."
+    servers = config_data.get("servers")
+    profiles = config_data.get("profiles", {})
+    if not isinstance(servers, dict):
+        return False, "servers must be a JSON object."
+    if not isinstance(profiles, dict):
+        return False, "profiles must be a JSON object."
+    problems: list[str] = []
+    for name, server in servers.items():
+        prefix = f"server {name!r}"
+        if not isinstance(name, str) or not _MCP_IDENTIFIER_RE.fullmatch(name):
+            problems.append(f"{prefix} has an invalid name")
+            continue
+        if not isinstance(server, dict):
+            problems.append(f"{prefix} must be an object")
+            continue
+        unknown = set(server) - _MCP_SERVER_FIELDS
+        if unknown:
+            problems.append(f"{prefix} has unknown fields: {', '.join(sorted(unknown))}")
+        if "enabled" in server and not isinstance(server["enabled"], bool):
+            problems.append(f"{prefix}.enabled must be boolean")
+        if "required" in server and not isinstance(server["required"], bool):
+            problems.append(f"{prefix}.required must be boolean")
+        transport = str(server.get("transport", "")).strip().lower().replace("_", "-")
+        if transport == "streamable-http":
+            transport = "http"
+        if transport == "stdio":
+            if not isinstance(server.get("command"), str) or not server.get("command", "").strip():
+                problems.append(f"{prefix}.command is required for stdio")
+        elif transport in {"http", "sse"}:
+            url = server.get("url")
+            parsed = urllib.parse.urlparse(url) if isinstance(url, str) else None
+            if not parsed or parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                problems.append(f"{prefix}.url must be a valid http(s) URL")
+        else:
+            problems.append(f"{prefix}.transport must be stdio, http, streamable-http, or sse")
+        _validate_string_list(server.get("args"), f"{prefix}.args", problems)
+        for map_field in ("env", "headers"):
+            value = server.get(map_field)
+            if value is not None and (
+                not isinstance(value, dict)
+                or any(not isinstance(k, str) or not isinstance(v, str) for k, v in value.items())
+            ):
+                problems.append(f"{prefix}.{map_field} must be an object of string values")
+        for list_field in ("enabled_tools", "disabled_tools"):
+            _validate_string_list(server.get(list_field), f"{prefix}.{list_field}", problems)
+        for number_field, maximum in (("startup_timeout_seconds", 600), ("tool_timeout_seconds", 3600)):
+            value = server.get(number_field)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > maximum
+            ):
+                problems.append(f"{prefix}.{number_field} must be an integer from 0 to {maximum}")
+    for name, profile in profiles.items():
+        prefix = f"profile {name!r}"
+        if not isinstance(name, str) or not _MCP_IDENTIFIER_RE.fullmatch(name):
+            problems.append(f"{prefix} has an invalid name")
+            continue
+        if not isinstance(profile, dict):
+            problems.append(f"{prefix} must be an object")
+            continue
+        unknown = set(profile) - _MCP_PROFILE_FIELDS
+        if unknown:
+            problems.append(f"{prefix} has unknown fields: {', '.join(sorted(unknown))}")
+        for list_field in _MCP_PROFILE_FIELDS:
+            _validate_string_list(profile.get(list_field), f"{prefix}.{list_field}", problems)
+        selected = profile.get("servers", [])
+        if isinstance(selected, list):
+            for server_name in selected:
+                if isinstance(server_name, str) and server_name != "*" and server_name not in servers:
+                    problems.append(f"{prefix} references unknown server {server_name!r}")
+    if problems:
+        return False, "; ".join(sorted(problems))
+    return True, ""
+
+
+def _read_mcp_config() -> tuple[dict | None, str | None]:
+    if not MCP_CONFIG_FILE.exists():
+        return _default_mcp_config(), None
+    try:
+        data = json.loads(MCP_CONFIG_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError) as exc:
+        return None, f"Could not read MCP config: {exc}"
+    valid, message = _validate_mcp_config(data)
+    return (data, None) if valid else (None, message)
+
+
+def _gateway_info() -> dict:
+    binary = MCP_GATEWAY_BINARY
+    if not binary.is_file():
+        found = shutil.which("easyskills-mcp")
+        binary = Path(found) if found else binary
+    info = {"installed": binary.is_file(), "path": str(binary), "version": ""}
+    if info["installed"]:
+        try:
+            result = subprocess.run(
+                [str(binary), "version"], capture_output=True, text=True, timeout=5, check=False,
+            )
+            if result.returncode == 0:
+                info["version"] = result.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return info
+
+
+def get_mcp_config() -> dict:
+    config_data, error = _read_mcp_config()
+    return {
+        "success": error is None,
+        "path": str(MCP_CONFIG_FILE),
+        "exists": MCP_CONFIG_FILE.is_file(),
+        "config": config_data,
+        "error": error or "",
+        "gateway": _gateway_info(),
+    }
+
+
+@_writes_locked
+def save_mcp_config(config_data) -> dict:
+    valid, message = _validate_mcp_config(config_data)
+    if not valid:
+        return {"success": False, "message": message}
+    payload = json.dumps(config_data, ensure_ascii=False, indent=2) + "\n"
+    if len(payload.encode("utf-8")) > 1024 * 1024:
+        return {"success": False, "message": "MCP configuration exceeds the 1 MB limit."}
+    try:
+        MCP_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            MCP_DIR.chmod(0o700)
+        except OSError:
+            pass
+        if MCP_CONFIG_FILE.is_file():
+            shutil.copy2(MCP_CONFIG_FILE, MCP_CONFIG_BACKUP_FILE)
+            try:
+                MCP_CONFIG_BACKUP_FILE.chmod(0o600)
+            except OSError:
+                pass
+        _atomic_write_text(MCP_CONFIG_FILE, payload)
+        try:
+            MCP_CONFIG_FILE.chmod(0o600)
+        except OSError:
+            pass
+        return {"success": True, "message": "MCP configuration saved.", "config": config_data}
+    except OSError as exc:
+        return {"success": False, "message": f"Could not save MCP configuration: {exc}"}
+
+
+@_writes_locked
+def add_mcp_server(name: str, server_data) -> dict:
+    clean = (name or "").strip()
+    if not _MCP_IDENTIFIER_RE.fullmatch(clean):
+        return {"success": False, "message": "Server name must use letters, numbers, dot, underscore, or hyphen."}
+    current, error = _read_mcp_config()
+    if error:
+        return {"success": False, "message": error}
+    if clean in current["servers"]:
+        return {"success": False, "message": f"MCP server {clean!r} already exists."}
+    current["servers"][clean] = server_data
+    return save_mcp_config(current)
+
+
+@_writes_locked
+def update_mcp_server(name: str, server_data) -> dict:
+    clean = (name or "").strip()
+    current, error = _read_mcp_config()
+    if error:
+        return {"success": False, "message": error}
+    if clean not in current["servers"]:
+        return {"success": False, "message": f"MCP server {clean!r} does not exist."}
+    current["servers"][clean] = server_data
+    return save_mcp_config(current)
+
+
+@_writes_locked
+def delete_mcp_server(name: str) -> dict:
+    clean = (name or "").strip()
+    current, error = _read_mcp_config()
+    if error:
+        return {"success": False, "message": error}
+    if clean not in current["servers"]:
+        return {"success": False, "message": f"MCP server {clean!r} does not exist."}
+    del current["servers"][clean]
+    for profile in current.get("profiles", {}).values():
+        if isinstance(profile, dict) and isinstance(profile.get("servers"), list):
+            profile["servers"] = [item for item in profile["servers"] if item != clean]
+    return save_mcp_config(current)
+
+
+def test_mcp_gateway(profile: str = "default", server_name: str = "") -> dict:
+    gateway = _gateway_info()
+    if not gateway["installed"]:
+        return {"success": False, "message": "EasySkills MCP Gateway binary is not installed."}
+    if not MCP_CONFIG_FILE.is_file():
+        return {"success": False, "message": "Save the MCP configuration before testing."}
+    clean_profile = (profile or "default").strip()
+    if not _MCP_IDENTIFIER_RE.fullmatch(clean_profile):
+        return {"success": False, "message": "Invalid profile name."}
+    clean_server = (server_name or "").strip()
+    if clean_server and not _MCP_IDENTIFIER_RE.fullmatch(clean_server):
+        return {"success": False, "message": "Invalid MCP server name."}
+    try:
+        command = [
+            gateway["path"], "test", "--config", str(MCP_CONFIG_FILE),
+            "--profile", clean_profile,
+        ]
+        if clean_server:
+            command.extend(["--server", clean_server])
+        result = subprocess.run(
+            command,
+            capture_output=True, text=True, timeout=45, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {"success": False, "message": "MCP Gateway test timed out after 45 seconds."}
+    except OSError as exc:
+        return {"success": False, "message": f"Could not run MCP Gateway: {exc}"}
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or "Gateway test failed.").strip()
+        return {"success": False, "message": message[-4000:]}
+    try:
+        summary = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        summary = {"output": result.stdout.strip()}
+    return {"success": True, "message": "MCP Gateway test completed.", "summary": summary}
+
+
 def get_latest_release() -> dict:
     def release_from_tag(tag: str, name: str = "") -> dict:
         return {
@@ -2517,6 +2784,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 agent for agent in instruction_agents if agent.get("active")
             ]
             link_warnings = get_central_dir_warnings()
+            mcp_data = get_mcp_config()
+            mcp_config = mcp_data.get("config") if mcp_data.get("success") else None
+            mcp_servers = mcp_config.get("servers", {}) if isinstance(mcp_config, dict) else {}
             self._json({
                 "watcher":       watcher,
                 "central_dir":   str(CENTRAL_DIR),
@@ -2544,6 +2814,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     int(agent.get("managed_rule_count", 0) or 0)
                     for agent in detected_instruction_agents
                 ),
+                "mcp_servers_count": len(mcp_servers),
+                "mcp_servers_enabled": sum(
+                    1 for server in mcp_servers.values()
+                    if isinstance(server, dict) and server.get("enabled", True)
+                ),
+                "mcp_gateway_installed": bool(mcp_data.get("gateway", {}).get("installed")),
                 "version":       get_version(),
                 "has_backup":    (CENTRAL_DIR / "_maintenance.bak").is_dir(),
                 # Link health: dangling links will be auto-pruned on next sync;
@@ -2575,6 +2851,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._reject_forbidden()
                 return
             self._json(get_instructions())
+
+        elif path == "/api/mcp":
+            if not self._is_token_valid():
+                self._reject_forbidden()
+                return
+            self._json(get_mcp_config())
 
         elif path.startswith("/api/instructions/content/"):
             if not self._is_token_valid():
@@ -2631,6 +2913,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "/api/instructions/remove-one":   lambda: remove_instructions_from_one(body.get("path", "")),
             "/api/instructions/write-selected":   lambda: write_selected_instructions(body.get("rules"), body.get("agents")),
             "/api/instructions/remove-selected":  lambda: remove_selected_instructions(body.get("rules"), body.get("agents")),
+            "/api/mcp/save":                lambda: save_mcp_config(body.get("config")),
+            "/api/mcp/server/add":          lambda: add_mcp_server(body.get("name", ""), body.get("server")),
+            "/api/mcp/server/update":       lambda: update_mcp_server(body.get("name", ""), body.get("server")),
+            "/api/mcp/server/delete":       lambda: delete_mcp_server(body.get("name", "")),
+            "/api/mcp/test":                lambda: test_mcp_gateway(body.get("profile", "default"), body.get("server", "")),
             "/api/update":               lambda: do_self_update(),
             "/api/rollback":             lambda: do_rollback(),
         }

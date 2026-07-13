@@ -1,14 +1,15 @@
 # EasySkills — System & Operations Reference
 
-> **Version:** 3.2.1 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
+> **Version:** 4.0.0 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
 
-EasySkills is a cross-platform automated skills and rules manager for macOS, Linux, and Windows. It establishes a centralized folder (`~/EasySkills`) and synchronizes capabilities through two distinct delivery channels:
+EasySkills is a cross-platform skills, rules, and MCP manager for macOS, Linux, and Windows. It establishes a centralized folder (`~/EasySkills`) and delivers capabilities through three channels:
 - **Channel 01 / Skills (Symlinks)**: Dynamically maps top-level folders inside `~/EasySkills` into every installed agent's skills directory using native symlinks (macOS/Linux) or directory junctions (Windows).
 - **Channel 02 / Agent Rules (Managed Blocks)**: Compiles all Markdown files from `~/EasySkills/instructions/` and injects them as a single concatenated prompt rule block (enclosed in `<!-- EasySkills:begin/end -->` comments) into agent global instruction files (e.g. `CLAUDE.md`, `AGENTS.md`).
+- **Channel 03 / MCP Gateway (stdio)**: Each Agent connects to one EasySkills MCP process. The Go Gateway reads `~/EasySkills/mcp/servers.json`, connects to all selected downstream MCP servers, and publishes their tools under collision-free `server__tool` names.
 
 This document is operational reference material for the installed system. It is **not** an agent skill and is not mapped into any agent's skills directory.
 
-> 🌐 **WebUI Dashboard:** EasySkills ships with a visual manager running locally on port **6633** — [http://127.0.0.1:6633](http://127.0.0.1:6633). Import/delete skills, manage modular Agent rules, check connected agent status, edit custom instruction file paths, synchronize manually, prune invalid links, and trigger updates.
+> 🌐 **WebUI Dashboard:** EasySkills ships with a visual manager running locally on port **6633** — [http://127.0.0.1:6633](http://127.0.0.1:6633). Import/delete skills, manage modular Agent rules and MCP modules, test each downstream MCP, check connected agent status, synchronize manually, prune invalid links, and trigger updates.
 
 ---
 
@@ -27,7 +28,7 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 
 **Double-click install:** clone or download the repo, then double-click `install_mac.command` (macOS) or `install_windows.bat` (Windows).
 
-The installer creates `~/EasySkills`, detects supported agents, maps shared skills, compiles rules, starts the background watcher, and launches the WebUI. User config (`custom-targets.txt`, rule state, tokens) is preserved across upgrades.
+The installer creates `~/EasySkills`, detects supported agents, maps shared skills, compiles rules, initializes `mcp/servers.json`, installs the platform Gateway binary, starts the background watcher, and launches the WebUI. User config (including MCP JSON and plaintext credentials) is preserved across upgrades. Gateway download/build failure is non-fatal for the other two channels.
 
 ### Windows Defender note
 
@@ -83,6 +84,48 @@ powershell -ExecutionPolicy Bypass -File .\_maintenance\deploy.ps1 -Unwatch
 
 ### 3. Adding custom agent paths
 If an agent lives in a non-standard location, configure its folders via the WebUI **Agent Config** tab, or with `deploy.sh --add <path>` / `deploy.ps1 -Add <path>`. Custom paths persist in `_maintenance/custom-targets.txt`. The default agent list itself is defined in `_maintenance/agents.json` (the single source of truth).
+
+### 4. MCP Gateway operations
+
+Installed files:
+
+- Config: `~/EasySkills/mcp/servers.json`
+- Automatic backup: `~/EasySkills/mcp/servers.json.bak`
+- macOS/Linux binary: `~/EasySkills/_runtime/easyskills-mcp`
+- Windows binary: `%USERPROFILE%\EasySkills\_runtime\easyskills-mcp.exe`
+
+The Agent-facing transport is stdio. Downstream servers may use `stdio`, `http` (MCP Streamable HTTP), `streamable-http`, or legacy `sse`. The initial Gateway intentionally proxies MCP tools only; Resources, Prompts, Sampling, and Elicitation are outside the v1 routing surface.
+
+The Gateway does not run as a permanent background daemon. Each Agent starts
+the configured stdio command on demand and owns that process for the lifetime
+of its session. Closing an unrelated terminal window has no effect; a terminal
+matters only when the Gateway was started manually inside it.
+
+```bash
+~/EasySkills/_runtime/easyskills-mcp validate
+~/EasySkills/_runtime/easyskills-mcp list
+~/EasySkills/_runtime/easyskills-mcp test --profile default
+~/EasySkills/_runtime/easyskills-mcp connect --profile default
+```
+
+Core JSON fields:
+
+| Scope | Field | Meaning |
+|---|---|---|
+| root | `version` | Schema version; currently `1` |
+| root | `servers` | Object keyed by a stable server name |
+| root | `profiles` | Named server/tool selections; `default` is used unless overridden |
+| server | `enabled`, `required` | Enable a server; optionally fail Gateway startup when it cannot connect |
+| server | `transport` | `stdio`, `http` / `streamable-http`, or `sse` |
+| stdio server | `command`, `args`, `cwd`, `env` | Child process launch configuration |
+| HTTP/SSE server | `url`, `headers` | Remote endpoint and request headers |
+| server | `startup_timeout_seconds`, `tool_timeout_seconds` | Bounded connection/discovery and tool-call timeouts |
+| server/profile | `enabled_tools`, `disabled_tools` | Glob allow/deny lists; profile patterns use `server.tool` |
+| profile | `servers` | Server names or `"*"` |
+
+Secrets are deliberately not encrypted: `env`, `headers`, API keys, and tokens round-trip as plain JSON strings so the WebUI remains simple and portable. On Unix, EasySkills enforces `0700` on the MCP directory and `0600` on the config/backup; saves are atomic. Never commit or share `servers.json`.
+
+Agent configuration snippets are generated in the WebUI. Conceptually, all supported Agents launch the same command with `connect --config <servers.json> --profile default`; no Agent configuration changes are required when downstream servers change.
 
 ---
 

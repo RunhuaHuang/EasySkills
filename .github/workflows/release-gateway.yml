@@ -1,0 +1,99 @@
+name: Release MCP Gateway
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            goos: darwin
+            goarch: arm64
+            asset: easyskills-mcp-darwin-arm64.tar.gz
+          - runner: macos-14
+            goos: darwin
+            goarch: amd64
+            asset: easyskills-mcp-darwin-amd64.tar.gz
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            asset: easyskills-mcp-linux-arm64.tar.gz
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            asset: easyskills-mcp-linux-amd64.tar.gz
+          - runner: windows-latest
+            goos: windows
+            goarch: arm64
+            asset: easyskills-mcp-windows-arm64.zip
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+            asset: easyskills-mcp-windows-amd64.zip
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache-dependency-path: gateway/go.sum
+      - name: Test
+        run: go test ./...
+      - name: Build Unix binary
+        if: matrix.goos != 'windows'
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA::12}" -o easyskills-mcp ./cmd/easyskills-mcp
+          tar -czf "${{ matrix.asset }}" easyskills-mcp
+      - name: Build Windows binary
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          $Version = $env:GITHUB_REF_NAME.TrimStart('v')
+          go build -trimpath -ldflags "-s -w -X main.version=$Version -X main.commit=$($env:GITHUB_SHA.Substring(0,12))" -o easyskills-mcp.exe ./cmd/easyskills-mcp
+          Compress-Archive -Path easyskills-mcp.exe -DestinationPath "${{ matrix.asset }}" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: gateway/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: "*-*"
+          merge-multiple: true
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum easyskills-mcp-* > checksums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/easyskills-mcp-*
+            dist/checksums.txt

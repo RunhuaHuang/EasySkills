@@ -119,6 +119,11 @@ if /i "%CURRENT_DIR_STRIP%" neq "%PERM_DIR%" (
   )
 )
 
+:: Initialize user MCP config and install the optional Gateway binary.
+if not exist "%PERM_DIR%\mcp" mkdir "%PERM_DIR%\mcp"
+if not exist "%PERM_DIR%\mcp\servers.json" if exist "%PERM_DIR%\_maintenance\mcp-servers.template.json" copy /Y "%PERM_DIR%\_maintenance\mcp-servers.template.json" "%PERM_DIR%\mcp\servers.json" > nul
+if exist "%PERM_DIR%\_maintenance\install-gateway.ps1" powershell -NoProfile -ExecutionPolicy Bypass -File "%PERM_DIR%\_maintenance\install-gateway.ps1" -SourceDir "%CURRENT_DIR%gateway"
+
 :: --- Version reporting (MUST be outside the parenthesized block above) ---
 :: Here %OLD_VERSION% / %NEW_VERSION% are read AFTER the block that sets them,
 :: so CMD's parse-time expansion reflects their real values. OLD_VERSION is only

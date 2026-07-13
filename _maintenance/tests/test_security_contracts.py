@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import base64
 import json
+import os
 import re
 import tempfile
 import unittest
@@ -169,6 +170,92 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("left: 0;", overlay_css)
         self.assertNotIn("left: 280px;", overlay_css)
 
+    def test_mcp_gateway_module_management_is_cross_platform_and_token_protected(self):
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        html_src = read("_maintenance/webui/index.html")
+
+        for endpoint in ("/api/mcp", "/api/mcp/server/add", "/api/mcp/server/update", "/api/mcp/server/delete", "/api/mcp/test"):
+            with self.subTest(endpoint=endpoint):
+                self.assertIn(endpoint, py_src)
+                self.assertIn(endpoint, ps_src)
+                self.assertIn(endpoint, html_src)
+
+        self.assertIn('data-target="mcp"', html_src)
+        self.assertIn('id="mcp-server-list"', html_src)
+        self.assertIn('id="mcp-server-form"', html_src)
+        self.assertIn('id="mcp-form-json"', html_src)
+        self.assertIn("function openMCPServerEditor", html_src)
+        self.assertIn("function saveMCPServerForm", html_src)
+        self.assertIn("function toggleMCPServer", html_src)
+        self.assertNotIn('id="mcp-config-editor"', html_src)
+        self.assertNotIn('id="mcp-add-json"', html_src)
+        self.assertNotIn("JSON.parse(editor.value)", html_src)
+        self.assertIn('serverName := set.String("server"', read("gateway/cmd/easyskills-mcp/main.go"))
+        self.assertIn("MCP_CONFIG_FILE.chmod(0o600)", py_src)
+        self.assertIn("Write-Utf8Atomic $MCPConfigFile", ps_src)
+
+    def test_python_mcp_config_round_trip_and_plaintext_credentials(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mcp_dir = root / "mcp"
+            config_file = mcp_dir / "servers.json"
+            backup_file = mcp_dir / "servers.json.bak"
+            config = {
+                "version": 1,
+                "servers": {
+                    "private-api": {
+                        "enabled": True,
+                        "transport": "http",
+                        "url": "https://example.com/mcp",
+                        "headers": {"Authorization": "Bearer plaintext-secret"},
+                    }
+                },
+                "profiles": {"default": {"servers": ["*"]}},
+            }
+            with mock.patch.object(webui, "MCP_DIR", mcp_dir), \
+                 mock.patch.object(webui, "MCP_CONFIG_FILE", config_file), \
+                 mock.patch.object(webui, "MCP_CONFIG_BACKUP_FILE", backup_file):
+                result = webui.save_mcp_config(config)
+                self.assertTrue(result["success"], result)
+                saved = json.loads(config_file.read_text(encoding="utf-8"))
+                self.assertEqual(saved["servers"]["private-api"]["headers"]["Authorization"], "Bearer plaintext-secret")
+                if os.name != "nt":
+                    self.assertEqual(config_file.stat().st_mode & 0o777, 0o600)
+
+                invalid = webui.add_mcp_server("bad name", {"transport": "stdio", "command": "x"})
+                self.assertFalse(invalid["success"])
+
+                updated_server = dict(saved["servers"]["private-api"])
+                updated_server["enabled"] = False
+                updated = webui.update_mcp_server("private-api", updated_server)
+                self.assertTrue(updated["success"], updated)
+                self.assertFalse(json.loads(config_file.read_text(encoding="utf-8"))["servers"]["private-api"]["enabled"])
+
+                removed = webui.delete_mcp_server("private-api")
+                self.assertTrue(removed["success"], removed)
+                self.assertNotIn("private-api", json.loads(config_file.read_text(encoding="utf-8"))["servers"])
+
+    def test_python_mcp_single_server_test_passes_server_selector(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "servers.json"
+            config_file.write_text('{"version":1,"servers":{}}', encoding="utf-8")
+            completed = SimpleNamespace(
+                returncode=0,
+                stdout='{"profile":"__single__","servers":[],"tools":[]}',
+                stderr="",
+            )
+            with mock.patch.object(webui, "MCP_CONFIG_FILE", config_file), \
+                 mock.patch.object(webui, "_gateway_info", return_value={"installed": True, "path": "/fake/gateway", "version": "test"}), \
+                 mock.patch.object(webui.subprocess, "run", return_value=completed) as run_mock:
+                result = webui.test_mcp_gateway("default", "github")
+
+            self.assertTrue(result["success"], result)
+            command = run_mock.call_args.args[0]
+            self.assertEqual(command[-2:], ["--server", "github"])
+
     def test_agents_and_guide_are_webui_first(self):
         html_src = read("_maintenance/webui/index.html")
 
@@ -190,7 +277,7 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertNotIn("Agent Chat Commands</span>", html_src)
         self.assertNotIn("\\\\'", html_src)
 
-    def test_dashboard_exposes_dual_channel_control_plane(self):
+    def test_dashboard_exposes_three_channel_control_plane(self):
         html_src = read("_maintenance/webui/index.html")
 
         self.assertIn("dashboard-control-plane", html_src)
@@ -198,8 +285,11 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("t-dashboard-skills-channel", html_src)
         self.assertIn("t-dashboard-rules-channel", html_src)
         self.assertIn("dashboard-agent-infrastructure", html_src)
-        self.assertIn("One library, two synchronization channels", html_src)
-        self.assertIn("一个中央库、两条同步通道", html_src)
+        self.assertIn("One library, three capability channels", html_src)
+        self.assertIn("t-dashboard-mcp-channel", html_src)
+        self.assertIn('id="stat-mcp-servers"', html_src)
+        self.assertIn('id="dashboard-mcp-gateway-tag"', html_src)
+        self.assertIn("一个中央库、三条能力通道", html_src)
         self.assertIn('id="dashboard-skill-progress-fill"', html_src)
         self.assertIn('id="dashboard-rule-progress-fill"', html_src)
         self.assertIn('id="stat-agent-paths"', html_src)

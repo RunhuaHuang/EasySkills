@@ -1,3 +1,39 @@
+## EasySkills 4.0.0
+
+EasySkills now has a third capability channel: a cross-platform MCP Gateway.
+Each Agent connects to EasySkills once, while all downstream MCP servers,
+credentials, profiles, and tool filters are managed centrally in one JSON file
+and the local WebUI.
+
+### MCP Gateway
+
+- Added a static Go Gateway binary for macOS, Linux, and Windows on amd64 and
+  arm64. End users do not need Go installed when a release asset is available.
+- Routes downstream MCP tools through a stable `server__tool` namespace.
+- Supports stdio, MCP Streamable HTTP, and legacy SSE downstream transports.
+- Supports optional/required servers, connection and call timeouts, profiles,
+  and per-server/profile glob allow/deny filters.
+- Keeps the initial scope intentionally tool-only; Resources, Prompts,
+  Sampling, and Elicitation are not proxied in v1.
+
+### Central JSON and WebUI
+
+- Added `~/EasySkills/mcp/servers.json` as the single source of truth, with
+  schema validation, atomic saves, owner-only Unix permissions, and one backup.
+- API keys, tokens, headers, and environment values are intentionally stored
+  as plaintext JSON strings and can be edited directly in the WebUI.
+- Added modular MCP rows with structured add/edit forms, per-module enable,
+  disable, test, and delete controls, Gateway status, and one-click Agent
+  configuration copy actions for Claude/Cursor/Kiro, VS Code, and Codex.
+- Installers initialize the config only when absent, preserve it on upgrade,
+  and treat Gateway installation failure as non-fatal for Skills and Rules.
+
+### Validation
+
+- 118 Python security/contract tests pass.
+- Go unit and end-to-end routing tests, `go vet`, Python compilation, shell
+  syntax, frontend JavaScript parsing, and macOS/Linux/Windows cross-builds pass.
+
 ## EasySkills 3.2.1
 
 A patch release completing the post-3.2.0 audit with additional data-safety,

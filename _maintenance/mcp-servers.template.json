@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "servers": {
+    "context7": {
+      "enabled": false,
+      "transport": "http",
+      "url": "https://mcp.context7.com/mcp"
+    }
+  },
+  "profiles": {
+    "default": {
+      "servers": [
+        "*"
+      ]
+    }
+  }
+}

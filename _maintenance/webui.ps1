@@ -93,6 +93,11 @@ $AgentPathConfigFile = Join-Path $CentralDir ".easyskills-agent-paths.json"
 # --- Instruction-rule library (AGENTS.md / CLAUDE.md management) ---
 $InstructionsDir = Join-Path $CentralDir "instructions"
 $InstructionSyncStateFile = Join-Path $CentralDir ".easyskills-instruction-state.json"
+$MCPDir = Join-Path $CentralDir "mcp"
+$MCPConfigFile = Join-Path $MCPDir "servers.json"
+$MCPConfigBackupFile = Join-Path $MCPDir "servers.json.bak"
+$MCPTemplateFile = Join-Path $ScriptDir "mcp-servers.template.json"
+$MCPGatewayBinary = Join-Path $CentralDir "_runtime\easyskills-mcp.exe"
 $EasySkillsBegin = "<!-- EasySkills:begin -->"
 $EasySkillsBeginAliases = @(
     $EasySkillsBegin,
@@ -100,6 +105,156 @@ $EasySkillsBeginAliases = @(
     "<!-- EasySkills:begin (managed block — do not edit manually) -->"
 )
 $EasySkillsEnd = "<!-- EasySkills:end -->"
+
+function Get-DefaultMCPConfig {
+    if (Test-Path $MCPTemplateFile -PathType Leaf) {
+        try { return (Get-Content $MCPTemplateFile -Raw -Encoding UTF8 | ConvertFrom-Json) } catch {}
+    }
+    return [pscustomobject]@{
+        version = 1
+        servers = [pscustomobject]@{}
+        profiles = [pscustomobject]@{ default = [pscustomobject]@{ servers = @("*") } }
+    }
+}
+
+function Test-MCPConfig($ConfigData) {
+    if (-not $ConfigData) { return @{ success = $false; message = "MCP configuration must be a JSON object." } }
+    if ([int]$ConfigData.version -ne 1) { return @{ success = $false; message = "version must be 1." } }
+    if ($null -eq $ConfigData.servers) { return @{ success = $false; message = "servers must be a JSON object." } }
+    $NamePattern = '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+    foreach ($Property in @($ConfigData.servers.PSObject.Properties)) {
+        $Name = [string]$Property.Name
+        $Server = $Property.Value
+        if ($Name -notmatch $NamePattern) { return @{ success = $false; message = "Invalid MCP server name: $Name" } }
+        if (-not $Server) { return @{ success = $false; message = "Server '$Name' must be an object." } }
+        $Transport = ([string]$Server.transport).Trim().ToLower().Replace("_", "-")
+        if ($Transport -eq "streamable-http") { $Transport = "http" }
+        if ($Transport -eq "stdio") {
+            if (-not ([string]$Server.command).Trim()) { return @{ success = $false; message = "Server '$Name' requires command for stdio." } }
+        } elseif ($Transport -eq "http" -or $Transport -eq "sse") {
+            try {
+                $Uri = [System.Uri]([string]$Server.url)
+                if (-not $Uri.IsAbsoluteUri -or $Uri.Scheme -notin @("http", "https")) { throw "invalid" }
+            } catch { return @{ success = $false; message = "Server '$Name' requires a valid http(s) URL." } }
+        } else {
+            return @{ success = $false; message = "Server '$Name' transport must be stdio, http, streamable-http, or sse." }
+        }
+    }
+    if ($ConfigData.profiles) {
+        foreach ($Property in @($ConfigData.profiles.PSObject.Properties)) {
+            if ([string]$Property.Name -notmatch $NamePattern) {
+                return @{ success = $false; message = "Invalid MCP profile name: $($Property.Name)" }
+            }
+            foreach ($ServerName in @($Property.Value.servers)) {
+                if ($ServerName -eq "*") { continue }
+                if (-not $ConfigData.servers.PSObject.Properties[$ServerName]) {
+                    return @{ success = $false; message = "Profile '$($Property.Name)' references unknown server '$ServerName'." }
+                }
+            }
+        }
+    }
+    return @{ success = $true; message = "" }
+}
+
+function Get-MCPConfigObject {
+    if (-not (Test-Path $MCPConfigFile -PathType Leaf)) { return (Get-DefaultMCPConfig) }
+    return (Get-Content $MCPConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json)
+}
+
+function Get-MCPGatewayInfo {
+    $Path = $MCPGatewayBinary
+    if (-not (Test-Path $Path -PathType Leaf)) {
+        $Command = Get-Command "easyskills-mcp.exe" -ErrorAction SilentlyContinue
+        if ($Command) { $Path = $Command.Source }
+    }
+    $Installed = Test-Path $Path -PathType Leaf
+    $Version = ""
+    if ($Installed) {
+        try { $Version = (& $Path version 2>$null | Select-Object -First 1) } catch {}
+    }
+    return @{ installed = [bool]$Installed; path = $Path; version = [string]$Version }
+}
+
+function Get-MCPConfigData {
+    try {
+        $Data = Get-MCPConfigObject
+        $Validation = Test-MCPConfig $Data
+        return @{
+            success = [bool]$Validation.success
+            path = $MCPConfigFile
+            exists = (Test-Path $MCPConfigFile -PathType Leaf)
+            config = if ($Validation.success) { $Data } else { $null }
+            error = [string]$Validation.message
+            gateway = Get-MCPGatewayInfo
+        }
+    } catch {
+        return @{ success = $false; path = $MCPConfigFile; exists = $true; config = $null; error = "Could not read MCP config: $_"; gateway = Get-MCPGatewayInfo }
+    }
+}
+
+function Save-MCPConfig($ConfigData) {
+    $Validation = Test-MCPConfig $ConfigData
+    if (-not $Validation.success) { return $Validation }
+    try {
+        if (-not (Test-Path $MCPDir)) { New-Item -ItemType Directory -Path $MCPDir -Force | Out-Null }
+        if (Test-Path $MCPConfigFile -PathType Leaf) { Copy-Item $MCPConfigFile $MCPConfigBackupFile -Force }
+        $Json = $ConfigData | ConvertTo-Json -Depth 20
+        if ([System.Text.Encoding]::UTF8.GetByteCount($Json) -gt 1048576) {
+            return @{ success = $false; message = "MCP configuration exceeds the 1 MB limit." }
+        }
+        Write-Utf8Atomic $MCPConfigFile ($Json + "`n")
+        return @{ success = $true; message = "MCP configuration saved."; config = $ConfigData }
+    } catch {
+        return @{ success = $false; message = "Could not save MCP configuration: $_" }
+    }
+}
+
+function Add-MCPServer([string]$Name, $ServerData) {
+    $Clean = $Name.Trim()
+    if ($Clean -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') {
+        return @{ success = $false; message = "Server name must use letters, numbers, dot, underscore, or hyphen." }
+    }
+    try { $Data = Get-MCPConfigObject } catch { return @{ success = $false; message = "Could not read MCP config: $_" } }
+    if ($Data.servers.PSObject.Properties[$Clean]) { return @{ success = $false; message = "MCP server '$Clean' already exists." } }
+    $Data.servers | Add-Member -MemberType NoteProperty -Name $Clean -Value $ServerData
+    return Save-MCPConfig $Data
+}
+
+function Update-MCPServer([string]$Name, $ServerData) {
+    $Clean = $Name.Trim()
+    try { $Data = Get-MCPConfigObject } catch { return @{ success = $false; message = "Could not read MCP config: $_" } }
+    $Property = $Data.servers.PSObject.Properties[$Clean]
+    if (-not $Property) { return @{ success = $false; message = "MCP server '$Clean' does not exist." } }
+    $Property.Value = $ServerData
+    return Save-MCPConfig $Data
+}
+
+function Remove-MCPServer([string]$Name) {
+    $Clean = $Name.Trim()
+    try { $Data = Get-MCPConfigObject } catch { return @{ success = $false; message = "Could not read MCP config: $_" } }
+    if (-not $Data.servers.PSObject.Properties[$Clean]) { return @{ success = $false; message = "MCP server '$Clean' does not exist." } }
+    $Data.servers.PSObject.Properties.Remove($Clean)
+    foreach ($Profile in @($Data.profiles.PSObject.Properties)) {
+        $Profile.Value.servers = @($Profile.Value.servers | Where-Object { $_ -ne $Clean })
+    }
+    return Save-MCPConfig $Data
+}
+
+function Test-MCPGateway([string]$Profile = "default", [string]$ServerName = "") {
+    $Gateway = Get-MCPGatewayInfo
+    if (-not $Gateway.installed) { return @{ success = $false; message = "EasySkills MCP Gateway binary is not installed." } }
+    if (-not (Test-Path $MCPConfigFile -PathType Leaf)) { return @{ success = $false; message = "Save the MCP configuration before testing." } }
+    if ($Profile -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') { return @{ success = $false; message = "Invalid profile name." } }
+    if ($ServerName -and $ServerName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') { return @{ success = $false; message = "Invalid MCP server name." } }
+    try {
+        $Arguments = @("test", "--config", $MCPConfigFile, "--profile", $Profile)
+        if ($ServerName) { $Arguments += @("--server", $ServerName) }
+        $Output = & $Gateway.path @Arguments 2>&1
+        if ($LASTEXITCODE -ne 0) { return @{ success = $false; message = ($Output -join "`n") } }
+        $Summary = ($Output -join "`n") | ConvertFrom-Json
+        return @{ success = $true; message = "MCP Gateway test completed."; summary = $Summary }
+    } catch { return @{ success = $false; message = "Could not run MCP Gateway: $_" } }
+}
 
 function Add-DisabledTarget([string]$Path) {
     if (-not $Path) { return }
@@ -309,7 +464,7 @@ if (-not (Test-Path $qoderCnSkillsDir)) {
     New-Item -Path $qoderCnSkillsDir -ItemType Directory -Force | Out-Null
 }
 
-$ExcludeNames = @("_maintenance", ".git", "node_modules", "dist", "docs", "instructions")
+$ExcludeNames = @("_maintenance", ".git", "node_modules", "dist", "docs", "instructions", "mcp")
 $GitHubRepo = "RunhuaHuang/EasySkills"
 $GitHubApiLatestRelease = "https://api.github.com/repos/$GitHubRepo/releases/latest"
 $GitHubLatestRelease = "https://github.com/$GitHubRepo/releases/latest"
@@ -2224,6 +2379,11 @@ function Invoke-WebUIRequest($Context) {
             $ManagedRuleInstances = 0
             foreach ($Agent in $DetectedInstructionAgents) { $ManagedRuleInstances += [int]$Agent.managed_rule_count }
             $LinkWarnings = Get-CentralDirWarnings
+            $MCPData = Get-MCPConfigData
+            $MCPServers = @()
+            if ($MCPData.success -and $MCPData.config -and $MCPData.config.servers) {
+                $MCPServers = @($MCPData.config.servers.PSObject.Properties)
+            }
             $Data = @{
                 watcher = Get-WatcherStatus
                 central_dir = $CentralDir
@@ -2239,6 +2399,9 @@ function Invoke-WebUIRequest($Context) {
                 instruction_agents_detected = $DetectedInstructionAgents.Count
                 instruction_agents_managed = $ManagedInstructionAgents.Count
                 managed_rule_instances = $ManagedRuleInstances
+                mcp_servers_count = $MCPServers.Count
+                mcp_servers_enabled = @($MCPServers | Where-Object { $null -eq $_.Value.enabled -or [bool]$_.Value.enabled }).Count
+                mcp_gateway_installed = [bool]$MCPData.gateway.installed
                 version = Get-EasySkillsVersion
                 has_backup = (Test-Path (Join-Path $CentralDir "_maintenance.bak") -PathType Container)
                 # Link health: dangling links will be auto-pruned on next sync;
@@ -2271,6 +2434,12 @@ function Invoke-WebUIRequest($Context) {
                 return
             }
             Send-JsonResponse $Context (Get-InstructionsData)
+        } elseif ($UrlPath -eq "/api/mcp") {
+            if (-not (Test-TokenValid $Request)) {
+                Send-ForbiddenResponse $Context
+                return
+            }
+            Send-JsonResponse $Context (Get-MCPConfigData)
         } elseif ($UrlPath -like "/api/instructions/content/*") {
             if (-not (Test-TokenValid $Request)) {
                 Send-ForbiddenResponse $Context
@@ -2361,6 +2530,16 @@ function Invoke-WebUIRequest($Context) {
             Send-JsonResponse $Context (Write-SelectedInstructions -Rules $BodyData["rules"] -Agents $BodyData["agents"])
         } elseif ($UrlPath -eq "/api/instructions/remove-selected") {
             Send-JsonResponse $Context (Remove-SelectedInstructions -Rules $BodyData["rules"] -Agents $BodyData["agents"])
+        } elseif ($UrlPath -eq "/api/mcp/save") {
+            Send-JsonResponse $Context (Save-MCPConfig $BodyData["config"])
+        } elseif ($UrlPath -eq "/api/mcp/server/add") {
+            Send-JsonResponse $Context (Add-MCPServer $BodyData["name"] $BodyData["server"])
+        } elseif ($UrlPath -eq "/api/mcp/server/update") {
+            Send-JsonResponse $Context (Update-MCPServer $BodyData["name"] $BodyData["server"])
+        } elseif ($UrlPath -eq "/api/mcp/server/delete") {
+            Send-JsonResponse $Context (Remove-MCPServer $BodyData["name"])
+        } elseif ($UrlPath -eq "/api/mcp/test") {
+            Send-JsonResponse $Context (Test-MCPGateway $BodyData["profile"] $BodyData["server"])
         } elseif ($UrlPath -eq "/api/update") {
             $Result = Run-SelfUpdate
             if ($Result.success) { $script:RestartRequested = $true }

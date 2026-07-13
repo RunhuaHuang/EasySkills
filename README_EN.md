@@ -5,9 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#installation)
 [![Agents](https://img.shields.io/badge/Supported%20Agents-43+-orange.svg)](#supported-agents)
-[![Version](https://img.shields.io/badge/Version-3.2.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Version](https://img.shields.io/badge/Version-4.0.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
-**One central library, two sync channels, every Agent under control.**
+**One central library, three capability channels, every Agent under control.**
 
 Drop a skill or instruction rule once into `~/EasySkills`.
 It syncs to Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 43+ more agent environments — instantly, through native links and non-destructive managed blocks.
@@ -45,7 +45,7 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 </tr>
 </table>
 
-The installer creates `~/EasySkills`, detects supported agents, maps shared skills, starts the watcher, and launches the WebUI.
+The installer creates `~/EasySkills`, detects supported agents, maps shared skills, installs the MCP Gateway, starts the watcher, and launches the WebUI. A Gateway installation failure does not affect Skills or Rules.
 
 > **Alternative:** Clone this repo and double-click `install_mac.command` (macOS) or `install_windows.bat` (Windows).
 
@@ -127,7 +127,7 @@ irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | 
 
 ## How It Works
 
-EasySkills provides two synchronization channels to manage and distribute capabilities across all your AI assistants:
+EasySkills provides three capability channels to manage and distribute capabilities across all your AI assistants:
 
 ```
 ~/EasySkills/                           ← your central directory
@@ -143,6 +143,12 @@ EasySkills provides two synchronization channels to manage and distribute capabi
 │   │ ~/.cursor/AGENTS.md      ──→ <!-- Managed -->│
 │   └──────────────────────────────────────────────┘
 │
+├── mcp/servers.json                    ← [Channel 03] Central downstream MCP JSON
+├── _runtime/easyskills-mcp             ← Single-file MCP Gateway
+│           │
+│           ▼ Connect each Agent once; discover and route tools centrally
+│   context7__* / github__* / database__* / ...
+│
 ├── MyAwesomeSkill/                     ← [Channel 01] Shared Skills Folders
 └── DeployHelper/
             │
@@ -156,6 +162,15 @@ EasySkills provides two synchronization channels to manage and distribute capabi
 
 * **Channel 01 (Skills Sync)** — Maps shared skills into agent-specific skill folders using native symlinks (macOS/Linux) or directory junctions (Windows). Edit a file once, every agent sees the change immediately.
 * **Channel 02 (Agent Rules Sync)** — Compiles and concatenates all Markdown rules in the `instructions/` folder and inserts them into global instruction files (e.g. `CLAUDE.md`, `AGENTS.md`) using non-destructive managed tags (`<!-- EasySkills:begin -->` / `<!-- EasySkills:end -->`). Manual edits outside this block are preserved.
+* **Channel 03 (MCP Gateway)** — Each Agent installs only the EasySkills MCP. The Gateway connects to downstream MCP servers from `mcp/servers.json` and exposes tools as `server__tool`; it supports stdio, Streamable HTTP, SSE, profiles, and tool allow/deny filters.
+
+### MCP Gateway quick configuration
+
+Click **Add MCP** on the WebUI **MCP** page and use the structured form for its name, transport, endpoint or local command, headers/environment variables, and tool filters. Every MCP is an independent module that can be edited, tested, enabled, disabled, or deleted without exposing JSON to the user.
+
+Then choose Claude/Cursor/Kiro, VS Code, or Codex under **Connect an Agent once** and copy its connection. Future MCP, credential, and routing changes happen only in EasySkills.
+
+> API keys, tokens, headers, and environment variables are intentionally stored as plain text in the local JSON. The directory is owner-only, saves use atomic replacement, and `servers.json.bak` is retained. Do not share or commit this file.
 
 ---
 
@@ -163,7 +178,7 @@ EasySkills provides two synchronization channels to manage and distribute capabi
 
 Manage everything from a local-only dashboard at `http://127.0.0.1:6633`.
 
-Provides skill library import/delete, modular Agent rules management, connected agents and path tracking, custom path registrations, manual synchronization, invalid link cleanup, and version checks.
+Provides skill library import/delete, modular Agent rules management, modular MCP controls and per-server connection testing, connected agents and path tracking, custom path registrations, manual synchronization, invalid link cleanup, and version checks.
 
 ```bash
 # macOS / Linux
@@ -190,11 +205,12 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 | **1** | **Skill library import/delete** | Import skill folders through the WebUI; delete with confirmation dialog. Manage linked agents visually |
 | **2** | **Agent rules / Agents.md sync** | Safe, non-destructive managed block injection (`<!-- EasySkills:begin/end -->`) into global instruction files |
 | **3** | **Agent auto-discovery** | Detects 43+ mainstream agents and only links paths that actually exist |
-| **4** | **Dual-channel live mapping** | Watcher daemon automatically syncs top-level folder changes and updates instruction files |
+| **4** | **Central MCP management** | Connect each Agent once; manage every downstream MCP, credential, and tool filter as an independent WebUI module |
 | **5** | **Non-invasive** | Shared skills sit beside agent-specific skills — private skills keep working |
 | **6** | **Zero-privilege Windows** | NTFS directory junctions — no admin mode or Developer Mode needed |
 | **7** | **Local-first safety** | Skips existing real folders, uses file locks, listens on `127.0.0.1` only |
 | **8** | **Concurrency protection** | PID lock (macOS) / named mutex (Windows) prevents overlapping syncs |
+| **9** | **Cross-platform single binary** | Static Go Gateway builds cover macOS, Linux, and Windows on amd64/arm64; users do not need Go |
 
 ---
 

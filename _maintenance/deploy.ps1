@@ -491,7 +491,7 @@ function Run-Sync {
   foreach ($Entry in $CentralEntries) {
     if (-not ($Entry.Attributes -match "ReparsePoint")) { continue }
     $EName = $Entry.Name
-    if ($EName -eq "node_modules" -or $EName -eq ".git" -or $EName -eq "dist" -or $EName -eq "docs" -or $EName -eq "_maintenance" -or $EName -eq "instructions" -or $EName -like "_*") { continue }
+    if ($EName -eq "node_modules" -or $EName -eq ".git" -or $EName -eq "dist" -or $EName -eq "docs" -or $EName -eq "_maintenance" -or $EName -eq "instructions" -or $EName -eq "mcp" -or $EName -like "_*") { continue }
     # Test-Path follows the reparse point: False => dangling, True => external.
     if (-not (Test-Path $Entry.FullName)) {
       # Delete the dead link itself, not any target it may still partially
@@ -513,7 +513,7 @@ function Run-Sync {
 
   foreach ($SkillDir in $SkillDirs) {
     $SkillName = $SkillDir.Name
-    if ($SkillName -eq "node_modules" -or $SkillName -eq ".git" -or $SkillName -eq "dist" -or $SkillName -eq "docs" -or $SkillName -eq "_maintenance" -or $SkillName -eq "instructions" -or $SkillName -like "_*") {
+    if ($SkillName -eq "node_modules" -or $SkillName -eq ".git" -or $SkillName -eq "dist" -or $SkillName -eq "docs" -or $SkillName -eq "_maintenance" -or $SkillName -eq "instructions" -or $SkillName -eq "mcp" -or $SkillName -like "_*") {
       continue
     }
 
@@ -757,7 +757,7 @@ function Run-Status {
   foreach ($Entry in $StatusEntries) {
     if (-not ($Entry.Attributes -match "ReparsePoint")) { continue }
     $EName = $Entry.Name
-    if ($EName -eq "node_modules" -or $EName -eq ".git" -or $EName -eq "dist" -or $EName -eq "docs" -or $EName -eq "_maintenance" -or $EName -eq "instructions" -or $EName -like "_*") { continue }
+    if ($EName -eq "node_modules" -or $EName -eq ".git" -or $EName -eq "dist" -or $EName -eq "docs" -or $EName -eq "_maintenance" -or $EName -eq "instructions" -or $EName -eq "mcp" -or $EName -like "_*") { continue }
     if (-not (Test-Path $Entry.FullName)) { $DanglingCount++ } else { $ExternalCount++ }
   }
   if ($DanglingCount -gt 0 -or $ExternalCount -gt 0) {

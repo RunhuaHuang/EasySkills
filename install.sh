@@ -149,6 +149,22 @@ if [ -f "$PRESERVE_DIR/.easyskills-token" ]; then
   chmod 600 "$TOKEN_FILE"
 fi
 
+# Initialize the user-owned MCP JSON once; upgrades never overwrite it.
+mkdir -p "$PERM_DIR/mcp"
+chmod 700 "$PERM_DIR/mcp" 2>/dev/null || true
+if [ ! -f "$PERM_DIR/mcp/servers.json" ] && [ -f "$PERM_DIR/_maintenance/mcp-servers.template.json" ]; then
+  cp "$PERM_DIR/_maintenance/mcp-servers.template.json" "$PERM_DIR/mcp/servers.json"
+  chmod 600 "$PERM_DIR/mcp/servers.json" 2>/dev/null || true
+fi
+
+# Install the optional single-file MCP Gateway. A missing release asset does
+# not prevent the existing Skills and Rules channels from installing.
+if [ -f "$PERM_DIR/_maintenance/install-gateway.sh" ]; then
+  chmod +x "$PERM_DIR/_maintenance/install-gateway.sh"
+  EASYSKILLS_GATEWAY_SOURCE="$SRC_DIR/gateway" \
+    bash "$PERM_DIR/_maintenance/install-gateway.sh" || true
+fi
+
 # Version reporting
 NEW_VERSION=$(cat "$PERM_DIR/_maintenance/.version" 2>/dev/null || echo "unknown")
 if [ -n "$OLD_VERSION" ] && [ "$OLD_VERSION" != "$NEW_VERSION" ]; then

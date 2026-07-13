@@ -115,7 +115,7 @@ own_webui_pid() {
     comm=$(ps -p "$match" -o comm= 2>/dev/null || true)
     base="${comm##*/}"
     case "$base" in
-      python|python[0-9]*) echo "$match" ;;
+      [Pp]ython|[Pp]ython[0-9]*) echo "$match" ;;
     esac
   fi
 }

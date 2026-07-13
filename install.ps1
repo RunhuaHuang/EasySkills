@@ -182,6 +182,22 @@ try {
   if (Test-Path $PreservedToken) { Copy-Item $PreservedToken $TokenFile -Force }
   Remove-Item $PreserveDir -Recurse -Force -ErrorAction SilentlyContinue
 
+  # Initialize the user-owned MCP JSON once; upgrades never overwrite it.
+  $MCPDir = Join-Path $PermDir "mcp"
+  $MCPConfig = Join-Path $MCPDir "servers.json"
+  $MCPTemplate = Join-Path $MaintDir "mcp-servers.template.json"
+  if (-not (Test-Path $MCPDir)) { New-Item -ItemType Directory -Path $MCPDir -Force | Out-Null }
+  if ((-not (Test-Path $MCPConfig)) -and (Test-Path $MCPTemplate)) {
+    Copy-Item $MCPTemplate $MCPConfig -Force
+  }
+
+  # Install the optional single-file MCP Gateway. Failure is non-fatal.
+  $GatewayInstaller = Join-Path $MaintDir "install-gateway.ps1"
+  if (Test-Path $GatewayInstaller) {
+    try { & powershell -NoProfile -ExecutionPolicy Bypass -File $GatewayInstaller -SourceDir (Join-Path $SrcDir "gateway") }
+    catch { Write-Warning "MCP Gateway install skipped: $_" }
+  }
+
   # Version reporting
   $NewVersion = "unknown"
   $NewVersionFile = Join-Path $MaintDir ".version"

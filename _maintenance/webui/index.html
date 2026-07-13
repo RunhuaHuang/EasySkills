@@ -2404,13 +2404,21 @@
             .nav-container {
                 display: flex;
                 flex-direction: row;
-                justify-content: space-around;
+                justify-content: space-evenly;
             }
 
             .nav-item {
+                flex: 1 1 0;
+                justify-content: center;
+                min-width: 0;
                 padding: var(--space-sm);
+                gap: 0;
                 border-left: none;
                 border-bottom: 3px solid transparent;
+            }
+
+            .nav-item span {
+                display: none;
             }
 
             .nav-item.active {
@@ -2426,9 +2434,40 @@
                 left: 0;
                 top: auto;
                 bottom: 0;
+                gap: var(--space-xs);
+                padding: 0 var(--space-sm);
                 border-bottom: none;
                 border-top: 1px solid var(--border-color);
                 height: 60px;
+            }
+
+            .header-title {
+                min-width: 0;
+                overflow: hidden;
+                font-size: 1rem;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .header-actions {
+                flex-shrink: 0;
+                gap: var(--space-xs);
+            }
+
+            #btn-sync-all {
+                width: 42px;
+                height: 42px;
+                justify-content: center;
+                padding: 0;
+            }
+
+            #btn-sync-all span {
+                display: none;
+            }
+
+            .lang-toggle {
+                padding: 0.6rem 0.65rem;
+                font-size: 0.75rem;
             }
 
             .main-content {
@@ -2681,6 +2720,300 @@
         .guide-action-card p {
             font-size: 0.82rem;
         }
+
+        .mcp-shell {
+            display: grid;
+            gap: 1.15rem;
+        }
+        .mcp-panel {
+            border: 1px solid var(--border-color);
+            background: var(--bg-panel);
+            padding: 1.15rem;
+            box-shadow: var(--shadow-panel);
+        }
+        .mcp-hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: var(--space-lg);
+            padding: 1.35rem 1.45rem;
+            border: 1px solid var(--border-color-active);
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.09), rgba(15, 23, 42, 0.12) 48%, rgba(255, 255, 255, 0.015));
+            box-shadow: var(--shadow-panel);
+        }
+        .mcp-hero-copy { display: flex; align-items: flex-start; gap: var(--space-md); min-width: 0; }
+        .mcp-hero-icon,
+        .mcp-server-icon {
+            flex: 0 0 auto;
+            display: grid;
+            place-items: center;
+            width: 44px;
+            height: 44px;
+            border: 1px solid rgba(59, 130, 246, 0.35);
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--primary);
+            font-size: 1.05rem;
+        }
+        .mcp-hero h2 { margin: 0 0 0.35rem; font: 700 1.25rem/1.25 var(--font-display); color: var(--text-main); }
+        .mcp-hero p { margin: 0; max-width: 720px; color: var(--text-muted); font-size: 0.86rem; line-height: 1.6; }
+        .mcp-hero-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-sm); flex-wrap: wrap; }
+        .mcp-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: var(--space-sm);
+            margin-bottom: var(--space-sm);
+        }
+        .mcp-panel-title { margin: 0; font: 700 1rem/1.3 var(--font-display); color: var(--text-main); }
+        .mcp-panel-copy { margin: 0.3rem 0 0; color: var(--text-muted); font-size: 0.78rem; line-height: 1.5; }
+        .mcp-toolbar-actions { display: flex; gap: var(--space-xs); flex-wrap: wrap; justify-content: flex-end; }
+        .mcp-server-list {
+            display: grid;
+            gap: 0.65rem;
+        }
+        .mcp-server-card {
+            border: 1px solid var(--border-color);
+            background: rgba(0, 0, 0, 0.08);
+            transition: border-color 160ms ease, background-color 160ms ease;
+            display: flex;
+            flex-direction: column;
+        }
+        .mcp-server-card:hover { border-color: var(--border-color-active); background: rgba(59, 130, 246, 0.025); }
+        .mcp-server-card.is-disabled { opacity: 0.66; }
+        .mcp-server-row {
+            display: grid;
+            grid-template-columns: 44px minmax(0, 1fr) minmax(155px, 0.34fr) auto;
+            align-items: center;
+            gap: var(--space-md);
+            padding: 0.9rem 1rem;
+        }
+        .mcp-server-icon { width: 40px; height: 40px; border-color: var(--border-color); background: rgba(255,255,255,.025); color: var(--text-muted); }
+        .mcp-server-row:not(.is-disabled) .mcp-server-icon { border-color: rgba(59,130,246,.3); color: var(--primary); background: rgba(59,130,246,.08); }
+        .mcp-server-main { min-width: 0; }
+        .mcp-server-name-line { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
+        .mcp-server-name { overflow: hidden; color: var(--text-main); font: 700 0.95rem/1.25 var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
+        .mcp-server-target {
+            margin-top: 0.3rem;
+            overflow: hidden;
+            color: var(--text-muted);
+            font: 0.7rem/1.35 var(--font-mono);
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .mcp-server-meta { display: grid; gap: 0.35rem; color: var(--text-muted); font-size: 0.72rem; }
+        .mcp-server-meta span { display: flex; align-items: center; gap: 0.4rem; }
+        .mcp-server-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.4rem; }
+        .mcp-icon-action {
+            display: inline-grid;
+            place-items: center;
+            width: 36px;
+            height: 36px;
+            padding: 0;
+            border: 1px solid var(--border-color);
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+        .mcp-icon-action:hover { color: var(--text-main); border-color: var(--border-color-active); background: rgba(255,255,255,.035); }
+        .mcp-icon-action.danger:hover { color: var(--danger); border-color: rgba(239,68,68,.45); }
+        .mcp-icon-action.is-armed { color: #fff; border-color: var(--danger); background: var(--danger); }
+        .mcp-switch {
+            position: relative;
+            width: 38px;
+            height: 22px;
+            border: 1px solid var(--border-color-active);
+            background: rgba(255,255,255,.05);
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+        .mcp-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; background: var(--text-muted); transition: var(--transition-smooth); }
+        .mcp-switch.is-on { border-color: rgba(34,197,94,.5); background: rgba(34,197,94,.15); }
+        .mcp-switch.is-on::after { left: 19px; background: var(--success); }
+        .mcp-connect-strip { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-lg); }
+        .mcp-connect-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-xs); }
+        .mcp-empty { min-height: 220px; display: grid; place-items: center; text-align: center; color: var(--text-muted); }
+        .mcp-empty i { display: block; margin-bottom: 0.8rem; color: var(--primary); font-size: 1.5rem; }
+        .mcp-editor-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 10020;
+            display: none;
+            align-items: stretch;
+            justify-content: flex-end;
+            background: rgba(3, 7, 18, 0.72);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+        .mcp-editor-backdrop.is-open { display: flex; }
+        .mcp-editor {
+            width: min(720px, 100%);
+            height: 100%;
+            overflow-y: auto;
+            background: var(--bg-surface-elevated);
+            border-left: 1px solid var(--border-color-active);
+            box-shadow: -20px 0 60px rgba(0,0,0,.35);
+        }
+        .mcp-editor-header {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--space-md);
+            padding: 1.2rem 1.35rem;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-surface-elevated);
+        }
+        .mcp-editor-title { margin: 0; color: var(--text-main); font: 700 1.15rem/1.3 var(--font-display); }
+        .mcp-editor-body { display: grid; gap: 1.2rem; padding: 1.25rem 1.35rem 5.5rem; }
+        .mcp-form-section { display: grid; gap: 0.8rem; padding-bottom: 1.15rem; border-bottom: 1px solid var(--border-color); }
+        .mcp-form-section:last-of-type { border-bottom: none; }
+        .mcp-form-section h4 { margin: 0; color: var(--text-main); font: 700 0.88rem/1.3 var(--font-display); }
+        .mcp-form-section-copy { margin: -0.45rem 0 0; color: var(--text-muted); font-size: 0.72rem; line-height: 1.5; }
+        .mcp-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.85rem; }
+        .mcp-form-field { display: grid; gap: 0.4rem; min-width: 0; }
+        .mcp-form-field.is-wide { grid-column: 1 / -1; }
+        .mcp-form-label { color: var(--text-muted); font: 600 0.72rem/1.3 var(--font-display); }
+        .mcp-form-input,
+        .mcp-form-select,
+        .mcp-form-textarea {
+            width: 100%;
+            min-width: 0;
+            border: 1px solid var(--border-color-active);
+            background: rgba(0,0,0,.18);
+            color: var(--text-main);
+            padding: 0.72rem 0.8rem;
+            outline: none;
+            font: 0.78rem/1.4 var(--font-mono);
+        }
+        .mcp-form-input:focus,
+        .mcp-form-select:focus,
+        .mcp-form-textarea:focus { border-color: var(--primary); }
+        .mcp-form-textarea { min-height: 92px; resize: vertical; }
+        .mcp-toggle-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
+        .mcp-toggle-card { display: flex; align-items: center; gap: 0.65rem; padding: 0.75rem 0.8rem; border: 1px solid var(--border-color); background: rgba(0,0,0,.1); cursor: pointer; }
+        .mcp-toggle-card input { accent-color: var(--primary); }
+        .mcp-toggle-copy strong { display: block; color: var(--text-main); font: 600 0.78rem/1.3 var(--font-display); }
+        .mcp-toggle-copy small { display: block; margin-top: 0.15rem; color: var(--text-muted); font-size: 0.66rem; line-height: 1.35; }
+        .mcp-pair-list { display: grid; gap: 0.55rem; }
+        .mcp-pair-row { display: grid; grid-template-columns: minmax(120px,.7fr) minmax(0,1.3fr) 36px; gap: 0.5rem; }
+        .mcp-add-pair { justify-self: start; }
+        .mcp-editor-footer {
+            position: sticky;
+            bottom: 0;
+            display: flex;
+            justify-content: flex-end;
+            gap: var(--space-sm);
+            padding: 1rem 1.35rem;
+            border: 1px solid var(--border-color);
+            background: var(--bg-surface-elevated);
+        }
+        .mcp-transport-fields[hidden] { display: none; }
+        .mcp-editor-tabs {
+            display: flex;
+            gap: var(--space-xs);
+            padding: 0 1.35rem;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-surface-elevated);
+        }
+        .mcp-editor-tab-btn {
+            display: flex;
+            align-items: center;
+            gap: var(--space-xs);
+            padding: 0.6rem var(--space-md);
+            font-family: var(--font-display);
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            margin-bottom: -1px;
+        }
+        .mcp-editor-tab-btn:hover {
+            color: var(--text-main);
+        }
+        .mcp-editor-tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+        .mcp-json-editor-container {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-sm);
+        }
+        .mcp-json-textarea {
+            width: 100%;
+            min-height: 380px;
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            line-height: 1.5;
+            background: rgba(0,0,0,.25);
+            border: 1px solid var(--border-color-active);
+            color: var(--text-main);
+            padding: var(--space-sm);
+            resize: vertical;
+            outline: none;
+            tab-size: 2;
+        }
+        .mcp-json-textarea:focus {
+            border-color: var(--primary);
+        }
+        .tooltip-code::before {
+            font-family: var(--font-mono) !important;
+            font-size: 0.72rem !important;
+            white-space: pre-wrap !important;
+            word-break: break-word !important;
+            width: 520px !important;
+            max-width: 85vw !important;
+            line-height: 1.4 !important;
+            padding: 12px 16px !important;
+            background: rgba(13, 18, 30, 0.95) !important;
+            border-color: var(--primary-glow) !important;
+            color: #f3f4f6 !important;
+        }
+        .mcp-server-tools-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            padding: 0 1rem 0.9rem 4.3rem;
+            margin-top: -0.25rem;
+        }
+        @media (max-width: 900px) {
+            .mcp-server-tools-list {
+                padding-left: 3.5rem;
+            }
+        }
+        @media (max-width: 620px) {
+            .mcp-server-tools-list {
+                padding-left: 1rem;
+            }
+        }
+        @media (max-width: 900px) {
+            .mcp-hero, .mcp-connect-strip { grid-template-columns: 1fr; }
+            .mcp-hero-actions, .mcp-connect-actions { justify-content: flex-start; }
+            .mcp-server-row { grid-template-columns: 40px minmax(0, 1fr) auto; }
+            .mcp-server-meta { grid-column: 2; }
+            .mcp-server-actions { grid-column: 3; grid-row: 1 / span 2; }
+        }
+        @media (max-width: 620px) {
+            .mcp-hero { padding: 1rem; }
+            .mcp-hero-copy { gap: var(--space-sm); }
+            .mcp-hero-actions .btn { flex: 1; justify-content: center; }
+            .mcp-server-row { grid-template-columns: 36px minmax(0, 1fr); gap: 0.7rem; padding: 0.8rem; }
+            .mcp-server-icon { width: 34px; height: 34px; }
+            .mcp-server-meta { grid-column: 2; }
+            .mcp-server-actions { grid-column: 1 / -1; grid-row: auto; justify-content: flex-end; padding-top: 0.25rem; }
+            .mcp-connect-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+            .mcp-connect-actions .btn { justify-content: center; }
+            .mcp-connect-actions .btn:first-child { grid-column: 1 / -1; }
+            .mcp-form-grid, .mcp-toggle-row { grid-template-columns: 1fr; }
+            .mcp-pair-row { grid-template-columns: 1fr 1fr 36px; }
+        }
     </style>
 </head>
 <body>
@@ -2695,27 +3028,31 @@
             <span>EasySkills</span>
         </div>
         <div class="nav-container">
-            <div class="nav-item active" data-target="dashboard">
+            <div class="nav-item active" data-target="dashboard" role="button" tabindex="0" aria-label="Dashboard" title="Dashboard">
                 <i class="fa-solid fa-terminal"></i>
                 <span class="t-dashboard">Dashboard</span>
             </div>
-            <div class="nav-item" data-target="skills">
+            <div class="nav-item" data-target="skills" role="button" tabindex="0" aria-label="Skills" title="Skills">
                 <i class="fa-solid fa-code-fork"></i>
                 <span class="t-skills">Skills</span>
             </div>
-            <div class="nav-item" data-target="instructions">
+            <div class="nav-item" data-target="mcp" role="button" tabindex="0" aria-label="MCP Gateway" title="MCP Gateway">
+                <i class="fa-solid fa-server"></i>
+                <span class="t-mcp">MCP Gateway</span>
+            </div>
+            <div class="nav-item" data-target="instructions" role="button" tabindex="0" aria-label="Agents.md" title="Agents.md">
                 <i class="fa-solid fa-scroll"></i>
                 <span class="t-instructions">Rules</span>
             </div>
-            <div class="nav-item" data-target="agents">
+            <div class="nav-item" data-target="agents" role="button" tabindex="0" aria-label="Agent Config" title="Agent Config">
                 <i class="fa-solid fa-sliders"></i>
                 <span class="t-agents">Agent Config</span>
             </div>
-            <div class="nav-item" data-target="guide">
+            <div class="nav-item" data-target="guide" role="button" tabindex="0" aria-label="Guide" title="Guide">
                 <i class="fa-solid fa-book-open"></i>
                 <span class="t-guide">Guide</span>
             </div>
-            <div class="nav-item" data-target="about">
+            <div class="nav-item" data-target="about" role="button" tabindex="0" aria-label="About" title="About">
                 <i class="fa-solid fa-circle-info"></i>
                 <span class="t-about">About</span>
             </div>
@@ -2752,8 +3089,8 @@
                                 <i class="fa-solid fa-diagram-project"></i>
                                 <span class="t-dashboard-control-kicker">EasySkills control plane</span>
                             </span>
-                            <h2 class="dashboard-control-title t-dashboard-control-title" id="dashboard-control-title">One library, two synchronization channels, every Agent under control.</h2>
-                            <p class="dashboard-control-desc t-dashboard-control-desc">Skills are linked into Agent folders; rules are written into each Agent's global instruction file. This dashboard shows both delivery paths together.</p>
+                            <h2 class="dashboard-control-title t-dashboard-control-title" id="dashboard-control-title">One library, three capability channels, every Agent under control.</h2>
+                            <p class="dashboard-control-desc t-dashboard-control-desc">Skills, global rules, and the MCP Gateway are managed from one local control plane.</p>
                         </div>
                         <div class="dashboard-root-path" onclick="copyCentralPath()" title="Click to copy path">
                             <div class="dashboard-root-path-copy">
@@ -2856,6 +3193,38 @@
                             </button>
                         </div>
                     </section>
+
+                    <section class="dashboard-channel-card" aria-labelledby="dashboard-mcp-channel-title">
+                        <div class="dashboard-channel-header">
+                            <div class="dashboard-channel-identity">
+                                <span class="dashboard-channel-icon"><i class="fa-solid fa-server"></i></span>
+                                <span>
+                                    <span class="dashboard-channel-eyebrow">Channel 03 / Gateway</span>
+                                    <strong class="dashboard-channel-title t-dashboard-mcp-channel" id="dashboard-mcp-channel-title">MCP Gateway</strong>
+                                </span>
+                            </div>
+                            <span class="tag tag-muted" id="dashboard-mcp-gateway-tag">Not installed</span>
+                        </div>
+                        <div class="dashboard-channel-metrics">
+                            <div>
+                                <div class="dashboard-channel-primary-value" id="stat-mcp-servers">0</div>
+                                <span class="dashboard-channel-primary-label t-dashboard-mcp-resource">MCP servers in the central JSON</span>
+                            </div>
+                            <div class="dashboard-channel-secondary">
+                                <div class="dashboard-channel-secondary-value" id="stat-mcp-enabled">0</div>
+                                <span class="dashboard-channel-secondary-label t-dashboard-mcp-enabled">enabled servers</span>
+                            </div>
+                        </div>
+                        <div class="dashboard-channel-status">
+                            <p class="dashboard-channel-desc t-dashboard-mcp-desc">Agents connect to one EasySkills MCP and receive tools from the enabled downstream servers.</p>
+                        </div>
+                        <div class="dashboard-channel-footer">
+                            <button class="btn btn-outline" type="button" onclick="navigateToSection('mcp')">
+                                <i class="fa-solid fa-arrow-right"></i>
+                                <span class="t-dashboard-manage-mcp">Manage MCP</span>
+                            </button>
+                        </div>
+                    </section>
                 </div>
 
                 <section class="dashboard-agent-infrastructure">
@@ -2955,6 +3324,99 @@
                         <!-- Javascript Injection -->
                     </div>
                 </section>
+            </div>
+        </section>
+
+        <!-- MCP Gateway Section -->
+        <section id="mcp" class="view-section">
+            <div class="mcp-shell">
+                <div class="mcp-hero">
+                    <div class="mcp-hero-copy">
+                        <span class="mcp-hero-icon"><i class="fa-solid fa-diagram-project"></i></span>
+                        <div>
+                            <h2 class="t-mcp-intro-title">Manage every MCP in one place</h2>
+                            <p class="t-mcp-intro-desc">Each MCP is an independent module. Add, configure, test, enable, or disable it here; every Agent receives the updated tools through EasySkills automatically.</p>
+                        </div>
+                    </div>
+                    <div class="mcp-hero-actions">
+                        <span class="tag tag-muted" id="mcp-gateway-status">Gateway loading...</span>
+                        <button class="btn btn-outline" type="button" onclick="testMCPGateway(this)">
+                            <i class="fa-solid fa-stethoscope"></i> <span class="t-mcp-test-all">Test all</span>
+                        </button>
+                        <button class="btn btn-primary" type="button" onclick="openMCPServerEditor()">
+                            <i class="fa-solid fa-plus"></i> <span class="t-mcp-add">Add MCP</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mcp-panel mcp-connect-strip">
+                    <div>
+                        <h3 class="mcp-panel-title t-mcp-connect-agent">Connect an Agent once</h3>
+                        <p class="mcp-panel-copy t-mcp-connect-desc">Choose your Agent and copy its EasySkills connection. You never need to edit the Agent again when MCP configurations change.</p>
+                    </div>
+                    <div class="mcp-connect-actions">
+                        <button class="btn btn-outline tooltip-bottom tooltip-code" id="btn-connect-json" type="button" onclick="copyMCPConnection('json')"><i class="fa-regular fa-copy"></i> Claude / Cursor / Kiro</button>
+                        <button class="btn btn-outline tooltip-bottom tooltip-code" id="btn-connect-vscode" type="button" onclick="copyMCPConnection('vscode')"><i class="fa-regular fa-copy"></i> VS Code</button>
+                        <button class="btn btn-outline tooltip-bottom tooltip-code" id="btn-connect-codex" type="button" onclick="copyMCPConnection('codex')"><i class="fa-regular fa-copy"></i> Codex</button>
+                    </div>
+                </div>
+
+                <div class="mcp-panel">
+                    <div class="mcp-panel-header">
+                        <div>
+                            <h3 class="mcp-panel-title t-mcp-servers">MCP modules</h3>
+                            <p class="mcp-panel-copy t-mcp-servers-desc">One row is one MCP. Disabled modules stay configured but are not exposed to Agents.</p>
+                        </div>
+                        <div class="mcp-toolbar-actions">
+                            <span class="tag tag-muted" id="mcp-server-count">0 MCPs</span>
+                            <button class="btn btn-outline" type="button" onclick="loadMCPConfig(true)" aria-label="Reload MCP modules">
+                                <i class="fa-solid fa-rotate"></i> <span class="t-mcp-reload">Reload</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mcp-server-list" id="mcp-server-list"></div>
+                </div>
+            </div>
+
+            <div class="mcp-editor-backdrop" id="mcp-editor-backdrop" role="dialog" aria-modal="true" aria-labelledby="mcp-editor-title">
+                <form class="mcp-editor" id="mcp-server-form">
+                    <div class="mcp-editor-header">
+                        <div>
+                            <h3 class="mcp-editor-title" id="mcp-editor-title">Add MCP</h3>
+                            <p class="mcp-panel-copy t-mcp-editor-desc">Configure this MCP module in JSON format.</p>
+                        </div>
+                        <button class="mcp-icon-action" type="button" onclick="closeMCPServerEditor()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="mcp-editor-body" style="padding-top: 1.25rem;">
+                        <div class="mcp-json-editor-container">
+                            <h4 class="t-mcp-json-title">JSON Configuration</h4>
+                            <p class="mcp-form-section-copy t-mcp-json-hint">Paste or write the MCP server configuration in JSON format.</p>
+                            <textarea class="mcp-json-textarea" id="mcp-form-json" placeholder='{
+  "github": {
+    "command": "npx",
+    "args": [
+      "-y",
+      "@modelcontextprotocol/server-github"
+    ],
+    "env": {
+      "GITHUB_PERSONAL_ACCESS_TOKEN": "your_token"
+    }
+  }
+}'></textarea>
+                            <p class="mcp-form-section-copy" style="margin-top: 0.75rem; color: var(--text-muted); font-size: 0.72rem; line-height: 1.5;">
+                                支持的格式 / Supported Formats:<br>
+                                1. 包含服务名 / With Server Name:<br>
+                                &nbsp;&nbsp;&nbsp;<code>{ "github": { "command": "npx", "args": [...] } }</code> (推荐 / Recommended)<br>
+                                2. 扁平格式 / Flat Format:<br>
+                                &nbsp;&nbsp;&nbsp;<code>{ "command": "npx", "args": [...] }</code> (编辑已有服务时，或在 JSON 中包含 <code>"name"</code> 字段时使用)
+                            </p>
+                        </div>
+                    </div>
+                    <div class="mcp-editor-footer">
+                        <button class="btn btn-outline" type="button" onclick="closeMCPServerEditor()"><span class="t-cancel">Cancel</span></button>
+                        <button class="btn btn-primary" id="mcp-form-save" type="submit"><i class="fa-solid fa-check"></i> <span class="t-save">Save</span></button>
+                    </div>
+                </form>
             </div>
         </section>
 
@@ -3601,12 +4063,57 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
         // --- State Management ---
         let currentLang = localStorage.getItem('es_lang') || 'en';
         let currentTheme = localStorage.getItem('es_theme') || 'dark';
+        let mcpState = { config: null, gateway: null, path: '', connections: {} };
+        let editingMCPName = null;
+        let mcpToolsCache = {};
+        try {
+            const cached = localStorage.getItem('es_mcp_tools_cache');
+            if (cached) mcpToolsCache = JSON.parse(cached);
+        } catch (e) {
+            console.error('Failed to load cached MCP tools:', e);
+        }
         
         // --- Language Dictionary (EN / ZH-CN) ---
         const dict = {
             en: {
                 't-dashboard': 'Dashboard',
                 't-skills': 'Skills',
+                't-mcp': 'MCP Gateway',
+                't-mcp-intro-title': 'Manage every MCP in one place',
+                't-mcp-intro-desc': 'Each MCP is an independent module. Add, configure, test, enable, or disable it here; every Agent receives the updated tools through EasySkills automatically.',
+                't-mcp-servers': 'MCP List',
+                't-mcp-servers-desc': 'One row is one MCP. Disabled modules stay configured but are not exposed to Agents.',
+                't-mcp-reload': 'Reload',
+                't-mcp-test-all': 'Test all',
+                't-mcp-add': 'Add MCP',
+                't-mcp-plain-secret': 'Credentials are stored as plain text in the local EasySkills configuration.',
+                't-mcp-connect-agent': 'Connect an Agent once',
+                't-mcp-connect-desc': 'Choose your Agent and copy its EasySkills connection. You never need to edit the Agent again when MCP configurations change.',
+                't-mcp-editor-desc': 'Configure this MCP service in JSON format.',
+                't-mcp-basic': 'Basic settings',
+                't-mcp-name': 'MCP name',
+                't-mcp-transport': 'Transport',
+                't-mcp-enabled': 'Enabled',
+                't-mcp-enabled-hint': 'Expose this MCP to Agents.',
+                't-mcp-required': 'Required',
+                't-mcp-required-hint': 'Stop Gateway startup if it cannot connect.',
+                't-mcp-connection': 'Connection',
+                't-mcp-url': 'MCP endpoint',
+                't-mcp-headers': 'Request headers',
+                't-mcp-headers-hint': 'Use headers for Authorization, API keys, and other credentials.',
+                't-mcp-add-header': 'Add header',
+                't-mcp-command': 'Local command',
+                't-mcp-command-name': 'Command',
+                't-mcp-cwd': 'Working directory',
+                't-mcp-args': 'Arguments — one per line',
+                't-mcp-env': 'Environment variables',
+                't-mcp-env-hint': 'API keys and tokens are stored as plain text on this device.',
+                't-mcp-add-env': 'Add variable',
+                't-mcp-advanced': 'Advanced controls',
+                't-mcp-startup-timeout': 'Startup timeout (seconds)',
+                't-mcp-tool-timeout': 'Tool timeout (seconds)',
+                't-mcp-allow-tools': 'Only expose tools — one pattern per line',
+                't-mcp-deny-tools': 'Hide tools — one pattern per line',
                 't-agents': 'Agent Config',
                 't-sync-all': 'Synchronize',
                 't-total-skills': 'Mapped Skills',
@@ -3616,8 +4123,13 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
                 't-dashboard-rule-coverage': 'Detected Agent coverage',
                 't-dashboard-manage-rules': 'Manage Agents.md',
                 't-dashboard-control-kicker': 'EasySkills control plane',
-                't-dashboard-control-title': 'One library, two synchronization channels, every Agent under control.',
-                't-dashboard-control-desc': 'Skills are linked into Agent folders; rules are written into each Agent global instruction file. This dashboard shows both delivery paths together.',
+                't-dashboard-control-title': 'One library, three capability channels, every Agent under control.',
+                't-dashboard-control-desc': 'Skills, global rules, and the MCP Gateway are managed from one local control plane.',
+                't-dashboard-mcp-channel': 'MCP Gateway',
+                't-dashboard-mcp-resource': 'MCP servers in the central JSON',
+                't-dashboard-mcp-enabled': 'enabled servers',
+                't-dashboard-mcp-desc': 'Agents connect to one EasySkills MCP and receive tools from the enabled downstream servers.',
+                't-dashboard-manage-mcp': 'Manage MCP',
                 't-dashboard-automation-footnote': 'Automatic skill-link refresh for connected Agents.',
                 't-dashboard-skills-channel': 'Skills Channel',
                 't-dashboard-rules-channel': 'Agents.md Channel',
@@ -3688,6 +4200,10 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
                 't-edit-config': 'Edit Config',
                 't-save': 'Save',
                 't-cancel': 'Cancel',
+                't-mcp-tab-form': 'Form Config',
+                't-mcp-tab-json': 'JSON Config',
+                't-mcp-json-title': 'JSON Configuration',
+                't-mcp-json-hint': 'Paste or write the MCP server configuration in JSON format.',
                 't-maintenance-guide': 'Maintenance Controls Manual',
                 't-start-watcher-desc': 'Installs a launchd daemon to automatically synchronize the central skill library. Any additions/removals of skills will propagate instantly to all linked agents.',
                 't-cleanup-desc-title': 'Prune Invalid Symlinks',
@@ -3848,6 +4364,42 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
             zh: {
                 't-dashboard': '控制台',
                 't-skills': '技能库',
+                't-mcp': 'MCP 网关',
+                't-mcp-intro-title': '在一个地方管理所有 MCP',
+                't-mcp-intro-desc': '每个 MCP 都是独立模块，可在这里添加、配置、测试、启用或停用；所有 Agent 会自动通过 EasySkills 获得更新后的工具。',
+                't-mcp-servers': 'MCP 列表',
+                't-mcp-servers-desc': '一行就是一个 MCP。停用后配置仍会保留，但不会暴露给 Agent。',
+                't-mcp-reload': '重新载入',
+                't-mcp-test-all': '测试全部',
+                't-mcp-add': '添加 MCP',
+                't-mcp-plain-secret': '凭证会以明文保存在本机 EasySkills 配置中。',
+                't-mcp-connect-agent': '只连接一次 Agent',
+                't-mcp-connect-desc': '选择 Agent 并复制 EasySkills 连接配置。以后 MCP 列表变化时，不需要再次修改 Agent。',
+                't-mcp-editor-desc': '使用 JSON 格式配置此 MCP 服务。',
+                't-mcp-basic': '基础设置',
+                't-mcp-name': 'MCP 名称',
+                't-mcp-transport': '传输方式',
+                't-mcp-enabled': '启用',
+                't-mcp-enabled-hint': '将这个 MCP 暴露给 Agent。',
+                't-mcp-required': '必需服务',
+                't-mcp-required-hint': '连接失败时阻止 Gateway 启动。',
+                't-mcp-connection': '连接信息',
+                't-mcp-url': 'MCP 地址',
+                't-mcp-headers': '请求 Headers',
+                't-mcp-headers-hint': 'Authorization、API Key 等凭证可在这里填写。',
+                't-mcp-add-header': '添加 Header',
+                't-mcp-command': '本地命令',
+                't-mcp-command-name': '命令',
+                't-mcp-cwd': '工作目录',
+                't-mcp-args': '参数——每行一个',
+                't-mcp-env': '环境变量',
+                't-mcp-env-hint': 'API Key 和 Token 会以明文保存在本机。',
+                't-mcp-add-env': '添加变量',
+                't-mcp-advanced': '高级控制',
+                't-mcp-startup-timeout': '启动超时（秒）',
+                't-mcp-tool-timeout': '工具调用超时（秒）',
+                't-mcp-allow-tools': '仅开放这些工具——每行一个规则',
+                't-mcp-deny-tools': '隐藏这些工具——每行一个规则',
                 't-agents': 'Agent 配置',
                 't-sync-all': '全量同步',
                 't-total-skills': '映射技能数',
@@ -3857,8 +4409,13 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
                 't-dashboard-rule-coverage': '已识别 Agent 覆盖率',
                 't-dashboard-manage-rules': '管理 Agent 规则',
                 't-dashboard-control-kicker': 'EasySkills 控制平面',
-                't-dashboard-control-title': '一个中央库、两条同步通道，统一管理所有 Agent。',
-                't-dashboard-control-desc': 'Skills 通过软链接进入 Agent 目录；规则写入每个 Agent 的全局指令文件。控制台现在统一展示两条交付链路。',
+                't-dashboard-control-title': '一个中央库、三条能力通道，统一管理所有 Agent。',
+                't-dashboard-control-desc': 'Skills、全局规则与 MCP 网关统一由本地控制平面管理。',
+                't-dashboard-mcp-channel': 'MCP 网关',
+                't-dashboard-mcp-resource': '中央 JSON 中的 MCP 服务',
+                't-dashboard-mcp-enabled': '已启用服务',
+                't-dashboard-mcp-desc': 'Agent 只连接一个 EasySkills MCP，并获得所有已启用下游服务的工具。',
+                't-dashboard-manage-mcp': '管理 MCP',
                 't-dashboard-automation-footnote': '自动刷新所有已连接 Agent 的技能链接。',
                 't-dashboard-skills-channel': '技能同步通道',
                 't-dashboard-rules-channel': 'Agent 规则通道',
@@ -3929,6 +4486,10 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
                 't-edit-config': '配置编辑',
                 't-save': '保存',
                 't-cancel': '取消',
+                't-mcp-tab-form': '表单配置',
+                't-mcp-tab-json': 'JSON 配置',
+                't-mcp-json-title': 'JSON 配置',
+                't-mcp-json-hint': '在下方直接粘贴或编写 JSON 格式的 MCP 服务配置。',
                 't-maintenance-guide': '维护命令控制指南',
                 't-start-watcher-desc': '在系统后台注册 launchd 守护进程。启动后将实时监听您的中央技能目录，任何技能的增加、修改或删除都将瞬间全自动映射同步到所有激活的智能体终端。',
                 't-cleanup-desc-title': '清理失效软链接',
@@ -4095,6 +4656,17 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
         document.documentElement.setAttribute('data-theme', currentTheme);
         updateThemeIcon();
         applyLanguage();
+        const mcpServerForm = document.getElementById('mcp-server-form');
+        if (mcpServerForm) mcpServerForm.addEventListener('submit', saveMCPServerForm);
+        const mcpTransportSelect = document.getElementById('mcp-form-transport');
+        if (mcpTransportSelect) mcpTransportSelect.addEventListener('change', updateMCPTransportFields);
+        const mcpEditorBackdrop = document.getElementById('mcp-editor-backdrop');
+        if (mcpEditorBackdrop) {
+            mcpEditorBackdrop.addEventListener('click', event => {
+                if (event.target === mcpEditorBackdrop) closeMCPServerEditor();
+            });
+            document.body.appendChild(mcpEditorBackdrop);
+        }
         refreshAll();
 
         // 5-Second Watchdog Auto Refresh (pauses when tab is not visible)
@@ -4125,6 +4697,11 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', () => {
+                navigateToSection(item.getAttribute('data-target'));
+            });
+            item.addEventListener('keydown', event => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
                 navigateToSection(item.getAttribute('data-target'));
             });
         });
@@ -4199,6 +4776,9 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
             }
             if (event.key === 'Escape' && rulesBulkOverlay?.classList.contains('active')) {
                 closeRulesBulkDialog();
+            }
+            if (event.key === 'Escape' && document.getElementById('mcp-editor-backdrop')?.classList.contains('is-open')) {
+                closeMCPServerEditor();
             }
         });
 
@@ -4527,16 +5107,20 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
                 btnElement.classList.add('btn-loading');
                 originalHtml = btnElement.innerHTML;
                 
-                const txt = btnElement.innerText.trim();
-                let loadText = currentLang === 'en' ? 'Processing...' : '正在处理...';
-                for (const [key, val] of Object.entries(loadingTexts)) {
-                    if (txt.toLowerCase().includes(key.toLowerCase())) {
-                        loadText = val;
-                        break;
+                const isIconOnly = btnElement.classList.contains('mcp-icon-action') || !btnElement.textContent.trim();
+                if (isIconOnly) {
+                    btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: var(--primary); font-size: 1.15rem;"></i>`;
+                } else {
+                    const txt = btnElement.innerText.trim();
+                    let loadText = currentLang === 'en' ? 'Processing...' : '正在处理...';
+                    for (const [key, val] of Object.entries(loadingTexts)) {
+                        if (txt.toLowerCase().includes(key.toLowerCase())) {
+                            loadText = val;
+                            break;
+                        }
                     }
+                    btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: var(--primary); font-size: 1.15rem; margin-right: 6px;"></i> <span style="font-family: var(--font-display); font-weight: 600;">${loadText}</span>`;
                 }
-                
-                btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: var(--primary); font-size: 1.15rem; margin-right: 6px;"></i> <span style="font-family: var(--font-display); font-weight: 600;">${loadText}</span>`;
             }
             
             try {
@@ -4568,7 +5152,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
                     setTimeout(() => syncBtn.querySelector('i').classList.remove('fa-spin'), 600);
                 }
 
-                if (payload || endpoint.includes('/watcher/') || endpoint.includes('/cleanup') || endpoint.includes('/sync')) { 
+                if ((payload && endpoint !== '/api/mcp/test') || endpoint.includes('/watcher/') || endpoint.includes('/cleanup') || endpoint.includes('/sync')) {
                     let heading = '';
                     const isZh = currentLang === 'zh';
                     
@@ -4634,6 +5218,316 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
         }
 
         // --- Dynamic Interface Data Refresher ---
+        async function loadMCPConfig(force = false) {
+            const data = await apiCall('/api/mcp');
+            if (data) renderMCPConfig(data);
+        }
+
+        function renderMCPConfig(data) {
+            const gatewayTag = document.getElementById('mcp-gateway-status');
+            const countTag = document.getElementById('mcp-server-count');
+            const list = document.getElementById('mcp-server-list');
+            if (!list) return;
+            mcpState = { config: data.config || null, gateway: data.gateway || null, path: data.path || '', connections: {} };
+            if (gatewayTag) {
+                const installed = Boolean(data.gateway && data.gateway.installed);
+                gatewayTag.className = installed ? 'tag tag-success' : 'tag tag-warning';
+                gatewayTag.textContent = installed
+                    ? (data.gateway.version || 'Gateway installed')
+                    : (currentLang === 'zh' ? '网关二进制未安装' : 'Gateway binary not installed');
+            }
+            const command = data.gateway?.path || 'easyskills-mcp';
+            const args = ['connect', '--config', data.path || '', '--profile', 'default'];
+            mcpState.connections = {
+                json: JSON.stringify({ mcpServers: { easyskills: { command, args } } }, null, 2),
+                vscode: JSON.stringify({ servers: { easyskills: { type: 'stdio', command, args } } }, null, 2),
+                codex: `[mcp_servers.easyskills]\ncommand = ${JSON.stringify(command)}\nargs = [\n  ${args.map(a => JSON.stringify(a)).join(',\n  ')}\n]`,
+            };
+            const btnJson = document.getElementById('btn-connect-json');
+            const btnVSCode = document.getElementById('btn-connect-vscode');
+            const btnCodex = document.getElementById('btn-connect-codex');
+            if (btnJson) btnJson.setAttribute('data-tooltip', mcpState.connections.json);
+            if (btnVSCode) btnVSCode.setAttribute('data-tooltip', mcpState.connections.vscode);
+            if (btnCodex) btnCodex.setAttribute('data-tooltip', mcpState.connections.codex);
+            if (!data.success || !data.config) {
+                list.innerHTML = `<div class="mcp-empty"><div><i class="fa-solid fa-triangle-exclamation"></i><span>${escapeHtml(data.error || 'Invalid MCP configuration')}</span></div></div>`;
+                return;
+            }
+            const servers = data.config.servers || {};
+            const entries = Object.entries(servers).sort(([a], [b]) => a.localeCompare(b));
+            if (countTag) countTag.textContent = currentLang === 'zh' ? `${entries.length} 个 MCP` : `${entries.length} MCP${entries.length === 1 ? '' : 's'}`;
+            if (!entries.length) {
+                list.innerHTML = `<div class="mcp-empty"><div><i class="fa-solid fa-server"></i><strong>${currentLang === 'zh' ? '还没有 MCP' : 'No MCP modules yet'}</strong><p>${currentLang === 'zh' ? '点击“添加 MCP”创建第一个模块。' : 'Use “Add MCP” to create your first module.'}</p></div></div>`;
+                return;
+            }
+            list.innerHTML = entries.map(([name, server]) => {
+                const enabled = server.enabled !== false;
+                const transport = String(server.transport || 'http').toLowerCase();
+                const target = transport === 'stdio'
+                    ? [server.command, ...(server.args || [])].filter(Boolean).join(' ')
+                    : String(server.url || '');
+                const credentialCount = Object.keys(server.headers || {}).length + Object.keys(server.env || {}).length;
+                const filterCount = (server.enabled_tools || []).length + (server.disabled_tools || []).length;
+                const icon = transport === 'stdio' ? 'fa-terminal' : (transport === 'sse' ? 'fa-tower-broadcast' : 'fa-globe');
+                
+                const toolsList = mcpToolsCache[name] || [];
+                let toolsHtml = '';
+                if (toolsList.length > 0) {
+                    toolsHtml = `
+                        <div class="mcp-server-tools-list">
+                            ${toolsList.map(t => `<span class="tag tag-success" style="font-family: var(--font-mono); font-size: 0.68rem; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.18); color: #10b981; padding: 0.15rem 0.4rem; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="fa-solid fa-screwdriver-wrench" style="font-size: 0.6rem; opacity: 0.85;"></i>${escapeHtml(t)}</span>`).join('')}
+                        </div>
+                    `;
+                }
+                
+                return `<div class="mcp-server-card ${enabled ? '' : 'is-disabled'}">
+                    <article class="mcp-server-row" style="padding-bottom: ${toolsList.length > 0 ? '0.5rem' : '0.9rem'};">
+                        <span class="mcp-server-icon"><i class="fa-solid ${icon}"></i></span>
+                        <div class="mcp-server-main">
+                            <div class="mcp-server-name-line">
+                                <strong class="mcp-server-name">${escapeHtml(name)}</strong>
+                                <span class="tag ${enabled ? 'tag-success' : 'tag-muted'}">${enabled ? (currentLang === 'zh' ? '已启用' : 'Enabled') : (currentLang === 'zh' ? '已停用' : 'Disabled')}</span>
+                                ${server.required ? `<span class="tag tag-warning">${currentLang === 'zh' ? '必需' : 'Required'}</span>` : ''}
+                            </div>
+                            <div class="mcp-server-target" title="${escapeHtml(target)}">${escapeHtml(target || (currentLang === 'zh' ? '尚未填写连接信息' : 'Connection not configured'))}</div>
+                        </div>
+                        <div class="mcp-server-meta">
+                            <span><i class="fa-solid fa-arrow-right-arrow-left"></i>${escapeHtml(transport === 'http' ? 'Streamable HTTP' : transport.toUpperCase())}</span>
+                            <span><i class="fa-solid fa-key"></i>${currentLang === 'zh' ? `${credentialCount} 项凭证` : `${credentialCount} credential${credentialCount === 1 ? '' : 's'}`}${filterCount ? ` · ${filterCount} ${currentLang === 'zh' ? '项工具规则' : 'tool rules'}` : ''}</span>
+                        </div>
+                        <div class="mcp-server-actions">
+                            <button class="mcp-switch ${enabled ? 'is-on' : ''}" type="button" data-mcp-toggle="${escapeHtml(name)}" aria-label="${enabled ? 'Disable' : 'Enable'} ${escapeHtml(name)}"></button>
+                            <button class="mcp-icon-action" type="button" data-mcp-test="${escapeHtml(name)}" aria-label="Test ${escapeHtml(name)}" title="${currentLang === 'zh' ? '测试连接' : 'Test connection'}"><i class="fa-solid fa-stethoscope"></i></button>
+                            <button class="mcp-icon-action" type="button" data-mcp-edit="${escapeHtml(name)}" aria-label="Edit ${escapeHtml(name)}" title="${currentLang === 'zh' ? '编辑' : 'Edit'}"><i class="fa-solid fa-pen"></i></button>
+                            <button class="mcp-icon-action danger" type="button" data-mcp-delete="${escapeHtml(name)}" aria-label="Delete ${escapeHtml(name)}" title="${currentLang === 'zh' ? '删除' : 'Delete'}"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    </article>
+                    ${toolsHtml}
+                </div>`;
+            }).join('');
+            list.querySelectorAll('[data-mcp-toggle]').forEach(button => {
+                button.addEventListener('click', () => toggleMCPServer(button.dataset.mcpToggle, button));
+            });
+            list.querySelectorAll('[data-mcp-test]').forEach(button => {
+                button.addEventListener('click', () => testMCPServer(button.dataset.mcpTest, button));
+            });
+            list.querySelectorAll('[data-mcp-edit]').forEach(button => {
+                button.addEventListener('click', () => openMCPServerEditor(button.dataset.mcpEdit));
+            });
+            list.querySelectorAll('[data-mcp-delete]').forEach(button => {
+                button.addEventListener('click', () => deleteMCPServer(button.dataset.mcpDelete, button));
+            });
+        }
+
+        function lineList(value) {
+            return String(value || '').split('\n').map(item => item.trim()).filter(Boolean);
+        }
+
+        async function testMCPGateway(button) {
+            const result = await apiCall('/api/mcp/test', { profile: 'default' }, button);
+            if (result && result.success && result.summary) {
+                const connected = (result.summary.servers || []).filter(server => server.connected).length;
+                const tools = result.summary.tools || [];
+                
+                // Group tools by server prefix
+                mcpToolsCache = {};
+                (result.summary.servers || []).forEach(s => {
+                    if (s.connected) {
+                        mcpToolsCache[s.name] = [];
+                    }
+                });
+                tools.forEach(t => {
+                    const dotIdx = t.indexOf('.');
+                    if (dotIdx > 0) {
+                        const sName = t.substring(0, dotIdx);
+                        const tName = t.substring(dotIdx + 1);
+                        if (mcpToolsCache[sName]) {
+                            mcpToolsCache[sName].push(tName);
+                        }
+                    }
+                });
+                localStorage.setItem('es_mcp_tools_cache', JSON.stringify(mcpToolsCache));
+                
+                await loadMCPConfig(false);
+                showToast(currentLang === 'zh' ? `已连接 ${connected} 个服务，发现 ${tools.length} 个工具` : `${connected} servers connected, ${tools.length} tools discovered`, 'success');
+            } else if (result && !result.success) {
+                showToast(result.message || (currentLang === 'zh' ? 'Gateway 测试失败' : 'Gateway test failed'), 'error');
+            }
+        }
+
+        async function testMCPServer(name, button) {
+            const result = await apiCall('/api/mcp/test', { profile: 'default', server: name }, button);
+            if (result && result.success && result.summary) {
+                const status = (result.summary.servers || [])[0] || {};
+                const tools = result.summary.tools || [];
+                if (status.connected) {
+                    mcpToolsCache[name] = tools.map(t => t.startsWith(name + '.') ? t.substring(name.length + 1) : t);
+                    localStorage.setItem('es_mcp_tools_cache', JSON.stringify(mcpToolsCache));
+                    
+                    await loadMCPConfig(false);
+                    showToast(currentLang === 'zh' ? `${name} 连接成功，发现 ${tools.length} 个工具` : `${name} connected — ${tools.length} tools discovered`, 'success');
+                } else {
+                    showToast(status.error || (currentLang === 'zh' ? `${name} 连接失败` : `${name} connection failed`), 'error');
+                }
+            } else if (result && !result.success) {
+                showToast(result.message || (currentLang === 'zh' ? `${name} 测试失败` : `${name} test failed`), 'error');
+            }
+        }
+
+        function parseMCPEditorJSON(jsonText, defaultName = '') {
+            let data = JSON.parse(jsonText);
+            if (!data || typeof data !== 'object' || Array.isArray(data)) {
+                throw new Error(currentLang === 'zh' ? 'JSON 必须是一个对象' : 'JSON must be an object.');
+            }
+            if (data.mcpServers && typeof data.mcpServers === 'object' && !Array.isArray(data.mcpServers)) {
+                data = data.mcpServers;
+            } else if (data.servers && typeof data.servers === 'object' && !Array.isArray(data.servers)) {
+                data = data.servers;
+            }
+            const keys = Object.keys(data);
+            let name = defaultName;
+            let server = data;
+            if (keys.length === 1 && typeof data[keys[0]] === 'object' && data[keys[0]] !== null && !Array.isArray(data[keys[0]])) {
+                name = keys[0];
+                server = data[keys[0]];
+            } else {
+                if (data.name && typeof data.name === 'string') {
+                    name = data.name;
+                }
+            }
+            if (!name) {
+                throw new Error(currentLang === 'zh' ? '无法检测到 MCP 服务名称。请使用 {"服务名": { ... }} 格式包装配置。' : 'Could not detect MCP server name. Please wrap the configuration in a name key, e.g., {"server-name": { ... }}.');
+            }
+            const transport = server.transport || (server.url ? 'http' : 'stdio');
+            if (transport === 'stdio' && !server.command) {
+                throw new Error(currentLang === 'zh' ? 'stdio 传输方式必须指定 "command"。' : '"command" is required for stdio transport.');
+            }
+            if ((transport === 'http' || transport === 'sse') && !server.url) {
+                throw new Error(currentLang === 'zh' ? 'http/sse 传输方式必须指定 "url"。' : '"url" is required for http/sse transport.');
+            }
+
+            // Map and filter keys to only allow valid fields matching backend schema
+            if (server.timeoutMs && !server.tool_timeout_seconds) {
+                server.tool_timeout_seconds = Math.round(server.timeoutMs / 1000);
+            }
+            if (server.timeout && !server.tool_timeout_seconds) {
+                server.tool_timeout_seconds = server.timeout;
+            }
+            const allowed = [
+                "enabled", "required", "transport", "command", "args", "cwd", "env",
+                "url", "headers", "startup_timeout_seconds", "tool_timeout_seconds",
+                "enabled_tools", "disabled_tools"
+            ];
+            const cleanServer = {};
+            allowed.forEach(k => {
+                if (server[k] !== undefined) {
+                    cleanServer[k] = server[k];
+                }
+            });
+            cleanServer.transport = transport; // Ensure transport is populated
+            if (cleanServer.enabled !== undefined) {
+                cleanServer.enabled = Boolean(cleanServer.enabled);
+            }
+            if (cleanServer.required !== undefined) {
+                cleanServer.required = Boolean(cleanServer.required);
+            }
+
+            return { name, server: cleanServer };
+        }
+
+        function openMCPServerEditor(name = '') {
+            editingMCPName = name || null;
+            
+            document.getElementById('mcp-editor-title').textContent = name
+                ? (currentLang === 'zh' ? `编辑 ${name}` : `Edit ${name}`)
+                : (currentLang === 'zh' ? '添加 MCP' : 'Add MCP');
+            
+            if (name) {
+                const server = mcpState.config?.servers?.[name]
+                    ? JSON.parse(JSON.stringify(mcpState.config.servers[name]))
+                    : { enabled: true, required: false, transport: 'stdio', command: 'npx', args: ['-y', 'mcp-server-package'] };
+                document.getElementById('mcp-form-json').value = JSON.stringify({ [name]: server }, null, 2);
+            } else {
+                document.getElementById('mcp-form-json').value = '';
+            }
+            
+            document.getElementById('mcp-editor-backdrop').classList.add('is-open');
+            document.body.style.overflow = 'hidden';
+            
+            setTimeout(() => document.getElementById('mcp-form-json').focus(), 0);
+        }
+
+        function closeMCPServerEditor() {
+            document.getElementById('mcp-editor-backdrop').classList.remove('is-open');
+            document.body.style.overflow = '';
+            editingMCPName = null;
+        }
+
+        async function saveMCPServerForm(event) {
+            event.preventDefault();
+            const jsonText = document.getElementById('mcp-form-json').value.trim();
+            let name, server;
+            try {
+                const parsed = parseMCPEditorJSON(jsonText, editingMCPName);
+                name = parsed.name;
+                server = parsed.server;
+            } catch (err) {
+                showToast(err.message, 'error');
+                return;
+            }
+            if (!name) {
+                showToast(currentLang === 'zh' ? 'MCP 名称不能为空' : 'MCP name cannot be empty', 'error');
+                return;
+            }
+            const endpoint = editingMCPName ? '/api/mcp/server/update' : '/api/mcp/server/add';
+            const result = await apiCall(endpoint, { name, server }, document.getElementById('mcp-form-save'));
+            if (result && result.success) {
+                closeMCPServerEditor();
+                await loadMCPConfig(true);
+                setTimeout(() => testMCPServer(name, null), 300);
+            }
+        }
+
+        async function toggleMCPServer(name, button) {
+            const existing = mcpState.config?.servers?.[name];
+            if (!existing) return;
+            const server = JSON.parse(JSON.stringify(existing));
+            server.enabled = server.enabled === false;
+            const result = await apiCall('/api/mcp/server/update', { name, server }, button);
+            if (result && result.success) await loadMCPConfig(true);
+        }
+
+        async function deleteMCPServer(name, button) {
+            if (button.dataset.deleteArmed !== 'true') {
+                button.dataset.deleteArmed = 'true';
+                button.classList.add('is-armed');
+                button.title = currentLang === 'zh' ? '再次点击确认删除' : 'Click again to confirm deletion';
+                button.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>';
+                showToast(currentLang === 'zh' ? `再次点击删除 ${name}` : `Click delete again to remove ${name}`, 'info');
+                setTimeout(() => {
+                    if (!button.isConnected || button.dataset.deleteArmed !== 'true') return;
+                    button.dataset.deleteArmed = 'false';
+                    button.classList.remove('is-armed');
+                    button.title = currentLang === 'zh' ? '删除' : 'Delete';
+                    button.innerHTML = '<i class="fa-solid fa-trash"></i>';
+                }, 3500);
+                return;
+            }
+            const result = await apiCall('/api/mcp/server/delete', { name }, button);
+            if (result && result.success) await loadMCPConfig(true);
+        }
+
+
+
+        function copyMCPConnection(kind) {
+            const value = mcpState.connections[kind] || '';
+            navigator.clipboard.writeText(value).then(() => {
+                showToast(currentLang === 'zh' ? '连接配置已复制' : 'Connection config copied', 'success');
+            }).catch(() => {
+                showToast(currentLang === 'zh' ? '复制失败' : 'Copy failed', 'error');
+            });
+        }
+
         async function refreshAll() {
             const activeNav = document.querySelector('.nav-item.active')?.getAttribute('data-target');
             
@@ -4645,6 +5539,8 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
                     const detectedAgents = Number(status.agents_detected || 0);
                     const mappedAgents = Number(status.agents_mapped || 0);
                     const rulesCount = Number(status.rules_count || 0);
+                    const mcpServersCount = Number(status.mcp_servers_count || 0);
+                    const mcpServersEnabled = Number(status.mcp_servers_enabled || 0);
                     const detectedRuleAgents = Number(status.instruction_agents_detected || 0);
                     const managedRuleAgents = Number(status.instruction_agents_managed || 0);
                     const managedRuleInstances = Number(status.managed_rule_instances || 0);
@@ -4662,6 +5558,15 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
                     document.getElementById('stat-mapped').innerText = mappedAgents;
                     document.getElementById('stat-detected-agents').innerText = detectedAgents;
                     document.getElementById('stat-rules').innerText = rulesCount;
+                    document.getElementById('stat-mcp-servers').innerText = mcpServersCount;
+                    document.getElementById('stat-mcp-enabled').innerText = mcpServersEnabled;
+                    const mcpGatewayTag = document.getElementById('dashboard-mcp-gateway-tag');
+                    if (mcpGatewayTag) {
+                        mcpGatewayTag.className = status.mcp_gateway_installed ? 'tag tag-success' : 'tag tag-warning';
+                        mcpGatewayTag.textContent = status.mcp_gateway_installed
+                            ? (currentLang === 'zh' ? '已安装' : 'Installed')
+                            : (currentLang === 'zh' ? '未安装' : 'Not installed');
+                    }
                     document.getElementById('stat-managed-rule-agents').innerText = managedRuleAgents;
                     document.getElementById('stat-detected-rule-targets').innerText = detectedRuleAgents;
                     document.getElementById('stat-agent-detected').innerText = detectedAgents;
@@ -4799,6 +5704,10 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
             if (activeNav === 'instructions') {
                 const data = await apiCall('/api/instructions');
                 if (data) renderInstructions(data);
+            }
+
+            if (activeNav === 'mcp') {
+                await loadMCPConfig(false);
             }
 
             if (activeNav === 'about') {
