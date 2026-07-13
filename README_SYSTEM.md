@@ -303,5 +303,5 @@ their directory exists. Agents not installed on the machine are skipped.
 - **Windows**: `%USERPROFILE%\.qoder-cn\skills`
 
 ### 43. MiniMax Code
-- **macOS**: `~/.mavis/skills`
-- **Windows**: `%USERPROFILE%\.mavis\skills`
+- **macOS**: `~/.mavis/agents/mavis/skills`
+- **Windows**: `%USERPROFILE%\.mavis\agents\mavis\skills`

@@ -306,7 +306,7 @@ EasySkills 开箱即用支持以下 43+ 个 Agent 目标路径。您可通过 We
 | 40 | **CodeWhale** | `~/.codewhale/skills` | `%USERPROFILE%\.codewhale\skills` |
 | 41 | **QoderWork CN** | `~/.qoderworkcn/skills` | `%USERPROFILE%\.qoderworkcn\skills` |
 | 42 | **Qoder CN** | `~/.qoder-cn/skills` | `%USERPROFILE%\.qoder-cn\skills` |
-| 43 | **MiniMax Code** | `~/.mavis/skills` | `%USERPROFILE%\.mavis\skills` |
+| 43 | **MiniMax Code** | `~/.mavis/agents/mavis/skills` | `%USERPROFILE%\.mavis\agents\mavis\skills` |
 
 > *注：*对于 Trae 和 Trae CN，另外会映射到其 AppData 路径：`~/Library/Application Support/Trae[-CN]/skills` (macOS) 和 `%APPDATA%\Trae[-CN]\skills` (Windows)。
 

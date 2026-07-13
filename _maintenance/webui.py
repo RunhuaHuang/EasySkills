@@ -314,7 +314,7 @@ def _load_default_agents() -> list[tuple[str, Path]]:
         ("CodeWhale",                      Path.home() / ".codewhale/skills"),
         ("QoderWork CN",                   Path.home() / ".qoderworkcn/skills"),
         ("Qoder CN",                       Path.home() / ".qoder-cn/skills"),
-        ("MiniMax Code",                   Path.home() / ".mavis/skills"),
+        ("MiniMax Code",                   Path.home() / ".mavis/agents/mavis/skills"),
     ]
 
 DEFAULT_AGENTS = _load_default_agents()
@@ -1183,10 +1183,23 @@ def _write_to_one(path: Path, rules: dict[str, str], *, replace: bool = False) -
             current, legacy = {}, ""
         current.update(rules)
         block = _build_managed_block(current, legacy)
+        new_content = _inject_managed_block(existing, block)
+        body = _managed_body(current, legacy)
+        new_entry = {
+            "path": _instruction_state_key(path),
+            "rules": [
+                {"name": name, "content": current[name]}
+                for name in sorted(current, key=str.casefold)
+            ],
+            "legacy": legacy,
+            "body_sha256": hashlib.sha256(body.strip().encode("utf-8")).hexdigest(),
+        }
+        if existing == new_content and state_entry == new_entry:
+            return True
         previous_state = _instruction_state_entry(path)
         _set_instruction_state(path, current, legacy)
         try:
-            _atomic_write_text(path, _inject_managed_block(existing, block))
+            _atomic_write_text(path, new_content)
         except Exception:
             if previous_state is None:
                 _remove_instruction_state(path)
@@ -1216,8 +1229,13 @@ def _remove_from_one(path: Path) -> bool:
             _remove_instruction_state(path)
             return True
         remaining = _strip_managed_block(existing)
+        previous_state = _instruction_state_entry(path)
         if remaining.strip():
-            _atomic_write_text(path, remaining.rstrip() + "\n")
+            new_content = remaining.rstrip() + "\n"
+            if existing == new_content and previous_state is None:
+                return True
+            if existing != new_content:
+                _atomic_write_text(path, new_content)
         else:
             path.unlink()
         _remove_instruction_state(path)
@@ -1255,12 +1273,27 @@ def _remove_rules_from_one(path: Path, rule_names: list[str]) -> bool:
         for name in rule_names:
             current.pop(name, None)
         if current or legacy.strip():
-            updated = _inject_managed_block(existing, _build_managed_block(current, legacy))
+            block = _build_managed_block(current, legacy)
+            updated = _inject_managed_block(existing, block)
+            body = _managed_body(current, legacy)
+            new_entry = {
+                "path": _instruction_state_key(path),
+                "rules": [
+                    {"name": name, "content": current[name]}
+                    for name in sorted(current, key=str.casefold)
+                ],
+                "legacy": legacy,
+                "body_sha256": hashlib.sha256(body.strip().encode("utf-8")).hexdigest(),
+            }
             previous_state = _instruction_state_entry(path)
+            if existing == updated and previous_state == new_entry:
+                return True
             _set_instruction_state(path, current, legacy)
         else:
             updated = _strip_managed_block(existing)
             previous_state = _instruction_state_entry(path)
+            if existing == updated and previous_state is None:
+                return True
         if updated.strip():
             if not current and not legacy.strip():
                 updated = updated.rstrip() + "\n"
@@ -1312,12 +1345,21 @@ def write_instructions_to_all() -> dict:
     if error:
         return {"success": False, "message": error}
     targets = _detected_instruction_targets()
-    if not targets:
-        return {"success": False, "message": "No detected agent instruction targets found."}
-    
+    all_targets = {}
+    for name, path in targets:
+        all_targets[str(path.resolve())] = (name, path)
+    sync_state = _load_instruction_sync_state()
+    for entry in sync_state.get("targets", []):
+        if isinstance(entry, dict) and entry.get("path"):
+            p = Path(entry["path"]).resolve()
+            p_str = str(p)
+            if p_str not in all_targets:
+                all_targets[p_str] = (p.name, p)
+    if not all_targets:
+        return {"success": False, "message": "No detected or previously synced agent instruction targets found."}
     if not rules:
         removed, failed = [], []
-        for name, path in targets:
+        for name, path in all_targets.values():
             if _remove_from_one(path):
                 removed.append(name)
             else:
@@ -1326,13 +1368,24 @@ def write_instructions_to_all() -> dict:
         if failed:
             msg += f" Failed: {', '.join(failed)}"
         return {"success": len(failed) == 0, "message": msg, "written": 0, "failed": failed}
-
+    if not targets:
+        removed = []
+        for name, path in all_targets.values():
+            _remove_from_one(path)
+            removed.append(name)
+        return {"success": False, "message": "No detected active agent instruction targets found. Cleared legacy block from previously synced targets."}
     written, failed = [], []
     for name, path in targets:
         if _write_to_one(path, rules, replace=True):
             written.append(name)
         else:
             failed.append(f"{name} ({path})")
+    active_paths = {str(path.resolve()) for name, path in targets}
+    for entry in sync_state.get("targets", []):
+        if isinstance(entry, dict) and entry.get("path"):
+            p = Path(entry["path"]).resolve()
+            if str(p) not in active_paths:
+                _remove_from_one(p)
     msg = f"Wrote rules to {len(written)} agent(s)."
     if failed:
         msg += f" Failed: {', '.join(failed)}"
@@ -1341,12 +1394,22 @@ def write_instructions_to_all() -> dict:
 
 @_writes_locked
 def remove_instructions_from_all() -> dict:
-    """Remove the managed block from every detected agent instruction file."""
+    """Remove the managed block from every detected or previously synced agent instruction file."""
     targets = _detected_instruction_targets()
-    if not targets:
-        return {"success": False, "message": "No detected agent instruction targets found."}
-    removed, failed = [], []
+    all_targets = {}
     for name, path in targets:
+        all_targets[str(path.resolve())] = (name, path)
+    sync_state = _load_instruction_sync_state()
+    for entry in sync_state.get("targets", []):
+        if isinstance(entry, dict) and entry.get("path"):
+            p = Path(entry["path"]).resolve()
+            p_str = str(p)
+            if p_str not in all_targets:
+                all_targets[p_str] = (p.name, p)
+    if not all_targets:
+        return {"success": False, "message": "No agent instruction targets found to clear."}
+    removed, failed = [], []
+    for name, path in all_targets.values():
         if _remove_from_one(path):
             removed.append(name)
         else:
@@ -1492,7 +1555,8 @@ def _validate_mcp_config(config_data) -> tuple[bool, str]:
     unknown_top = set(config_data) - {"version", "servers", "profiles"}
     if unknown_top:
         return False, f"Unknown top-level fields: {', '.join(sorted(unknown_top))}"
-    if config_data.get("version") != 1:
+    version = config_data.get("version")
+    if isinstance(version, bool) or not isinstance(version, int) or version != 1:
         return False, "version must be 1."
     servers = config_data.get("servers")
     profiles = config_data.get("profiles", {})
@@ -1516,6 +1580,15 @@ def _validate_mcp_config(config_data) -> tuple[bool, str]:
             problems.append(f"{prefix}.enabled must be boolean")
         if "required" in server and not isinstance(server["required"], bool):
             problems.append(f"{prefix}.required must be boolean")
+        if "cwd" in server and not isinstance(server["cwd"], str):
+            problems.append(f"{prefix}.cwd must be a string")
+        if "transport" in server and not isinstance(server["transport"], str):
+            problems.append(f"{prefix}.transport must be a string")
+        if "command" in server and not isinstance(server["command"], str):
+            problems.append(f"{prefix}.command must be a string")
+        if "url" in server and not isinstance(server["url"], str):
+            problems.append(f"{prefix}.url must be a string")
+
         transport = str(server.get("transport", "")).strip().lower().replace("_", "-")
         if transport == "streamable-http":
             transport = "http"

@@ -303,10 +303,10 @@
     },
     {
       "name": "MiniMax Code",
-      "mac_path": "~/.mavis/skills",
-      "win_path": "%USERPROFILE%\\.mavis\\skills",
-      "mac_instructions_file": "~/.mavis/AGENTS.md",
-      "win_instructions_file": "%USERPROFILE%\\.mavis\\AGENTS.md"
+      "mac_path": "~/.mavis/agents/mavis/skills",
+      "win_path": "%USERPROFILE%\\.mavis\\agents\\mavis\\skills",
+      "mac_instructions_file": "~/.mavis/agents/mavis/AGENTS.md",
+      "win_instructions_file": "%USERPROFILE%\\.mavis\\agents\\mavis\\AGENTS.md"
     }
   ]
 }

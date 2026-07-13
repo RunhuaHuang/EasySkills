@@ -119,15 +119,105 @@ function Get-DefaultMCPConfig {
 
 function Test-MCPConfig($ConfigData) {
     if (-not $ConfigData) { return @{ success = $false; message = "MCP configuration must be a JSON object." } }
-    if ([int]$ConfigData.version -ne 1) { return @{ success = $false; message = "version must be 1." } }
+    $AllowedTop = @("version", "servers", "profiles")
+    foreach ($Prop in @($ConfigData.PSObject.Properties)) {
+        if ($Prop.Name -notin $AllowedTop) {
+            return @{ success = $false; message = "Unknown top-level fields: $($Prop.Name)" }
+        }
+    }
+    $version = $ConfigData.version
+    if ($version -is [bool] -or ($version -isnot [int] -and $version -isnot [long] -and $version -isnot [double]) -or $version -ne 1) {
+        return @{ success = $false; message = "version must be 1." }
+    }
     if ($null -eq $ConfigData.servers) { return @{ success = $false; message = "servers must be a JSON object." } }
+    if ($ConfigData.servers -isnot [System.Management.Automation.PSCustomObject]) { return @{ success = $false; message = "servers must be a JSON object." } }
+    if ($null -ne $ConfigData.profiles -and $ConfigData.profiles -isnot [System.Management.Automation.PSCustomObject]) {
+        return @{ success = $false; message = "profiles must be a JSON object." }
+    }
     $NamePattern = '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+    $AllowedFields = @(
+        "enabled", "required", "transport", "command", "args", "cwd", "env",
+        "url", "headers", "startup_timeout_seconds", "tool_timeout_seconds",
+        "enabled_tools", "disabled_tools"
+    )
     foreach ($Property in @($ConfigData.servers.PSObject.Properties)) {
         $Name = [string]$Property.Name
         $Server = $Property.Value
         if ($Name -notmatch $NamePattern) { return @{ success = $false; message = "Invalid MCP server name: $Name" } }
         if (-not $Server) { return @{ success = $false; message = "Server '$Name' must be an object." } }
-        $Transport = ([string]$Server.transport).Trim().ToLower().Replace("_", "-")
+        if ($Server -isnot [System.Management.Automation.PSCustomObject]) { return @{ success = $false; message = "Server '$Name' must be an object." } }
+        foreach ($Prop in @($Server.PSObject.Properties)) {
+            if ($Prop.Name -notin $AllowedFields) {
+                return @{ success = $false; message = "Server '$Name' has unknown fields: $($Prop.Name)" }
+            }
+        }
+        if ($null -ne $Server.enabled -and $Server.enabled -isnot [bool]) {
+            return @{ success = $false; message = "Server '$Name' enabled must be a boolean." }
+        }
+        if ($null -ne $Server.required -and $Server.required -isnot [bool]) {
+            return @{ success = $false; message = "Server '$Name' required must be a boolean." }
+        }
+        if ($null -eq $Server.transport -or $Server.transport -isnot [string]) {
+            return @{ success = $false; message = "Server '$Name' transport must be a string." }
+        }
+        if ($null -ne $Server.cwd -and $Server.cwd -isnot [string]) {
+            return @{ success = $false; message = "Server '$Name' cwd must be a string." }
+        }
+        if ($null -ne $Server.command -and $Server.command -isnot [string]) {
+            return @{ success = $false; message = "Server '$Name' command must be a string." }
+        }
+        if ($null -ne $Server.url -and $Server.url -isnot [string]) {
+            return @{ success = $false; message = "Server '$Name' url must be a string." }
+        }
+        if ($null -ne $Server.startup_timeout_seconds) {
+            $val = $Server.startup_timeout_seconds
+            if ($val -is [bool] -or ($val -isnot [int] -and $val -isnot [long]) -or $val -lt 0 -or $val -gt 600) {
+                return @{ success = $false; message = "Server '$Name' startup_timeout_seconds must be an integer from 0 to 600." }
+            }
+        }
+        if ($null -ne $Server.tool_timeout_seconds) {
+            $val = $Server.tool_timeout_seconds
+            if ($val -is [bool] -or ($val -isnot [int] -and $val -isnot [long]) -or $val -lt 0 -or $val -gt 3600) {
+                return @{ success = $false; message = "Server '$Name' tool_timeout_seconds must be an integer from 0 to 3600." }
+            }
+        }
+        if ($null -ne $Server.args) {
+            if ($Server.args -isnot [array]) {
+                return @{ success = $false; message = "Server '$Name' args must be an array of strings." }
+            }
+            foreach ($arg in $Server.args) {
+                if ($arg -isnot [string]) {
+                    return @{ success = $false; message = "Server '$Name' args must be an array of strings." }
+                }
+            }
+        }
+        foreach ($list_field in @("enabled_tools", "disabled_tools")) {
+            $val = $Server.$list_field
+            if ($null -ne $val) {
+                if ($val -isnot [array]) {
+                    return @{ success = $false; message = "Server '$Name' $list_field must be an array of strings." }
+                }
+                foreach ($item in $val) {
+                    if ($item -isnot [string]) {
+                        return @{ success = $false; message = "Server '$Name' $list_field must be an array of strings." }
+                    }
+                }
+            }
+        }
+        foreach ($map_field in @("env", "headers")) {
+            $val = $Server.$map_field
+            if ($null -ne $val) {
+                if ($val -isnot [System.Management.Automation.PSCustomObject]) {
+                    return @{ success = $false; message = "Server '$Name' $map_field must be an object of string values." }
+                }
+                foreach ($Prop in @($val.PSObject.Properties)) {
+                    if ($Prop.Value -isnot [string]) {
+                        return @{ success = $false; message = "Server '$Name' $map_field must be an object of string values." }
+                    }
+                }
+            }
+        }
+        $Transport = $Server.transport.Trim().ToLower().Replace("_", "-")
         if ($Transport -eq "streamable-http") { $Transport = "http" }
         if ($Transport -eq "stdio") {
             if (-not ([string]$Server.command).Trim()) { return @{ success = $false; message = "Server '$Name' requires command for stdio." } }
@@ -141,11 +231,31 @@ function Test-MCPConfig($ConfigData) {
         }
     }
     if ($ConfigData.profiles) {
+        $AllowedProfileFields = @("servers", "enabled_tools", "disabled_tools")
         foreach ($Property in @($ConfigData.profiles.PSObject.Properties)) {
             if ([string]$Property.Name -notmatch $NamePattern) {
                 return @{ success = $false; message = "Invalid MCP profile name: $($Property.Name)" }
             }
-            foreach ($ServerName in @($Property.Value.servers)) {
+            $Profile = $Property.Value
+            if (-not $Profile -or $Profile -isnot [System.Management.Automation.PSCustomObject]) {
+                return @{ success = $false; message = "Profile '$($Property.Name)' must be an object." }
+            }
+            foreach ($PProp in @($Profile.PSObject.Properties)) {
+                if ($PProp.Name -notin $AllowedProfileFields) {
+                    return @{ success = $false; message = "Profile '$($Property.Name)' has unknown fields: $($PProp.Name)" }
+                }
+                if ($null -ne $PProp.Value) {
+                    if ($PProp.Value -isnot [array]) {
+                        return @{ success = $false; message = "Profile '$($Property.Name)' $($PProp.Name) must be an array of strings." }
+                    }
+                    foreach ($item in $PProp.Value) {
+                        if ($item -isnot [string]) {
+                            return @{ success = $false; message = "Profile '$($Property.Name)' $($PProp.Name) must be an array of strings." }
+                        }
+                    }
+                }
+            }
+            foreach ($ServerName in @($Profile.servers)) {
                 if ($ServerName -eq "*") { continue }
                 if (-not $ConfigData.servers.PSObject.Properties[$ServerName]) {
                     return @{ success = $false; message = "Profile '$($Property.Name)' references unknown server '$ServerName'." }
@@ -249,11 +359,48 @@ function Test-MCPGateway([string]$Profile = "default", [string]$ServerName = "")
     try {
         $Arguments = @("test", "--config", $MCPConfigFile, "--profile", $Profile)
         if ($ServerName) { $Arguments += @("--server", $ServerName) }
-        $Output = & $Gateway.path @Arguments 2>&1
-        if ($LASTEXITCODE -ne 0) { return @{ success = $false; message = ($Output -join "`n") } }
-        $Summary = ($Output -join "`n") | ConvertFrom-Json
+        
+        $Process = New-Object System.Diagnostics.Process
+        $Process.StartInfo.FileName = $Gateway.path
+        $EscapedArgs = @()
+        foreach ($arg in $Arguments) {
+            $EscapedArgs += '"' + $arg.Replace('"', '\"') + '"'
+        }
+        $Process.StartInfo.Arguments = $EscapedArgs -join " "
+        $Process.StartInfo.UseShellExecute = $false
+        $Process.StartInfo.RedirectStandardOutput = $true
+        $Process.StartInfo.RedirectStandardError = $true
+        $Process.StartInfo.CreateNoWindow = $true
+        
+        if (-not $Process.Start()) {
+            return @{ success = $false; message = "Could not run MCP Gateway." }
+        }
+        
+        $OutTask = $Process.StandardOutput.ReadToEndAsync()
+        $ErrTask = $Process.StandardError.ReadToEndAsync()
+        
+        if (-not $Process.WaitForExit(45000)) {
+            try { $Process.Kill(); $Process.WaitForExit(2000) } catch {}
+            return @{ success = $false; message = "MCP Gateway test timed out after 45 seconds." }
+        }
+        
+        try { [void]$OutTask.Wait(2000); [void]$ErrTask.Wait(2000) } catch {}
+        $Stdout = if ($OutTask.IsCompleted) { $OutTask.Result } else { "" }
+        $Stderr = if ($ErrTask.IsCompleted) { $ErrTask.Result } else { "" }
+        $ExitCode = $Process.ExitCode
+        
+        if ($ExitCode -ne 0) {
+            $ErrOutput = @()
+            if ($Stdout) { $ErrOutput += $Stdout }
+            if ($Stderr) { $ErrOutput += $Stderr }
+            return @{ success = $false; message = (($ErrOutput -join "`n").Trim()) }
+        }
+        
+        $Summary = $Stdout | ConvertFrom-Json
         return @{ success = $true; message = "MCP Gateway test completed."; summary = $Summary }
-    } catch { return @{ success = $false; message = "Could not run MCP Gateway: $_" } }
+    } catch {
+        return @{ success = $false; message = "Could not run MCP Gateway: $_" }
+    }
 }
 
 function Add-DisabledTarget([string]$Path) {
@@ -396,7 +543,7 @@ function Load-DefaultAgents {
         @{ Name="CodeWhale"; Path="$Home\.codewhale\skills" },
         @{ Name="QoderWork CN"; Path="$Home\.qoderworkcn\skills" },
         @{ Name="Qoder CN"; Path="$Home\.qoder-cn\skills" },
-        @{ Name="MiniMax Code"; Path="$Home\.mavis\skills" }
+        @{ Name="MiniMax Code"; Path="$Home\.mavis\agents\mavis\skills" }
     )
 }
 $DefaultAgents = Load-DefaultAgents
@@ -1731,6 +1878,28 @@ function Write-RulesToOne([string]$PathStr, $Rules, [bool]$Replace = $false) {
         foreach ($Name in $Rules.Keys) { $Current.Rules[$Name] = $Rules[$Name] }
         $Block = Build-ManagedBlock $Current.Rules $Current.Legacy
         $NewContent = Inject-ManagedBlock $Existing $Block
+        
+        $RuleEntries = @()
+        foreach ($Name in @($Current.Rules.Keys | Sort-Object)) {
+            $RuleEntries += [pscustomobject]@{ name = [string]$Name; content = [string]$Current.Rules[$Name] }
+        }
+        $NewEntry = [pscustomobject]@{
+            path = $Resolved
+            rules = $RuleEntries
+            legacy = [string]$Current.Legacy
+            body_sha256 = (Get-BodySha256 (Get-ManagedBody $Current.Rules $Current.Legacy))
+        }
+        
+        $NewEntryJson = $NewEntry | ConvertTo-Json -Depth 8
+        $StateEntryJson = ""
+        if ($StateEntry) {
+            $StateEntryJson = $StateEntry | ConvertTo-Json -Depth 8
+        }
+        
+        if ($Existing -eq $NewContent -and $NewEntryJson -eq $StateEntryJson) {
+            return @{ success = $true; message = "Wrote rules to $Resolved" }
+        }
+
         $PreviousState = Get-InstructionStateEntry $Resolved
         Set-InstructionState $Resolved $Current.Rules $Current.Legacy
         try {
@@ -1775,12 +1944,18 @@ function Remove-InstructionsFromOne([string]$PathStr) {
             return @{ success = $true; message = "No managed block in $Resolved" }
         }
         $Remaining = Strip-ManagedBlock $Content
-        if ($Remaining.Trim()) {
-            Write-Utf8Atomic $Resolved ($Remaining.TrimEnd() + "`n")
-        } else {
+        $TargetContent = if ($Remaining.Trim()) { ($Remaining.TrimEnd() + "`n") } else { "" }
+        if (-not $TargetContent) {
             Remove-Item -LiteralPath $Resolved -Force
+            Remove-InstructionState $Resolved
+        } else {
+            $StateEntry = Get-InstructionStateEntry $Resolved
+            if ($Content -eq $TargetContent -and $null -eq $StateEntry) {
+                return @{ success = $true; message = "Removed managed block from $Resolved" }
+            }
+            Write-Utf8Atomic $Resolved $TargetContent
+            Remove-InstructionState $Resolved
         }
-        Remove-InstructionState $Resolved
         return @{ success = $true; message = "Removed managed block from $Resolved" }
     } catch {
         return @{ success = $false; message = "Remove failed for $PathStr: $_" }
@@ -1851,12 +2026,30 @@ function Remove-RulesFromOne([string]$PathStr, [string[]]$RuleNames) {
 function Write-InstructionsToAll {
     $Library = Get-RuleMap
     if (-not $Library.success) { return @{ success = $false; message = $Library.message } }
+    
     $Targets = Get-DetectedInstructionTargets
-    if ($Targets.Count -eq 0) { return @{ success = $false; message = "No detected agent instruction targets found." } }
+    $AllTargets = @{}
+    foreach ($T in $Targets) {
+        $ResolvedPath = [System.IO.Path]::GetFullPath($T.Path)
+        $AllTargets[$ResolvedPath] = @{ Name = $T.Name; Path = $T.Path }
+    }
+    
+    $SyncState = Get-InstructionSyncState
+    foreach ($Entry in @($SyncState.targets)) {
+        if ($Entry -and $Entry.path) {
+            $ResolvedPath = [System.IO.Path]::GetFullPath($Entry.path)
+            if (-not $AllTargets.ContainsKey($ResolvedPath)) {
+                $AllTargets[$ResolvedPath] = @{ Name = (Split-Path $ResolvedPath -Leaf); Path = $ResolvedPath }
+            }
+        }
+    }
+    
+    $AllTargetsList = @($AllTargets.Values)
+    if ($AllTargetsList.Count -eq 0) { return @{ success = $false; message = "No detected or previously synced agent instruction targets found." } }
 
     if ($Library.rules.Count -eq 0) {
         $Removed = @(); $Failed = @()
-        foreach ($T in $Targets) {
+        foreach ($T in $AllTargetsList) {
             $Result = Remove-InstructionsFromOne $T.Path
             if ($Result.success) { $Removed += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
         }
@@ -1865,11 +2058,32 @@ function Write-InstructionsToAll {
         return @{ success = ($Failed.Count -eq 0); message = $Msg; written = 0; failed = $Failed }
     }
 
+    if ($Targets.Count -eq 0) {
+        $Removed = @()
+        foreach ($T in $AllTargetsList) {
+            Remove-InstructionsFromOne $T.Path
+            $Removed += $T.Name
+        }
+        return @{ success = $false; message = "No detected active agent instruction targets found. Cleared legacy block from previously synced targets." }
+    }
+
     $Written = @(); $Failed = @()
     foreach ($T in $Targets) {
         $Result = Write-RulesToOne $T.Path $Library.rules $true
         if ($Result.success) { $Written += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
     }
+
+    $ActivePaths = @{}
+    foreach ($T in $Targets) { $ActivePaths[[System.IO.Path]::GetFullPath($T.Path)] = $true }
+    foreach ($Entry in @($SyncState.targets)) {
+        if ($Entry -and $Entry.path) {
+            $ResolvedPath = [System.IO.Path]::GetFullPath($Entry.path)
+            if (-not $ActivePaths.ContainsKey($ResolvedPath)) {
+                Remove-InstructionsFromOne $ResolvedPath
+            }
+        }
+    }
+
     $Msg = "Wrote rules to $($Written.Count) agent(s)."
     if ($Failed.Count -gt 0) { $Msg += " Failed: $($Failed -join ', ')" }
     return @{ success = ($Failed.Count -eq 0); message = $Msg; written = $Written.Count; failed = $Failed }
@@ -1877,16 +2091,34 @@ function Write-InstructionsToAll {
 
 function Remove-InstructionsFromAll {
     $Targets = Get-DetectedInstructionTargets
-    if ($Targets.Count -eq 0) { return @{ success = $false; message = "No detected agent instruction targets found." } }
-    $Removed = @(); $Failed = @()
+    $AllTargets = @{}
     foreach ($T in $Targets) {
+        $ResolvedPath = [System.IO.Path]::GetFullPath($T.Path)
+        $AllTargets[$ResolvedPath] = @{ Name = $T.Name; Path = $T.Path }
+    }
+    
+    $SyncState = Get-InstructionSyncState
+    foreach ($Entry in @($SyncState.targets)) {
+        if ($Entry -and $Entry.path) {
+            $ResolvedPath = [System.IO.Path]::GetFullPath($Entry.path)
+            if (-not $AllTargets.ContainsKey($ResolvedPath)) {
+                $AllTargets[$ResolvedPath] = @{ Name = (Split-Path $ResolvedPath -Leaf); Path = $ResolvedPath }
+            }
+        }
+    }
+    
+    $AllTargetsList = @($AllTargets.Values)
+    if ($AllTargetsList.Count -eq 0) { return @{ success = $false; message = "No agent instruction targets found to clear." } }
+    
+    $Removed = @(); $Failed = @()
+    foreach ($T in $AllTargetsList) {
         $Result = Remove-InstructionsFromOne $T.Path
         if ($Result.success) { $Removed += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
     }
     $Msg = "Removed managed block from $($Removed.Count) agent(s)."
     if ($Failed.Count -gt 0) { $Msg += " Failed: $($Failed -join ', ')" }
-	    return @{ success = ($Failed.Count -eq 0); message = $Msg; removed = $Removed.Count; failed = $Failed }
-	}
+    return @{ success = ($Failed.Count -eq 0); message = $Msg; removed = $Removed.Count; failed = $Failed }
+}
 
 function Write-SelectedInstructions {
     param([string[]]$Rules, [string[]]$Agents)

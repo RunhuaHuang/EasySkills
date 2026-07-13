@@ -139,7 +139,7 @@ except Exception:
     "$HOME/.codewhale/skills"
     "$HOME/.qoderworkcn/skills"
     "$HOME/.qoder-cn/skills"
-    "$HOME/.mavis/skills"
+    "$HOME/.mavis/agents/mavis/skills"
   )
   AGENT_NAMES=()
 }

@@ -306,7 +306,7 @@ EasySkills pre-configures mappings for 43+ agent target directories. Custom path
 | 40 | **CodeWhale** | `~/.codewhale/skills` | `%USERPROFILE%\.codewhale\skills` |
 | 41 | **QoderWork CN** | `~/.qoderworkcn/skills` | `%USERPROFILE%\.qoderworkcn\skills` |
 | 42 | **Qoder CN** | `~/.qoder-cn/skills` | `%USERPROFILE%\.qoder-cn\skills` |
-| 43 | **MiniMax Code** | `~/.mavis/skills` | `%USERPROFILE%\.mavis\skills` |
+| 43 | **MiniMax Code** | `~/.mavis/agents/mavis/skills` | `%USERPROFILE%\.mavis\agents\mavis\skills` |
 
 > *Note:* Trae and Trae CN also map to `~/Library/Application Support/Trae[-CN]/skills` (macOS) and `%APPDATA%\Trae[-CN]\skills` (Windows).
 

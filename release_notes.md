@@ -9,7 +9,7 @@ and the local WebUI.
 
 - Added a static Go Gateway binary for macOS, Linux, and Windows on amd64 and
   arm64. End users do not need Go installed when a release asset is available.
-- Routes downstream MCP tools through a stable `server__tool` namespace.
+- Exposes downstream MCP tools directly using their clean, original tool names.
 - Supports stdio, MCP Streamable HTTP, and legacy SSE downstream transports.
 - Supports optional/required servers, connection and call timeouts, profiles,
   and per-server/profile glob allow/deny filters.
@@ -245,8 +245,8 @@ rollback. Both backends are now hardened.
 ### Agent Support
 
 - Add **MiniMax Code** as the 43rd supported agent target:
-  - macOS/Linux: `~/.mavis/skills`
-  - Windows: `%USERPROFILE%\.mavis\skills`
+  - macOS/Linux: `~/.mavis/agents/mavis/skills`
+  - Windows: `%USERPROFILE%\.mavis\agents\mavis\skills`
 
 ### Validation
 

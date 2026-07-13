@@ -178,7 +178,7 @@ function Load-Agents {
       "$Home\.codewhale\skills",
       "$Home\.qoderworkcn\skills",
       "$Home\.qoder-cn\skills",
-      "$Home\.mavis\skills"
+      "$Home\.mavis\agents\mavis\skills"
     )
     $script:AgentNameMap = @{}
   }
