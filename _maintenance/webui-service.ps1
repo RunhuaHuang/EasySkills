@@ -94,6 +94,7 @@ function Start-WebUIBackend {
     $WscriptExe  = "$env:WINDIR\System32\wscript.exe"
 
     $ProcInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $ProcInfo.EnvironmentVariables["EASYSKILLS_SUPERVISED"] = "1"
     if ((Test-Path $LauncherVbs) -and (Test-Path $WscriptExe)) {
         $ProcInfo.FileName  = $WscriptExe
         # run-hidden.vbs forwards: powershell.exe -File <script.ps1>

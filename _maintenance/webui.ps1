@@ -11,6 +11,7 @@ Param(
 )
 
 $ErrorActionPreference = 'Continue'
+$script:RestartRequested = $false
 
 function Write-Utf8NoBom([string]$Path, [string]$Content) {
     $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -313,6 +314,22 @@ $GitHubRepo = "RunhuaHuang/EasySkills"
 $GitHubApiLatestRelease = "https://api.github.com/repos/$GitHubRepo/releases/latest"
 $GitHubLatestRelease = "https://github.com/$GitHubRepo/releases/latest"
 $GitHubReleaseTagPrefix = "https://github.com/$GitHubRepo/releases/tag/"
+$TrustedDownloadHosts = @("api.github.com", "github.com", "codeload.github.com", "objects.githubusercontent.com")
+
+function Test-TrustedGitHubDownloadUrl([string]$Url) {
+    try { $Uri = [System.Uri]$Url } catch { return $false }
+    return ($Uri.Scheme -eq "https") -and ($TrustedDownloadHosts -contains $Uri.Host)
+}
+
+function Get-WebResponseFinalUrl($Response) {
+    if ($Response -and $Response.BaseResponse.ResponseUri) {
+        return $Response.BaseResponse.ResponseUri.AbsoluteUri
+    }
+    if ($Response -and $Response.BaseResponse.RequestMessage -and $Response.BaseResponse.RequestMessage.RequestUri) {
+        return $Response.BaseResponse.RequestMessage.RequestUri.AbsoluteUri
+    }
+    return ""
+}
 
 $VersionFile = Join-Path -Path $ScriptDir -ChildPath ".version"
 function Get-EasySkillsVersion {
@@ -477,6 +494,26 @@ function Get-AgentNameFromPath([string]$PathStr) {
     return "Custom Agent"
 }
 
+function Test-EasySkillsLinkTarget($Item) {
+    # Compare the lexical target without following the final central skill,
+    # which may itself be a supported external symlink/junction.
+    if (-not $Item -or -not ($Item.Attributes -match "ReparsePoint")) { return $false }
+    $RawTarget = [string](@($Item.Target)[0])
+    if (-not $RawTarget) { return $false }
+    try {
+        if (-not [System.IO.Path]::IsPathRooted($RawTarget)) {
+            $ItemParent = [System.IO.Path]::GetDirectoryName([string]$Item.FullName)
+            $RawTarget = Join-Path $ItemParent $RawTarget
+        }
+        $LexicalTarget = [System.IO.Path]::GetFullPath($RawTarget)
+        $CentralResolved = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $CentralDir).ProviderPath).TrimEnd('\')
+        return $LexicalTarget.Equals($CentralResolved, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $LexicalTarget.StartsWith("$CentralResolved\", [System.StringComparison]::OrdinalIgnoreCase)
+    } catch {
+        return $false
+    }
+}
+
 function Is-Mapped([string]$TargetPath, $DisabledSet, [bool]$HasSkills) {
     try { $NormPath = [System.IO.Path]::GetFullPath($TargetPath) } catch { $NormPath = $TargetPath }
     if ($DisabledSet.ContainsKey($NormPath)) { return $false }
@@ -484,27 +521,10 @@ function Is-Mapped([string]$TargetPath, $DisabledSet, [bool]$HasSkills) {
     if (-not (Test-Path $TargetPath -PathType Container)) { return $false }
     if (-not $HasSkills) { return $true }
 
-    $CentralResolved = (Resolve-Path -LiteralPath $CentralDir).ProviderPath
     try {
         $Items = Get-ChildItem -Path $TargetPath -Force
         foreach ($Item in $Items) {
-            if ($Item.Attributes -match "ReparsePoint") {
-                $LinkTarget = $Item.Target
-                $ResolvedTarget = $null
-                if ($LinkTarget) {
-                    try {
-                        $ResolvedTarget = (Resolve-Path -LiteralPath $LinkTarget).ProviderPath
-                    } catch {
-                        try { $ResolvedTarget = [System.IO.Path]::GetFullPath($LinkTarget) } catch {}
-                    }
-                }
-                if ($ResolvedTarget) {
-                    $ParentResolved = Split-Path -Path $ResolvedTarget -Parent
-                    if ($ParentResolved -eq $CentralResolved) {
-                        return $true
-                    }
-                }
-            }
+            if (Test-EasySkillsLinkTarget $Item) { return $true }
         }
     } catch {}
     return $false
@@ -1008,24 +1028,33 @@ function Do-Map([string]$TargetPath) {
 
         # Map skills
         $Skills = Get-ChildItem -Path $CentralDir -Directory
+        $Conflicts = @()
         foreach ($Skill in $Skills) {
             $Name = $Skill.Name
             if ($Name.StartsWith("_") -or $Name.StartsWith(".") -or $ExcludeNames -contains $Name) { continue }
             $Dest = Join-Path $TargetPath $Name
-            if (Test-Path $Dest) {
-                $Item = Get-Item $Dest
+            $Item = Get-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue
+            if ($Item) {
                 if ($Item.Attributes -match "ReparsePoint") {
-                    # Remove the reparse point itself only — never recurse into its
-                    # target (Remove-Item -Recurse on a junction can delete the real
-                    # target contents on Windows PowerShell 5.1).
-                    [System.IO.Directory]::Delete($Dest, $false)
+                    if (Test-EasySkillsLinkTarget $Item) {
+                        [System.IO.Directory]::Delete($Dest, $false)
+                    } else {
+                        $Conflicts += $Name
+                        continue
+                    }
+                } else {
+                    continue
                 }
             }
             if (-not (Test-Path $Dest)) {
                 New-Item -ItemType Junction -Path $Dest -Value $Skill.FullName | Out-Null
             }
         }
-        return @{ success = $true; message = "Mapped to $TargetPath" }
+        $Message = "Mapped to $TargetPath"
+        if ($Conflicts.Count -gt 0) {
+            $Message += " (preserved $($Conflicts.Count) foreign link conflict(s): $($Conflicts -join ', '))"
+        }
+        return @{ success = $true; message = $Message; conflicts = $Conflicts }
     } catch {
         return @{ success = $false; message = $_.Exception.Message }
     }
@@ -1131,11 +1160,20 @@ function Delete-Skill([string]$Name) {
     if (-not $NameCheck.ok) { return @{ success = $false; message = $NameCheck.value } }
     $CleanName = $NameCheck.value
     $Target = Join-Path $CentralDir $CleanName
-    if (-not (Test-Path $Target)) {
+    # Get-Item -Force detects dangling reparse points that Test-Path follows
+    # and incorrectly reports as absent.
+    $TargetItem = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
+    if (-not $TargetItem) {
         return @{ success = $false; message = "Skill not found: $CleanName" }
     }
     try {
-        Remove-Item -LiteralPath $Target -Recurse -Force
+        if ($TargetItem.Attributes -match "ReparsePoint") {
+            # A central skill may intentionally be an external junction. Never
+            # recurse through it or PowerShell 5.1 can delete the real target.
+            [System.IO.Directory]::Delete($TargetItem.FullName, $false)
+        } else {
+            Remove-Item -LiteralPath $Target -Recurse -Force
+        }
     } catch {
         return @{ success = $false; message = "Delete failed: $($_.Exception.Message)" }
     }
@@ -1753,9 +1791,8 @@ function Run-SelfUpdate {
         # Defense against a tampered API response redirecting the update to an
         # arbitrary host. Only known GitHub delivery hosts are allowed. Mirrors
         # _is_github_download_url / _GITHUB_TARBALL_HOSTS in webui.py.
-        $TrustedHosts = @("api.github.com", "github.com", "codeload.github.com", "objects.githubusercontent.com")
         try { $DownloadHost = ([System.Uri]$ZipUrl).Host } catch { $DownloadHost = "" }
-        if (-not $ZipUrl.StartsWith("https://") -or $TrustedHosts -notcontains $DownloadHost) {
+        if (-not (Test-TrustedGitHubDownloadUrl $ZipUrl)) {
             return @{ success = $false; message = "Update rejected: download host is not a trusted GitHub host ($DownloadHost)." }
         }
 
@@ -1765,11 +1802,19 @@ function Run-SelfUpdate {
         try {
             $ZipPath = Join-Path $TmpDir "release.zip"
             $Headers = @{ "Accept" = "application/vnd.github+json"; "User-Agent" = "EasySkills-WebUI" }
-            Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath -Headers $Headers -TimeoutSec 60 -UseBasicParsing
+            $DownloadResponse = Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath -Headers $Headers -TimeoutSec 60 -UseBasicParsing -PassThru
+            $FinalDownloadUrl = Get-WebResponseFinalUrl $DownloadResponse
+            if (-not (Test-TrustedGitHubDownloadUrl $FinalDownloadUrl)) {
+                throw "Update rejected: download redirected to an untrusted host ($FinalDownloadUrl)."
+            }
 
             # --- Integrity check: re-download and compare SHA-256 ---
             $VerifyPath = Join-Path $TmpDir "release_verify.zip"
-            Invoke-WebRequest -Uri $ZipUrl -OutFile $VerifyPath -Headers $Headers -TimeoutSec 60 -UseBasicParsing
+            $VerifyResponse = Invoke-WebRequest -Uri $ZipUrl -OutFile $VerifyPath -Headers $Headers -TimeoutSec 60 -UseBasicParsing -PassThru
+            $FinalVerifyUrl = Get-WebResponseFinalUrl $VerifyResponse
+            if (-not (Test-TrustedGitHubDownloadUrl $FinalVerifyUrl)) {
+                throw "Integrity download redirected to an untrusted host ($FinalVerifyUrl)."
+            }
             $Hash1 = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash
             $Hash2 = (Get-FileHash -Path $VerifyPath -Algorithm SHA256).Hash
             if ($Hash1 -ne $Hash2) {
@@ -1778,6 +1823,29 @@ function Run-SelfUpdate {
             Remove-Item $VerifyPath -Force
 
             $ExtractDir = Join-Path $TmpDir "extracted"
+            # Validate the ZIP central directory before expansion: cap entry
+            # count/expanded bytes and reject traversal or absolute paths.
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $ZipArchive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+            try {
+                if ($ZipArchive.Entries.Count -gt 10000) {
+                    throw "Release archive contains too many entries."
+                }
+                [long]$ExpandedBytes = 0
+                $ExtractRoot = [System.IO.Path]::GetFullPath($ExtractDir).TrimEnd('\') + '\'
+                foreach ($Entry in $ZipArchive.Entries) {
+                    $ExpandedBytes += [long]$Entry.Length
+                    if ($ExpandedBytes -gt 536870912) {
+                        throw "Release archive exceeds the 512 MB extracted-size safety limit."
+                    }
+                    $EntryPath = [System.IO.Path]::GetFullPath((Join-Path $ExtractDir $Entry.FullName))
+                    if (-not $EntryPath.StartsWith($ExtractRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                        throw "Release archive contains an unsafe path: $($Entry.FullName)"
+                    }
+                }
+            } finally {
+                $ZipArchive.Dispose()
+            }
             Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
 
             $SrcRoot = Get-ChildItem -Path $ExtractDir -Directory | Select-Object -First 1
@@ -1873,10 +1941,13 @@ function Run-SelfUpdate {
             Remove-Item $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
         }
 
-        Run-DeployCommand @("-Sync") | Out-Null
+        $SyncResult = Run-DeployCommand @("-Sync")
 
         $NewVersion = Get-EasySkillsVersion
-        return @{ success = $true; message = "Updated to $NewVersion. All agents re-synced."; version = $NewVersion }
+        $Message = "Updated to $NewVersion."
+        if ($SyncResult.success) { $Message += " All agents re-synced." }
+        else { $Message += " Update succeeded, but agent re-sync failed: $($SyncResult.message)" }
+        return @{ success = $true; message = $Message; version = $NewVersion; sync_success = [bool]$SyncResult.success }
     } catch {
         return @{ success = $false; message = "Update failed: $_" }
     }
@@ -1944,11 +2015,14 @@ function Do-Rollback {
 
         if (Test-Path $Prev) { Remove-Item $Prev -Recurse -Force -ErrorAction SilentlyContinue }
 
-        Run-DeployCommand @("-Sync") | Out-Null
+        $SyncResult = Run-DeployCommand @("-Sync")
         # Remove backup so a second rollback doesn't restore stale state
         try { Remove-Item $BackupMaint -Recurse -Force -ErrorAction SilentlyContinue } catch {}
         $Version = Get-EasySkillsVersion
-        return @{ success = $true; message = "Rolled back to $Version. All agents re-synced."; version = $Version }
+        $Message = "Rolled back to $Version."
+        if ($SyncResult.success) { $Message += " All agents re-synced." }
+        else { $Message += " Rollback succeeded, but agent re-sync failed: $($SyncResult.message)" }
+        return @{ success = $true; message = $Message; version = $Version; sync_success = [bool]$SyncResult.success }
     } catch {
         return @{ success = $false; message = "Rollback failed: $_" }
     }
@@ -1965,26 +2039,14 @@ function Do-Unmap([string]$TargetPath) {
             return @{ success = $false; message = "Path does not exist" }
         }
         $Removed = @()
-        $CentralResolved = (Resolve-Path -LiteralPath $CentralDir).ProviderPath
         $Items = Get-ChildItem -Path $TargetPath -Force
         foreach ($Item in $Items) {
-            if ($Item.Attributes -match "ReparsePoint") {
-                $LinkTarget = $Item.Target
-                $ResolvedTarget = $null
-                if ($LinkTarget) {
-                    try {
-                        $ResolvedTarget = (Resolve-Path -LiteralPath $LinkTarget).ProviderPath
-                    } catch {
-                        try { $ResolvedTarget = [System.IO.Path]::GetFullPath($LinkTarget) } catch {}
-                    }
-                }
-                if ($ResolvedTarget -and ($ResolvedTarget.Equals($CentralResolved, [System.StringComparison]::OrdinalIgnoreCase) -or $ResolvedTarget.StartsWith("$CentralResolved\", [System.StringComparison]::OrdinalIgnoreCase))) {
+            if (Test-EasySkillsLinkTarget $Item) {
                     # Remove the reparse point itself only — never recurse into its
                     # target (Remove-Item -Recurse on a junction can delete the real
                     # target contents on Windows PowerShell 5.1).
                     [System.IO.Directory]::Delete($Item.FullName, $false)
                     $Removed += $Item.Name
-                }
             }
         }
         return @{ success = $true; message = "Removed $($Removed.Count) junctions"; removed = $Removed }
@@ -2300,9 +2362,13 @@ function Invoke-WebUIRequest($Context) {
         } elseif ($UrlPath -eq "/api/instructions/remove-selected") {
             Send-JsonResponse $Context (Remove-SelectedInstructions -Rules $BodyData["rules"] -Agents $BodyData["agents"])
         } elseif ($UrlPath -eq "/api/update") {
-            Send-JsonResponse $Context (Run-SelfUpdate)
+            $Result = Run-SelfUpdate
+            if ($Result.success) { $script:RestartRequested = $true }
+            Send-JsonResponse $Context $Result
         } elseif ($UrlPath -eq "/api/rollback") {
-            Send-JsonResponse $Context (Do-Rollback)
+            $Result = Do-Rollback
+            if ($Result.success) { $script:RestartRequested = $true }
+            Send-JsonResponse $Context $Result
         } else {
             $Context.Response.StatusCode = 404
             $Context.Response.Close()
@@ -2370,9 +2436,11 @@ while ($true) {
 
             try {
                 Invoke-WebUIRequest $Context
+                if ($script:RestartRequested) { break }
             } catch {
                 Write-WebUILog "Request handler error: $($_.Exception.Message)"
                 Close-ResponseQuietly $Context
+                if ($script:RestartRequested) { break }
                 continue
             }
         }
@@ -2389,6 +2457,30 @@ while ($true) {
         if ($Listener) {
             try { if ($Listener.IsListening) { $Listener.Stop() } } catch {}
             try { $Listener.Close() } catch {}
+        }
+    }
+
+    if ($script:RestartRequested) {
+        Write-WebUILog "Backend restart requested after update/rollback."
+        $RestartReady = $true
+        if ($env:EASYSKILLS_SUPERVISED -ne "1") {
+            # Direct launches have no supervisor. The replacement's listener
+            # retry loop waits until this process releases port 6633.
+            try {
+                $PowerShellPath = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
+                if (-not $PowerShellPath) { $PowerShellPath = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" }
+                $NewWebUI = Join-Path $CentralDir "_maintenance\webui.ps1"
+                Start-Process -FilePath $PowerShellPath `
+                    -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", "`"$NewWebUI`"", "-NoBrowser") `
+                    -WorkingDirectory $CentralDir -WindowStyle Hidden -ErrorAction Stop | Out-Null
+            } catch {
+                $RestartReady = $false
+                $script:RestartRequested = $false
+                Write-WebUILog "Replacement backend launch failed; keeping current process alive: $($_.Exception.Message)"
+            }
+        }
+        if ($RestartReady) {
+            exit 0
         }
     }
 

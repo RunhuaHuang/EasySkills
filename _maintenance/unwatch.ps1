@@ -80,8 +80,8 @@ try {
     }
 
     # Wait for terminated processes to fully exit so their file handles are
-    # released. The caller (uninstaller .bat) immediately tries to `rd /S /Q`
-    # the install directory; without this wait, locked files can survive.
+    # released. The caller immediately moves the install tree to the Recycle
+    # Bin; without this wait, locked files can survive.
     if ($KilledPids.Count -gt 0) {
         $Deadline = (Get-Date).AddSeconds(5)
         while ((Get-Date) -lt $Deadline) {

@@ -37,6 +37,7 @@ PYTHON_BIN="$(command -v python3 2>/dev/null || true)"
 # The supervisor owns browser-opening policy. Backend restarts must not spawn a
 # new browser tab/window every time webui.py is relaunched.
 export EASYSKILLS_NO_BROWSER=1
+export EASYSKILLS_SUPERVISED=1
 
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 

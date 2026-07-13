@@ -108,8 +108,21 @@ class SecurityContractsTest(unittest.TestCase):
             src = read(rel)
             self.assertNotIn("MyEasySkillsBackup", src)
             self.assertIsNone(re.search(r"EasySkills[\"'` ]?[*]", src), rel)
-        self.assertIn("link_target_resolved", read("_maintenance/deploy.sh"))
-        self.assertIn("CentralResolved", read("_maintenance/deploy.ps1"))
+        self.assertIn("link_points_into_central", read("_maintenance/deploy.sh"))
+        self.assertIn("Test-EasySkillsLinkTarget", read("_maintenance/deploy.ps1"))
+
+    def test_cleanup_failures_propagate_to_uninstallers(self):
+        sh_src = read("_maintenance/deploy.sh")
+        ps_src = read("_maintenance/deploy.ps1")
+        self.assertIn("cleanup_errors", sh_src)
+        self.assertIn("Cleanup incomplete", sh_src)
+        self.assertIn("return 1", sh_src)
+        self.assertIn("$CleanupErrors", ps_src)
+        self.assertIn("if (-not (Run-Cleanup)) { exit 1 }", ps_src)
+        self.assertIn('if [ "${ACTION:-sync}" = "sync" ]', sh_src)
+        self.assertIn("${ACTION} was not performed", sh_src)
+        self.assertIn("$ExplicitMutation", ps_src)
+        self.assertIn("$WaitMilliseconds", ps_src)
 
     def test_watch_plist_is_generated_with_plistlib(self):
         src = read("_maintenance/watch.sh")
@@ -408,6 +421,18 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("fetch('/api/latest-release', { headers })", html_src)
         self.assertNotIn("fetch('https://api.github.com/repos/RunhuaHuang/EasySkills/releases/latest')", html_src)
 
+    def test_release_check_handles_total_network_failure(self):
+        webui = load_python_webui_module()
+        with mock.patch.object(
+            webui.urllib.request,
+            "urlopen",
+            side_effect=OSError("offline"),
+        ):
+            result = webui.get_latest_release()
+        self.assertFalse(result["success"])
+        self.assertIn("API error", result["message"])
+        self.assertIn("fallback error", result["message"])
+
     # -------------------------------------------------------------------------
     # Windows background launching — Scheduled Tasks (S4U) + AV-safe launchers
     # -------------------------------------------------------------------------
@@ -483,10 +508,30 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("EasySkillsWatcher.lnk", unwatch)
         self.assertIn("EasySkillsWebUI.lnk", unwatch)
 
+    def test_all_user_facing_uninstallers_preserve_recoverability(self):
+        for rel in (
+            "uninstall_mac.command",
+            "_maintenance/macOS/Uninstall — 卸载.command",
+        ):
+            src = read(rel)
+            self.assertIn("move_to_trash", src, rel)
+            self.assertIn('osascript - "$target"', src, rel)
+            self.assertNotIn('rm -rf "$HOME/EasySkills"', src, rel)
+            self.assertIn("Uninstallation incomplete", src, rel)
+
+        for rel in (
+            "uninstall_windows.bat",
+            "_maintenance/Windows/Uninstall — 卸载.bat",
+        ):
+            src = read(rel)
+            self.assertIn("SendToRecycleBin", src, rel)
+            self.assertNotIn('rd /S /Q "%PERM_DIR%"', src, rel)
+            self.assertIn("if errorlevel 1 goto cleanup_failed", src, rel)
+            self.assertIn("Uninstallation incomplete", src, rel)
+
     def test_windows_launcher_is_silent_vbs_not_visible_bat(self):
         """The user-facing 'Start' launcher must be a .vbs running under
         wscript.exe so it shows ZERO console window. The old .bat is gone."""
-        from pathlib import Path
         vbs = ROOT / "_maintenance/Windows/Start — 启动.vbs"
         bat = ROOT / "_maintenance/Windows/Start — 启动.bat"
         self.assertTrue(vbs.exists(), "Start — 启动.vbs missing")
@@ -507,7 +552,6 @@ class SecurityContractsTest(unittest.TestCase):
         """run-hidden.vbs is the windowless bootstrap used by all Scheduled
         Task actions. wscript.exe is GUI-subsystem and never spawns a
         console; the .vbs in turn launches PowerShell with SW_HIDE."""
-        from pathlib import Path
         vbs = ROOT / "_maintenance/run-hidden.vbs"
         self.assertTrue(vbs.exists(), "_maintenance/run-hidden.vbs missing")
         src = vbs.read_text(encoding="utf-8")
@@ -616,13 +660,16 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("function copyWebUiUrl()", src)
 
     def test_macos_webui_launches_through_launchctl_with_loopback_url(self):
-        for rel in ("_maintenance/deploy.sh", "_maintenance/macOS/Start — 启动.command"):
-            src = read(rel)
-            self.assertIn("com.easyskills.webui.manual", src, rel)
-            self.assertIn("start_new_session=True", src, rel)
-            self.assertIn("command -v python3", src, rel)
-            self.assertIn("http://127.0.0.1:6633", src, rel)
-            self.assertNotIn("nohup python3", src, rel)
+        deploy_src = read("_maintenance/deploy.sh")
+        self.assertIn("com.easyskills.webui.manual", deploy_src)
+        self.assertIn("start_new_session=True", deploy_src)
+        self.assertIn("command -v python3", deploy_src)
+        self.assertIn("http://127.0.0.1:6633", deploy_src)
+        self.assertNotIn("nohup python3", deploy_src)
+
+        start_src = read("_maintenance/macOS/Start — 启动.command")
+        self.assertIn('exec bash "$(pwd)/deploy.sh" --webui', start_src)
+        self.assertNotIn("pkill -f", start_src)
 
         for rel in ("install.sh", "install_mac.command"):
             src = read(rel)
@@ -633,9 +680,7 @@ class SecurityContractsTest(unittest.TestCase):
             self.assertNotIn("nohup python3", src, rel)
             self.assertNotIn("launchctl submit", src, rel)
 
-        deploy_src = read("_maintenance/deploy.sh")
-        start_src = read("_maintenance/macOS/Start — 启动.command")
-        self.assertIn("EASYSKILLS_NO_BROWSER=1", start_src)
+        self.assertIn("EASYSKILLS_NO_BROWSER=1", deploy_src)
         self.assertIn("lsof -tiTCP:6633 -sTCP:LISTEN", deploy_src)
         self.assertIn('[[ "$cmdline" == *"$SCRIPT_DIR/webui.py"* ]]', deploy_src)
 
@@ -658,6 +703,26 @@ class SecurityContractsTest(unittest.TestCase):
         with mock.patch.object(webui.platform, "system", return_value="Darwin"), \
              mock.patch.object(webui.subprocess, "run", return_value=SimpleNamespace(stdout=launchctl_output)):
             self.assertEqual({"running": True, "pid": "123"}, webui.get_watcher_status())
+
+    def test_linux_watcher_status_uses_persistent_systemd_units(self):
+        webui = load_python_webui_module()
+
+        def systemctl_result(args, **kwargs):
+            unit = args[-1]
+            active = unit == "easyskills-watcher.timer"
+            return SimpleNamespace(
+                returncode=0 if active else 3,
+                stdout="active\n" if active else "inactive\n",
+            )
+
+        with mock.patch.object(webui.platform, "system", return_value="Linux"), \
+             mock.patch.object(webui.subprocess, "run", side_effect=systemctl_result) as run:
+            self.assertEqual({"running": True, "pid": None}, webui.get_watcher_status())
+
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertIn(["systemctl", "--user", "is-active", "easyskills-watcher.path"], commands)
+        self.assertIn(["systemctl", "--user", "is-active", "easyskills-watcher.timer"], commands)
+        self.assertNotIn("pgrep", str(commands))
 
     # -------------------------------------------------------------------------
     # agents.json — single source of truth
@@ -685,6 +750,14 @@ class SecurityContractsTest(unittest.TestCase):
                     "_maintenance/webui.py", "_maintenance/webui.ps1"):
             src = read(rel)
             self.assertIn("agents.json", src, f"{rel} does not reference agents.json")
+
+    def test_skill_sync_skips_empty_optional_rule_library(self):
+        sh_src = read("_maintenance/deploy.sh")
+        ps_src = read("_maintenance/deploy.ps1")
+        self.assertIn("find \"$CENTRAL_DIR/instructions\"", sh_src)
+        self.assertIn("Agent rule sync failed; skill links were still synchronized", sh_src)
+        self.assertIn("$RuleFiles.Count -gt 0", ps_src)
+        self.assertIn("Agent rule sync failed; skill junctions were still synchronized", ps_src)
 
     def test_hardcoded_fallbacks_match_agents_json(self):
         """Hardcoded fallback arrays must contain the same paths as agents.json."""
@@ -745,7 +818,6 @@ class SecurityContractsTest(unittest.TestCase):
         """Both backends must expose /api/rollback."""
         py_src = read("_maintenance/webui.py")
         ps_src = read("_maintenance/webui.ps1")
-        html_src = read("_maintenance/webui/index.html")
         self.assertIn('"/api/rollback"', py_src)
         self.assertIn('"/api/rollback"', ps_src)
         self.assertIn("do_rollback", py_src)
@@ -764,6 +836,43 @@ class SecurityContractsTest(unittest.TestCase):
         ps_src = read("_maintenance/webui.ps1")
         self.assertIn("has_backup", py_src)
         self.assertIn("has_backup", ps_src)
+
+    def test_update_and_rollback_report_resync_failures(self):
+        for src in (read("_maintenance/webui.py"), read("_maintenance/webui.ps1")):
+            self.assertIn("sync_success", src)
+            self.assertIn("agent re-sync failed", src)
+
+    def test_successful_update_and_rollback_restart_backend_code(self):
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        sh_service = read("_maintenance/webui-service.sh")
+        ps_service = read("_maintenance/webui-service.ps1")
+        self.assertIn("def _schedule_backend_restart", py_src)
+        self.assertIn("_schedule_backend_restart(self.server)", py_src)
+        self.assertIn("Backend restart scheduling failed", py_src)
+        self.assertIn('result.get("_restart")', py_src)
+        self.assertIn("$script:RestartRequested", ps_src)
+        self.assertIn("Backend restart requested after update/rollback", ps_src)
+        self.assertIn("Replacement backend launch failed; keeping current process alive", ps_src)
+        self.assertIn("EASYSKILLS_SUPERVISED=1", sh_service)
+        self.assertIn('EnvironmentVariables["EASYSKILLS_SUPERVISED"] = "1"', ps_service)
+
+        webui = load_python_webui_module()
+        stopped = __import__("threading").Event()
+        fake_server = SimpleNamespace(shutdown=stopped.set)
+        webui._backend_restart_scheduled.clear()
+        with mock.patch.dict(webui.os.environ, {"EASYSKILLS_SUPERVISED": "1"}):
+            webui._schedule_backend_restart(fake_server)
+        self.assertTrue(stopped.wait(2), "supervised backend should schedule shutdown")
+
+        webui._backend_restart_scheduled.clear()
+        stopped.clear()
+        with mock.patch.dict(webui.os.environ, {}, clear=True), \
+             mock.patch.object(webui.subprocess, "Popen", side_effect=OSError("spawn failed")):
+            with self.assertRaisesRegex(OSError, "spawn failed"):
+                webui._schedule_backend_restart(fake_server)
+        self.assertFalse(webui._backend_restart_scheduled.is_set())
+        self.assertFalse(stopped.is_set(), "old backend must stay alive when replacement spawn fails")
 
     def test_rollback_function_checks_for_backup(self):
         """Rollback must fail gracefully when no backup exists."""
@@ -815,12 +924,77 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("hmac.compare_digest(digest1, digest2)", py_src)
         self.assertIn("Integrity check failed", py_src)
 
+    def test_python_self_update_bounds_download_and_validates_final_redirect(self):
+        src = read("_maintenance/webui.py")
+        self.assertIn("def _download_github_file", src)
+        self.assertIn("timeout=60", src)
+        self.assertIn("response.geturl()", src)
+        self.assertIn("max_bytes", src)
+        self.assertNotIn("urllib.request.urlretrieve(tarball_url", src)
+
+        import io
+
+        class FakeResponse(io.BytesIO):
+            def __init__(self, content: bytes, final_url: str, headers=None):
+                super().__init__(content)
+                self._final_url = final_url
+                self.headers = headers or {}
+
+            def geturl(self):
+                return self._final_url
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                self.close()
+
+        webui = load_python_webui_module()
+        trusted = "https://github.com/RunhuaHuang/EasySkills/archive/test.tar.gz"
+        with tempfile.TemporaryDirectory() as td:
+            destination = str(Path(td) / "release.tar.gz")
+            response = FakeResponse(b"payload", "https://evil.example/release.tar.gz")
+            with mock.patch.object(webui.urllib.request, "urlopen", return_value=response):
+                with self.assertRaisesRegex(ValueError, "untrusted host"):
+                    webui._download_github_file(trusted, destination)
+
+            response = FakeResponse(b"12345", trusted)
+            with mock.patch.object(webui.urllib.request, "urlopen", return_value=response):
+                with self.assertRaisesRegex(ValueError, "safety limit"):
+                    webui._download_github_file(trusted, destination, max_bytes=4)
+
+    def test_self_update_rejects_archive_bombs_and_unsafe_zip_paths(self):
+        py_src = read("_maintenance/webui.py")
+        ps_src = read("_maintenance/webui.ps1")
+        self.assertIn("max_members", py_src)
+        self.assertIn("max_total_size", py_src)
+        self.assertIn("extracted-size safety limit", py_src)
+        self.assertIn("ZipArchive.Entries.Count", ps_src)
+        self.assertIn("$ExpandedBytes", ps_src)
+        self.assertIn("unsafe path", ps_src)
+
+        import tarfile
+
+        member = tarfile.TarInfo("repo/large.bin")
+        member.size = 5
+        fake_tar = SimpleNamespace(getmembers=lambda: [member], extract=mock.Mock())
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaisesRegex(ValueError, "extracted-size safety limit"):
+                webui._safe_extract_tar(fake_tar, td, max_total_size=4)
+        fake_tar.extract.assert_not_called()
+
     def test_oversized_body_returns_413(self):
         """_body() must return None and do_POST must send 413 for oversized payloads."""
         py_src = read("_maintenance/webui.py")
         self.assertIn("return None  # Signal to caller: send 413", py_src)
         self.assertIn("self.send_response(413)", py_src)
         self.assertIn("body is None", py_src)
+        self.assertIn("self.close_connection = True", py_src)
+        oversized_branch = py_src.split("if length > 10 * 1024 * 1024", 1)[1].split(
+            "if length < 0", 1
+        )[0]
+        self.assertNotIn("self.rfile.read", oversized_branch)
 
     def test_agent_prefix_map_is_module_level_constant(self):
         """_AGENT_PREFIX_MAP must be defined at module level, not inside a function."""
@@ -861,6 +1035,20 @@ class SecurityContractsTest(unittest.TestCase):
             "run_cleanup must have exactly one loud-fail guard for central_resolved"
         )
 
+    def test_deploy_sh_missing_add_remove_arguments_fail_fast(self):
+        import subprocess
+
+        script = ROOT / "_maintenance/deploy.sh"
+        for option in ("--add", "--remove"):
+            result = subprocess.run(
+                ["/bin/bash", str(script), option],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            self.assertNotEqual(0, result.returncode, option)
+            self.assertIn("requires a target directory path", result.stderr)
+
     # -------------------------------------------------------------------------
     # Link-health: dangling/external-link skill detection (cross-platform)
     # -------------------------------------------------------------------------
@@ -897,6 +1085,71 @@ class SecurityContractsTest(unittest.TestCase):
                              "dangling symlinks must be excluded (is_dir()==False)")
             self.assertFalse(names["normal-skill"]["is_external_link"])
             self.assertTrue(names["external-skill"]["is_external_link"])
+
+    def test_external_central_skill_links_remain_owned_across_status_and_unmap(self):
+        """Agent links to central external-link skills must remain removable."""
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            central = root / "central"
+            external = root / "external"
+            agent = root / "agent"
+            central.mkdir()
+            external.mkdir()
+            agent.mkdir()
+            (central / "linked-skill").symlink_to(external, target_is_directory=True)
+            agent_link = agent / "linked-skill"
+            agent_link.symlink_to(central / "linked-skill", target_is_directory=True)
+
+            with mock.patch.object(webui, "CENTRAL_DIR", central), \
+                 mock.patch.object(webui, "DISABLED_TARGETS_FILE", root / "disabled.txt"):
+                self.assertTrue(webui._link_points_into_central(agent_link))
+                self.assertTrue(webui.is_mapped(str(agent), set(), True))
+                result = webui.do_unmap(str(agent))
+
+            self.assertTrue(result["success"])
+            self.assertFalse(agent_link.exists())
+            self.assertFalse(agent_link.is_symlink())
+
+    def test_mapping_preserves_foreign_symlink_conflicts(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            central = root / "central"
+            foreign = root / "foreign"
+            agent = root / "agent"
+            central.mkdir()
+            foreign.mkdir()
+            agent.mkdir()
+            (central / "same-name").mkdir()
+            conflict = agent / "same-name"
+            conflict.symlink_to(foreign, target_is_directory=True)
+
+            with mock.patch.object(webui, "CENTRAL_DIR", central), \
+                 mock.patch.object(webui, "DISABLED_TARGETS_FILE", root / "disabled.txt"):
+                result = webui.do_map(str(agent))
+
+            self.assertTrue(result["success"])
+            self.assertEqual(["same-name"], result["conflicts"])
+            self.assertEqual(foreign.resolve(), conflict.resolve())
+
+    def test_python_mutation_helpers_reject_scalar_paths_and_names(self):
+        webui = load_python_webui_module()
+        self.assertFalse(webui.do_map(123)["success"])
+        self.assertFalse(webui.do_unmap(["bad"])["success"])
+        self.assertFalse(webui.delete_skill({"bad": "name"})["success"])
+
+    def test_all_mapping_backends_preserve_foreign_links(self):
+        sh_src = read("_maintenance/deploy.sh")
+        deploy_ps = read("_maintenance/deploy.ps1")
+        webui_ps = read("_maintenance/webui.ps1")
+        self.assertIn("link_points_into_central", sh_src)
+        self.assertIn("foreign symlink", sh_src)
+        for src in (deploy_ps, webui_ps):
+            self.assertIn("function Test-EasySkillsLinkTarget", src)
+            self.assertIn("foreign link", src)
+        self.assertIn('link_points_into_central "$link"', sh_src)
+        self.assertIn("Where-Object { Test-EasySkillsLinkTarget $_ }", deploy_ps)
 
     def test_get_central_dir_warnings_counts_dangling_and_external(self):
         """get_central_dir_warnings() must count dangling vs external links correctly."""
@@ -1030,6 +1283,18 @@ class SecurityContractsTest(unittest.TestCase):
                       "Do-Map should use Directory::Delete for the reparse point")
         self.assertIn("[System.IO.Directory]::Delete($Item.FullName, $false)", ps_src,
                       "Do-Unmap should use Directory::Delete for the reparse point")
+
+    def test_windows_delete_skill_never_recurses_through_central_link(self):
+        ps_src = read("_maintenance/webui.ps1")
+        delete_skill = ps_src.split("function Delete-Skill", 1)[1].split(
+            "# --------------------------------------------------------------", 1
+        )[0]
+        self.assertIn('$TargetItem.Attributes -match "ReparsePoint"', delete_skill)
+        self.assertIn("[System.IO.Directory]::Delete($TargetItem.FullName, $false)", delete_skill)
+        reparse_branch = delete_skill.split('$TargetItem.Attributes -match "ReparsePoint"', 1)[1].split(
+            "} else {", 1
+        )[0]
+        self.assertNotIn("Remove-Item", reparse_branch)
 
     def test_deploy_ps1_add_remove_target_return_true_on_success(self):
         """Add-Target / Remove-Target must return $true on the success path.
@@ -1616,6 +1881,18 @@ class SecurityContractsTest(unittest.TestCase):
 
         self.assertIn("function Write-Utf8Atomic", read("_maintenance/webui.ps1"))
 
+    def test_disabled_target_updates_are_atomic(self):
+        src = read("_maintenance/webui.py")
+        add_block = src.split("def _add_to_disabled_targets", 1)[1].split(
+            "def _remove_from_disabled_targets", 1
+        )[0]
+        remove_block = src.split("def _remove_from_disabled_targets", 1)[1].split(
+            "def _get_disabled_targets", 1
+        )[0]
+        self.assertIn("_atomic_write_text", add_block)
+        self.assertIn("_atomic_write_text", remove_block)
+        self.assertNotIn("DISABLED_TARGETS_FILE.write_text", add_block + remove_block)
+
     def test_removing_appended_managed_block_does_not_leave_extra_blank_line(self):
         webui = load_python_webui_module()
         with tempfile.TemporaryDirectory() as tmp:
@@ -1683,9 +1960,12 @@ class SecurityContractsTest(unittest.TestCase):
         a trusted GitHub delivery host, mirroring webui.py's
         _is_github_download_url / _GITHUB_TARBALL_HOSTS."""
         ps_src = read("_maintenance/webui.ps1")
-        self.assertIn("$TrustedHosts", ps_src)
+        self.assertIn("$TrustedDownloadHosts", ps_src)
         self.assertIn("objects.githubusercontent.com", ps_src)
         self.assertIn("Update rejected: download host is not a trusted GitHub host", ps_src)
+        self.assertIn("Get-WebResponseFinalUrl", ps_src)
+        self.assertIn("download redirected to an untrusted host", ps_src)
+        self.assertGreaterEqual(ps_src.count("-PassThru"), 2)
 
     def test_webui_py_self_update_rollback_undoes_first_rename(self):
         """do_self_update rollback must UNDO the current->.bak rotation
@@ -1766,6 +2046,13 @@ class SecurityContractsTest(unittest.TestCase):
             self.assertGreaterEqual(len(token), 16)
             # The file must now hold the new valid token.
             self.assertEqual(token, token_file.read_text(encoding="utf-8"))
+            self.assertEqual(0o600, token_file.stat().st_mode & 0o777)
+
+    def test_token_loader_uses_cross_process_lock_and_atomic_replace(self):
+        src = read("_maintenance/webui.py")
+        self.assertIn("fcntl.flock", src)
+        self.assertIn("TOKEN_FILE.name + \".lock\"", src)
+        self.assertIn("os.replace(temp_path, TOKEN_FILE)", src)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ _maintenance/disabled-targets.txt
 
 # Per-machine WebUI auth secret — must NEVER be committed
 _maintenance/.easyskills-token
+_maintenance/.easyskills-token.lock
 
 # Per-machine rule sync metadata (kept out of Agent instruction context)
 /.easyskills-instruction-state.json

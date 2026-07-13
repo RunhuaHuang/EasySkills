@@ -184,8 +184,29 @@ acquire_lock() {
     done
   fi
   if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
-    echo "Another deploy is already running (PID: $old_pid), skipping."
-    exit 0
+    if [ "${ACTION:-sync}" = "sync" ]; then
+      echo "Another deploy is already running (PID: $old_pid), skipping duplicate sync."
+      exit 0
+    fi
+    # Explicit mutations must never report a false success. Wait briefly for
+    # an in-flight watcher sync, then fail safely so callers (especially the
+    # uninstaller) do not proceed under the assumption cleanup completed.
+    for i in {1..50}; do
+      sleep 0.1
+      if mkdir "$lock_dir" 2>/dev/null; then
+        echo $$ > "$lock_dir/pid"
+        trap 'rm -rf "${LOCK_FILE}.d"' EXIT
+        return
+      fi
+      old_pid=$(cat "$lock_dir/pid" 2>/dev/null)
+      if [ -z "$old_pid" ] || ! kill -0 "$old_pid" 2>/dev/null; then
+        break
+      fi
+    done
+    if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+      echo "Error: Another deploy is still running (PID: $old_pid); ${ACTION} was not performed." >&2
+      exit 1
+    fi
   fi
   # Stale lock (holder is dead). Reclaim it without the TOCTOU window of
   # "rm -rf whole dir then mkdir" — another process could have legitimately
@@ -390,6 +411,23 @@ injection_tracked() {
   return 1
 }
 
+# Test link ownership without following the final target. A central skill can
+# itself be an external symlink; fully resolving an Agent link would then jump
+# outside CENTRAL_DIR and make cleanup/status misclassify our own mapping.
+link_points_into_central() {
+  local link="$1" raw target parent_resolved central_resolved
+  [ -L "$link" ] || return 1
+  raw=$(readlink "$link") || return 1
+  case "$raw" in
+    /*) target="$raw" ;;
+    *) target="$(dirname "$link")/$raw" ;;
+  esac
+  parent_resolved=$(cd "$(dirname "$target")" 2>/dev/null && pwd -P) || return 1
+  central_resolved=$(cd "$CENTRAL_DIR" 2>/dev/null && pwd -P) || return 1
+  target="$parent_resolved/$(basename "$target")"
+  [[ "$target" == "$central_resolved" || "$target" == "$central_resolved/"* ]]
+}
+
 # ---- Core sync ----
 run_sync() {
   load_custom_targets
@@ -486,7 +524,12 @@ run_sync() {
 
       if [ -e "$dest_path" ] || [ -L "$dest_path" ]; then
         if [ -L "$dest_path" ]; then
-          rm -f "$dest_path"
+          if link_points_into_central "$dest_path"; then
+            rm -f "$dest_path"
+          else
+            echo "      Warning: [$skill_name] already exists as a foreign symlink in $target. Preserved and skipped."
+            continue
+          fi
         else
           echo "      Warning: [$skill_name] already exists as a real directory in $target. Skipped."
           continue
@@ -500,9 +543,13 @@ run_sync() {
   done
 
   # PART C: Compile and synchronize Agent Rules
-  if command -v python3 >/dev/null 2>&1; then
+  if command -v python3 >/dev/null 2>&1 \
+      && [ -d "$CENTRAL_DIR/instructions" ] \
+      && find "$CENTRAL_DIR/instructions" -maxdepth 1 -type f -name '*.md' -print -quit 2>/dev/null | grep -q .; then
     echo "   Syncing Agent rules..."
-    python3 "$SCRIPT_DIR/webui.py" --sync-rules
+    if ! python3 "$SCRIPT_DIR/webui.py" --sync-rules; then
+      echo "   Warning: Agent rule sync failed; skill links were still synchronized." >&2
+    fi
   fi
 
   echo "=========================================================="
@@ -608,7 +655,7 @@ remove_target() {
 
 run_cleanup() {
   load_custom_targets
-  local central_resolved
+  local central_resolved cleanup_errors=0
   central_resolved=$(cd "$CENTRAL_DIR" 2>/dev/null && pwd -P) || {
     echo "Error: Cannot resolve CENTRAL_DIR ($CENTRAL_DIR). Aborting cleanup."
     return 1
@@ -618,22 +665,27 @@ run_cleanup() {
   echo "=========================================================="
   for target in "${TARGETS[@]}"; do
     if [ -d "$target" ]; then
-      find "$target" -maxdepth 1 -type l | while read -r link; do
-        link_target=$(readlink "$link")
-        case "$link_target" in
-          /*) link_target_abs="$link_target" ;;
-          *) link_target_abs="$(dirname "$link")/$link_target" ;;
-        esac
-        link_target_resolved=$(cd "$(dirname "$link_target_abs")" 2>/dev/null && pwd -P)/$(basename "$link_target_abs")
-        if [[ "$link_target_resolved" == "$central_resolved" || "$link_target_resolved" == "$central_resolved/"* ]]; then
-          rm -f "$link"
-          echo "   Removed symlink: $link"
+      for link in "$target"/*; do
+        [ -L "$link" ] || continue
+        if link_points_into_central "$link"; then
+          if rm -f "$link"; then
+            echo "   Removed symlink: $link"
+          else
+            echo "   Error: failed to remove symlink: $link" >&2
+            cleanup_errors=$((cleanup_errors + 1))
+          fi
         fi
       done
     fi
   done
+  if [ "$cleanup_errors" -gt 0 ]; then
+    echo "Cleanup incomplete: $cleanup_errors symlink(s) could not be removed." >&2
+    echo "=========================================================="
+    return 1
+  fi
   echo "All EasySkills symlinks cleaned up."
   echo "=========================================================="
+  return 0
 }
 
 run_status() {
@@ -645,14 +697,16 @@ run_status() {
   # Watcher status
   local watcher_running=false
   local watcher_pid
+  local watcher_detail=""
   if [ "$(uname -s)" = "Darwin" ]; then
     watcher_pid=$(launchctl list 2>/dev/null | awk '$3 == "com.easyskills.watcher" { print $1; exit }')
   elif [ "$(uname -s)" = "Linux" ] && command -v systemctl &>/dev/null; then
-    local svc_state
-    svc_state=$(systemctl --user is-active easyskills-watcher.service 2>/dev/null)
-    if [ "$svc_state" = "active" ]; then
-      watcher_pid=$(systemctl --user show easyskills-watcher.service -p MainPID --value 2>/dev/null)
-      [ "$watcher_pid" = "0" ] && watcher_pid=""
+    local path_state timer_state
+    path_state=$(systemctl --user is-active easyskills-watcher.path 2>/dev/null)
+    timer_state=$(systemctl --user is-active easyskills-watcher.timer 2>/dev/null)
+    if [ "$path_state" = "active" ] || [ "$timer_state" = "active" ]; then
+      watcher_pid="systemd"
+      watcher_detail="path=$path_state, timer=$timer_state"
     else
       watcher_pid=""
     fi
@@ -661,7 +715,11 @@ run_status() {
   # currently running; treat that as not-running (matches get_watcher_status
   # in webui.py). Otherwise we'd falsely report "✅ Running (PID -)".
   if [ -n "$watcher_pid" ] && [ "$watcher_pid" != "-" ]; then
-    echo "   Watcher: ✅ Running (PID $watcher_pid)"
+    if [ "$watcher_pid" = "systemd" ]; then
+      echo "   Watcher: ✅ Running ($watcher_detail)"
+    else
+      echo "   Watcher: ✅ Running (PID $watcher_pid)"
+    fi
     watcher_running=true
   else
     echo "   Watcher: ❌ Not running"
@@ -672,8 +730,12 @@ run_status() {
   local skill_count=0
   for target in "${TARGETS[@]}"; do
     if [ -d "$target" ]; then
-      local links
-      links=$(find "$target" -maxdepth 1 -type l 2>/dev/null | wc -l | tr -d ' ')
+      local links=0 link
+      for link in "$target"/*; do
+        if [ -L "$link" ] && link_points_into_central "$link"; then
+          links=$((links + 1))
+        fi
+      done
       if [ "$links" -gt 0 ]; then
         agent_count=$((agent_count + 1))
         skill_count=$((skill_count + links))
@@ -902,8 +964,20 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -s|--sync) ACTION="sync"; shift ;;
     -l|--list) ACTION="list"; shift ;;
-    -a|--add) ACTION="add"; ARG="$2"; shift 2 ;;
-    -r|--remove) ACTION="remove"; ARG="$2"; shift 2 ;;
+    -a|--add)
+      if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+        echo "Error: --add requires a target directory path." >&2
+        exit 1
+      fi
+      ACTION="add"; ARG="$2"; shift 2
+      ;;
+    -r|--remove)
+      if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+        echo "Error: --remove requires a target directory path." >&2
+        exit 1
+      fi
+      ACTION="remove"; ARG="$2"; shift 2
+      ;;
     -w|--watch) ACTION="watch"; shift ;;
     -u|--unwatch) ACTION="unwatch"; shift ;;
     -c|--cleanup) ACTION="cleanup"; shift ;;

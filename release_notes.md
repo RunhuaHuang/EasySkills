@@ -1,3 +1,58 @@
+## EasySkills 3.2.1
+
+A patch release completing the post-3.2.0 audit with additional data-safety,
+concurrency, update, and failure-path hardening across macOS, Linux, and
+Windows. All changes are backward-compatible. All 115 contract tests pass.
+
+### Link and User-Data Safety
+
+- Agent links that point to a central skill which is itself an external
+  symlink/junction are now consistently recognized as EasySkills-owned by
+  status, unmap, cleanup, and delete operations.
+- Mapping preserves same-name foreign links instead of silently replacing
+  user-managed symlinks or junctions.
+- Windows central external-link skills are deleted non-recursively, preventing
+  PowerShell 5.1 from traversing into and deleting the real external target.
+- Every bundled uninstaller now uses Trash/Recycle Bin and refuses to remove
+  the installation when link cleanup fails.
+
+### Concurrency and Failure Reporting
+
+- Explicit `add`, `remove`, and `cleanup` operations wait for an in-flight
+  deploy lock and fail safely on timeout; only duplicate background syncs may
+  be skipped as success.
+- Cleanup failures now propagate through shell/PowerShell exit codes so
+  uninstallers cannot mistake an incomplete cleanup for success.
+- `deploy.sh --add` / `--remove` reject missing path arguments instead of
+  entering a non-advancing argument loop.
+- Disabled-target updates and WebUI token creation are atomic; token creation
+  also uses a cross-process lock and enforces owner-only permissions.
+
+### WebUI and Update Robustness
+
+- Successful self-update/rollback now restarts the backend after delivering
+  the API response, ensuring the newly installed Python/PowerShell code is
+  actually loaded. Failed replacement launches keep the old backend alive and
+  remain retryable.
+- Release downloads validate both initial and final redirect hosts, enforce
+  timeouts and compressed/extracted size limits, reject unsafe archive paths,
+  and guard against archive bombs.
+- Complete network failure in both the GitHub API and redirect fallback now
+  returns a structured failure instead of HTTP 500.
+- Oversized HTTP requests return 413 immediately and close the connection,
+  preventing unread body bytes from contaminating a subsequent request.
+- Linux watcher status now checks the persistent systemd path/timer units
+  instead of the normally-inactive oneshot service.
+- Empty optional rule libraries no longer produce contradictory failure and
+  success messages during an otherwise successful skill sync.
+
+### Validation
+
+- 115 contract tests pass.
+- Ruff static analysis, Python compilation, shell syntax checks, frontend
+  JavaScript syntax validation, HTTP restart/oversize smoke tests, isolated
+  sync-cleanup tests, and permission/lock failure injection tests all pass.
+
 ## EasySkills 3.2.0
 
 A hardening release focused on robustness, data safety, and correctness across

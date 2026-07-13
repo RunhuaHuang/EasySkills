@@ -33,12 +33,15 @@ done
 # IMPORTANT: verify each match is actually the intended interpreter, NOT an
 # editor/grep with the file path on its command line (e.g. `code webui.py`,
 # `grep foo webui.py`) — killing those would destroy unsaved work.
-for pattern in "[E]asySkills/_maintenance/webui-service\\.sh" "[E]asySkills/_maintenance/webui\\.py"; do
+for script_name in webui-service.sh webui.py; do
+  pattern="[E]asySkills/_maintenance/$script_name"
   pids=$(pgrep -f "$pattern" 2>/dev/null || true)
   if [ -n "$pids" ]; then
     echo "$pids" | while read -r p; do
       comm=$(ps -p "$p" -o comm= 2>/dev/null || true)
+      cmdline=$(ps -p "$p" -o command= 2>/dev/null || true)
       base="${comm##*/}"
+      [[ "$cmdline" == *"$HOME/EasySkills/_maintenance/$script_name"* ]] || continue
       case "$base" in
         bash|sh|python|python[0-9]*)
           kill "$p" 2>/dev/null || true
@@ -50,12 +53,18 @@ done
 
 # 2. Clean up all symlinks in agent directories, then move ~/EasySkills to Trash
 #    (recoverable) instead of irreversible rm -rf — users keep custom skills there.
+uninstall_ok=true
 move_to_trash() {
   local target="$1"
   if [ ! -e "$target" ]; then return 0; fi
   # AppleScript via osascript: Finder "delete" moves to Trash (recoverable).
   if command -v osascript >/dev/null 2>&1; then
-    if osascript -e "tell application \"Finder\" to delete POSIX file \"$target\"" >/dev/null 2>&1; then
+    if osascript - "$target" >/dev/null 2>&1 <<'APPLESCRIPT'
+on run argv
+  tell application "Finder" to delete POSIX file (item 1 of argv)
+end run
+APPLESCRIPT
+    then
       echo "Moved to Trash: $target"
       return 0
     fi
@@ -75,17 +84,23 @@ if [ -d "$HOME/EasySkills/_maintenance" ]; then
   cleanup_rc=$?
   if [ "$cleanup_rc" -ne 0 ]; then
     echo "⚠️  WARNING: 'deploy.sh --cleanup' exited with code $cleanup_rc." >&2
-    echo "    Some EasySkills symlinks may still exist in your agent skill" >&2
-    echo "    directories and will become broken after ~/EasySkills is trashed." >&2
+    echo "    The installation was kept in place so existing links do not break." >&2
     echo "    To find and remove them manually:" >&2
     echo "      find ~/.claude/skills ~/.cursor/skills ~/.codex/skills -maxdepth 1 -type l -lname '*EasySkills*' -print -delete 2>/dev/null" >&2
     echo "    (repeat for any other agent skills folders you use)" >&2
     echo ""
+    uninstall_ok=false
+  elif ! move_to_trash "$HOME/EasySkills"; then
+    uninstall_ok=false
   fi
-  move_to_trash "$HOME/EasySkills"
 fi
 
 echo "============================================="
-echo "Uninstallation complete."
+if [ "$uninstall_ok" = true ]; then
+  echo "Uninstallation complete."
+else
+  echo "Uninstallation incomplete; no user data was destroyed."
+fi
 echo "Press any key to close this window..."
 read -n 1 -s
+[ "$uninstall_ok" = true ] || exit 1

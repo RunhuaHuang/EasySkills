@@ -30,6 +30,7 @@ import socketserver
 import base64
 import binascii
 import functools
+import fcntl
 import hmac
 import json
 import os
@@ -99,7 +100,7 @@ def _add_to_disabled_targets(path_str: str):
     if not exists:
         lines.append(norm_path)
         try:
-            DISABLED_TARGETS_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            _atomic_write_text(DISABLED_TARGETS_FILE, "\n".join(lines) + "\n")
         except OSError:
             pass
 
@@ -136,7 +137,7 @@ def _remove_from_disabled_targets(path_str: str):
     
     if updated:
         try:
-            DISABLED_TARGETS_FILE.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            _atomic_write_text(DISABLED_TARGETS_FILE, "\n".join(new_lines) + "\n")
         except (OSError, UnicodeError):
             pass
 
@@ -188,53 +189,50 @@ def _load_or_create_token() -> str:
     env_token = os.environ.get("EASYSKILLS_WEBUI_TOKEN")
     if env_token:
         return env_token
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = TOKEN_FILE.with_name(TOKEN_FILE.name + ".lock")
+    lock_fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        if TOKEN_FILE.exists():
-            token = TOKEN_FILE.read_text(encoding="utf-8").strip()
-            if len(token) >= 16:
-                return token
+        os.fchmod(lock_fd, 0o600)
     except OSError:
-        pass
-    token = secrets.token_urlsafe(32)
-    try:
-        # Atomic create — fails if another process created it first
-        fd = os.open(str(TOKEN_FILE), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(lock_fd)
+        raise
+    with os.fdopen(lock_fd, "a+") as lock_handle:
+        # A stable companion lock prevents two manually-started backends from
+        # both reclaiming a corrupt token and ending up with different in-memory
+        # tokens. Locking TOKEN_FILE itself is insufficient because os.replace
+        # changes its inode.
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
         try:
-            os.write(fd, token.encode("utf-8"))
-        finally:
-            os.close(fd)
-    except FileExistsError:
-        # Another process won the race — retry reading up to 3 times. If the
-        # file exists but is empty/corrupt (e.g. a prior write was interrupted
-        # partway), reading it will never satisfy the length check and we would
-        # loop forever across restarts. Treat a persistently-invalid file as
-        # corrupt: remove it and fall through to create a fresh one.
-        for _ in range(3):
-            try:
-                candidate = TOKEN_FILE.read_text(encoding="utf-8").strip()
-                if len(candidate) >= 16:
-                    return candidate
-            except (OSError, UnicodeError):
-                pass
-            import time
-            time.sleep(0.05)
-        # File exists but never held a valid token — it is corrupt (a prior
-        # write failed mid-way). Reclaim it instead of bricking startup.
-        try:
-            TOKEN_FILE.unlink()
-            fd = os.open(str(TOKEN_FILE), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            try:
-                os.write(fd, token.encode("utf-8"))
-            finally:
-                os.close(fd)
-            return token
-        except OSError:
-            raise RuntimeError(
-                f"Token file {TOKEN_FILE} exists but could not be read or reclaimed after 3 retries."
+            if TOKEN_FILE.is_file():
+                try:
+                    token = TOKEN_FILE.read_text(encoding="utf-8").strip()
+                    if len(token) >= 16:
+                        os.chmod(TOKEN_FILE, 0o600)
+                        return token
+                except (OSError, UnicodeError):
+                    pass
+
+            token = secrets.token_urlsafe(32)
+            fd, temp_name = tempfile.mkstemp(
+                prefix=f".{TOKEN_FILE.name}.", suffix=".tmp", dir=str(TOKEN_FILE.parent)
             )
-    except OSError:
-        pass
-    return token
+            temp_path = Path(temp_name)
+            try:
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+                    handle.write(token)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temp_path, TOKEN_FILE)
+            finally:
+                try:
+                    temp_path.unlink()
+                except FileNotFoundError:
+                    pass
+            return token
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 WEBUI_TOKEN = _load_or_create_token()
 
@@ -399,7 +397,7 @@ GITHUB_LATEST_RELEASE = f"https://github.com/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASE_TAG_PREFIX = f"https://github.com/{GITHUB_REPO}/releases/tag/"
 
 # Hosts permitted when fetching release artifacts during self-update. A tampered
-# GitHub API response could otherwise point urlretrieve() at an arbitrary server.
+# GitHub API response could otherwise point the downloader at an arbitrary server.
 # GitHub's Releases API normally returns api.github.com tarball URLs which then
 # redirect to codeload.github.com; all listed hosts are GitHub-owned delivery
 # endpoints.
@@ -576,18 +574,31 @@ def is_mapped(target_path: str, disabled_set: set[str], has_skills: bool) -> boo
     try:
         central_resolved = CENTRAL_DIR.resolve()
         for item in target.iterdir():
-            if item.is_symlink():
-                try:
-                    link_target = Path(os.readlink(str(item)))
-                    if not link_target.is_absolute():
-                        link_target = item.parent / link_target
-                    if link_target.resolve().parent == central_resolved:
-                        return True
-                except Exception:
-                    pass
+            if item.is_symlink() and _link_points_into_central(item, central_resolved):
+                return True
     except Exception:
         pass
     return False
+
+
+def _link_points_into_central(link: Path, central_resolved: Path | None = None) -> bool:
+    """Return whether *link* lexically targets this EasySkills library.
+
+    Deliberately do not call ``resolve()`` on the final link target. A supported
+    central skill may itself be a symlink to an external folder; fully resolving
+    the Agent-side link would jump through that second link and incorrectly
+    classify it as foreign, making mapped status, unmap, and delete disagree.
+    """
+    try:
+        raw_target = Path(os.readlink(str(link)))
+        target = raw_target if raw_target.is_absolute() else link.parent / raw_target
+        # Resolve only the parent to normalize ``..`` without following the
+        # final central skill symlink.
+        lexical_target = target.parent.resolve() / target.name
+        central = central_resolved or CENTRAL_DIR.resolve()
+        return lexical_target == central or central in lexical_target.parents
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
 def is_proma_workspace_target(path: str) -> bool:
@@ -1479,7 +1490,13 @@ def get_latest_release() -> dict:
             "prerelease": bool(release.get("prerelease", False)),
         }
     except Exception as e:
-        fallback = get_latest_release_via_redirect()
+        try:
+            fallback = get_latest_release_via_redirect()
+        except Exception as fallback_error:
+            return {
+                "success": False,
+                "message": f"Failed to fetch release info: API error: {e}; fallback error: {fallback_error}",
+            }
         if fallback.get("success"):
             fallback["message"] = f"GitHub API unavailable; used release redirect fallback ({e})"
             return fallback
@@ -1499,13 +1516,17 @@ def get_watcher_status():
                     pid = parts[0]
                     return {"running": True, "pid": None if pid == "-" else pid}
         elif platform.system() == "Linux":
-            r = subprocess.run(
-                ["pgrep", "-f", "easyskills.*watcher"],
-                capture_output=True, text=True, timeout=5
-            )
-            if r.returncode == 0 and r.stdout.strip():
-                pid = r.stdout.strip().splitlines()[0]
-                return {"running": True, "pid": pid}
+            # The watcher is driven by persistent systemd path/timer units;
+            # easyskills-watcher.service is Type=oneshot and is normally
+            # inactive immediately after a successful sync, so neither pgrep
+            # nor the service's active state represents watcher health.
+            for unit in ("easyskills-watcher.path", "easyskills-watcher.timer"):
+                r = subprocess.run(
+                    ["systemctl", "--user", "is-active", unit],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if r.returncode == 0 and r.stdout.strip() == "active":
+                    return {"running": True, "pid": None}
         return {"running": False, "pid": None}
     except Exception:
         return {"running": False, "pid": None}
@@ -1535,7 +1556,9 @@ def run_deploy(*args: str) -> dict:
 
 
 def _validate_skill_name(name: str) -> tuple[bool, str]:
-    name = (name or "").strip()
+    if not isinstance(name, str):
+        return False, "Skill name must be text"
+    name = name.strip()
     if not name:
         return False, "Skill name cannot be empty"
     if name.startswith(("_", ".")) or name in EXCLUDE_NAMES:
@@ -1628,18 +1651,12 @@ def delete_skill(name: str) -> dict:
     # Remove only the symlinks for this specific skill from all agent targets,
     # instead of a full cleanup+sync cycle.
     removed_count = 0
-    central_resolved = str(CENTRAL_DIR.resolve())
     for agent_dir in _iter_agent_skill_dirs():
         link = agent_dir / clean_name
-        if link.is_symlink():
+        if link.is_symlink() and _link_points_into_central(link, CENTRAL_DIR.resolve()):
             try:
-                link_target = Path(os.readlink(str(link)))
-                if not link_target.is_absolute():
-                    link_target = link.parent / link_target
-                resolved = str(link_target.resolve())
-                if resolved == central_resolved or resolved.startswith(central_resolved + os.sep):
-                    link.unlink()
-                    removed_count += 1
+                link.unlink()
+                removed_count += 1
             except Exception:
                 pass
     return {"success": True, "message": f"Deleted {clean_name} (removed {removed_count} symlinks)", "skill": clean_name}
@@ -1647,7 +1664,7 @@ def delete_skill(name: str) -> dict:
 
 @_writes_locked
 def do_map(target_path: str) -> dict:
-    if not target_path or not target_path.strip():
+    if not isinstance(target_path, str) or not target_path.strip():
         return {"success": False, "message": "Target path cannot be empty"}
     target_path = target_path.strip()
     _remove_from_disabled_targets(target_path)
@@ -1655,6 +1672,8 @@ def do_map(target_path: str) -> dict:
     try:
         target.mkdir(parents=True, exist_ok=True)
         # Per-skill links
+        conflicts = []
+        central_resolved = CENTRAL_DIR.resolve()
         for skill_dir in CENTRAL_DIR.iterdir():
             if not skill_dir.is_dir():
                 continue
@@ -1662,17 +1681,24 @@ def do_map(target_path: str) -> dict:
                 continue
             dest = target / skill_dir.name
             if dest.is_symlink():
-                dest.unlink()
+                if _link_points_into_central(dest, central_resolved):
+                    dest.unlink()
+                else:
+                    conflicts.append(skill_dir.name)
+                    continue
             if not dest.exists():
                 dest.symlink_to(skill_dir)
-        return {"success": True, "message": f"Mapped to {target_path}"}
+        message = f"Mapped to {target_path}"
+        if conflicts:
+            message += f" (preserved {len(conflicts)} foreign link conflict(s): {', '.join(conflicts)})"
+        return {"success": True, "message": message, "conflicts": conflicts}
     except Exception as e:
         return {"success": False, "message": str(e)}
 
 
 @_writes_locked
 def do_unmap(target_path: str) -> dict:
-    if not target_path or not target_path.strip():
+    if not isinstance(target_path, str) or not target_path.strip():
         return {"success": False, "message": "Target path cannot be empty"}
     target_path = target_path.strip()
     _add_to_disabled_targets(target_path)
@@ -1689,17 +1715,7 @@ def do_unmap(target_path: str) -> dict:
     for item in items:
         try:
             if item.is_symlink():
-                link_target_raw = os.readlink(str(item))
-                # Resolve relative symlinks to absolute for reliable comparison
-                try:
-                    link_target = Path(link_target_raw)
-                    if not link_target.is_absolute():
-                        link_target = item.parent / link_target
-                    link_target_resolved = str(link_target.resolve())
-                except Exception:
-                    link_target_resolved = link_target_raw
-                if (link_target_resolved == central_resolved
-                        or link_target_resolved.startswith(central_resolved + os.sep)):
+                if _link_points_into_central(item, Path(central_resolved)):
                     item.unlink()
                     removed.append(item.name)
         except Exception as e:
@@ -1934,7 +1950,48 @@ def _sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
-def _safe_extract_tar(tf: tarfile.TarFile, dest: str) -> None:
+def _download_github_file(url: str, destination: str, *, max_bytes: int = 100 * 1024 * 1024) -> None:
+    """Download a bounded release artifact and validate the final redirect."""
+    if not _is_github_download_url(url):
+        raise ValueError(f"Untrusted GitHub download URL: {url}")
+    request = urllib.request.Request(
+        url,
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "EasySkills-WebUI"},
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        final_url = response.geturl()
+        if not _is_github_download_url(final_url):
+            raise ValueError(f"Download redirected to an untrusted host: {final_url}")
+        raw_length = response.headers.get("Content-Length")
+        if raw_length:
+            try:
+                declared_length = int(raw_length)
+            except ValueError as exc:
+                raise ValueError(f"Invalid release Content-Length: {raw_length!r}") from exc
+            if declared_length < 0 or declared_length > max_bytes:
+                raise ValueError("Release archive exceeds the 100 MB safety limit")
+
+        written = 0
+        with open(destination, "wb") as output:
+            while True:
+                chunk = response.read(64 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_bytes:
+                    raise ValueError("Release archive exceeds the 100 MB safety limit")
+                output.write(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+
+
+def _safe_extract_tar(
+    tf: tarfile.TarFile,
+    dest: str,
+    *,
+    max_members: int = 10_000,
+    max_total_size: int = 512 * 1024 * 1024,
+) -> None:
     """Extract *tf* into *dest* rejecting unsafe members.
 
     Guards against path traversal (absolute paths, ``..``) and links pointing
@@ -1944,7 +2001,14 @@ def _safe_extract_tar(tf: tarfile.TarFile, dest: str) -> None:
     temporary directory.
     """
     dest_real = os.path.realpath(dest)
-    for member in tf.getmembers():
+    members = tf.getmembers()
+    if len(members) > max_members:
+        raise ValueError(f"Release archive contains too many entries ({len(members)} > {max_members})")
+    total_size = sum(member.size for member in members if member.isfile())
+    if total_size > max_total_size:
+        raise ValueError("Release archive exceeds the 512 MB extracted-size safety limit")
+
+    for member in members:
         if not (member.isfile() or member.isdir() or member.issym() or member.islnk()):
             raise ValueError(f"Refusing to extract unsupported tar member type: {member.name!r}")
         target = os.path.realpath(os.path.join(dest, member.name))
@@ -1959,7 +2023,12 @@ def _safe_extract_tar(tf: tarfile.TarFile, dest: str) -> None:
             raise ValueError(f"Refusing to extract unsafe path: {member.name!r}")
         # Reject symlinks/hardlinks whose link target escapes dest.
         if member.issym() or member.islnk():
-            link_real = os.path.realpath(os.path.join(os.path.dirname(target), member.linkname))
+            if os.path.isabs(member.linkname):
+                raise ValueError(f"Refusing to extract unsafe link: {member.name!r}")
+            # Symbolic links are relative to the link's directory; tar hardlink
+            # targets are archive-root-relative.
+            link_base = os.path.dirname(target) if member.issym() else dest_real
+            link_real = os.path.realpath(os.path.join(link_base, member.linkname))
             link_escapes = (
                 link_real != dest_real
                 and os.path.commonpath([link_real, dest_real]) != dest_real
@@ -1992,13 +2061,13 @@ def do_self_update() -> dict:
 
         with tempfile.TemporaryDirectory() as tmp:
             archive_path = os.path.join(tmp, "release.tar.gz")
-            urllib.request.urlretrieve(tarball_url, archive_path)
+            _download_github_file(tarball_url, archive_path)
 
             # --- Integrity check: re-download and compare SHA-256 ---
             # GitHub serves the tarball deterministically for a given tag, so
             # two independent downloads must produce the identical digest.
             verify_path = os.path.join(tmp, "release_verify.tar.gz")
-            urllib.request.urlretrieve(tarball_url, verify_path)
+            _download_github_file(tarball_url, verify_path)
             digest1 = _sha256_file(archive_path)
             digest2 = _sha256_file(verify_path)
             if not hmac.compare_digest(digest1, digest2):
@@ -2111,13 +2180,21 @@ def do_self_update() -> dict:
                     pass
                 raise
 
-        run_deploy("--sync")
+        sync_result = run_deploy("--sync")
 
         new_version = get_version()
+        sync_ok = bool(sync_result.get("success"))
+        message = f"Updated to {new_version}."
+        if sync_ok:
+            message += " All agents re-synced."
+        else:
+            message += f" Update succeeded, but agent re-sync failed: {sync_result.get('message', 'unknown error')}"
+        message += " The UI will reload to pick up the new version."
         return {
             "success": True,
-            "message": f"Updated to {new_version}. All agents re-synced. The UI will reload to pick up the new version.",
+            "message": message,
             "version": new_version,
+            "sync_success": sync_ok,
             # Signal the frontend to reload: the running Python process still
             # holds the pre-update code, so a page reload (or a supervisor
             # restart) is needed to serve the new logic.
@@ -2192,17 +2269,25 @@ def do_rollback() -> dict:
             if s.exists():
                 s.chmod(0o755)
 
-        run_deploy("--sync")
+        sync_result = run_deploy("--sync")
         # Remove backup so a second rollback doesn’t restore stale state
         try:
             shutil.rmtree(backup_maint)
         except OSError:
             pass
         version = get_version()
+        sync_ok = bool(sync_result.get("success"))
+        message = f"Rolled back to {version}."
+        if sync_ok:
+            message += " All agents re-synced."
+        else:
+            message += f" Rollback succeeded, but agent re-sync failed: {sync_result.get('message', 'unknown error')}"
+        message += " The UI will reload to pick up the rolled-back version."
         return {
             "success": True,
-            "message": f"Rolled back to {version}. All agents re-synced. The UI will reload to pick up the rolled-back version.",
+            "message": message,
             "version": version,
+            "sync_success": sync_ok,
             # Same rationale as do_self_update: the running process holds the
             # pre-rollback code until a reload/supervisor restart.
             "_restart": True,
@@ -2214,6 +2299,80 @@ def do_rollback() -> dict:
 # ──────────────────────────────────────────────────────────────
 # HTTP handler
 # ──────────────────────────────────────────────────────────────
+
+_backend_restart_scheduled = threading.Event()
+
+
+def _schedule_backend_restart(server) -> None:
+    """Stop this backend after its response and ensure new disk code starts."""
+    if _backend_restart_scheduled.is_set():
+        return
+    _backend_restart_scheduled.set()
+
+    try:
+        if os.environ.get("EASYSKILLS_SUPERVISED") != "1":
+            # Manual macOS/Linux launches have no supervisor. Start a detached
+            # helper that waits for this PID to disappear, then launches the newly
+            # installed backend. Under a supervisor we only exit and let it restart
+            # us, avoiding a duplicate-process race.
+            helper = r"""
+import os, socket, subprocess, sys, time
+old_pid, python_bin, webui_script, port = int(sys.argv[1]), sys.argv[2], sys.argv[3], int(sys.argv[4])
+for _ in range(200):
+    try:
+        os.kill(old_pid, 0)
+    except ProcessLookupError:
+        break
+    except PermissionError:
+        break
+    time.sleep(0.05)
+else:
+    raise SystemExit(1)
+sock = socket.socket()
+sock.settimeout(0.2)
+try:
+    if sock.connect_ex(("127.0.0.1", port)) == 0:
+        raise SystemExit(0)
+finally:
+    sock.close()
+env = os.environ.copy()
+env["EASYSKILLS_NO_BROWSER"] = "1"
+subprocess.Popen(
+    [python_bin, webui_script],
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    start_new_session=True,
+    env=env,
+)
+"""
+            env = os.environ.copy()
+            env["EASYSKILLS_NO_BROWSER"] = "1"
+            subprocess.Popen(
+                [
+                    _sys.executable,
+                    "-c",
+                    helper,
+                    str(os.getpid()),
+                    _sys.executable,
+                    str(CENTRAL_DIR / "_maintenance" / "webui.py"),
+                    str(PORT),
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                env=env,
+            )
+    except Exception:
+        # Keep the old backend alive and allow a later retry if the detached
+        # replacement helper could not be created.
+        _backend_restart_scheduled.clear()
+        raise
+
+    # TCPServer.shutdown must run from a different thread than serve_forever.
+    threading.Thread(target=server.shutdown, daemon=True).start()
+
 
 class Handler(http.server.BaseHTTPRequestHandler):
     # Per-connection socket timeout: a slow/idle client (or a slowloris-style
@@ -2293,21 +2452,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not length:
             return {}
         if length > 10 * 1024 * 1024:  # 10 MB cap
-            # Drain the oversized body so it does not sit in the socket buffer
-            # and corrupt the connection state / pin the handler thread until
-            # the socket timeout fires. Cap the drain to avoid unbounded memory.
-            drain = min(length, 10 * 1024 * 1024)
-            try:
-                self.rfile.read(drain)
-            except OSError:
-                pass
+            # Do not block while draining an untrusted oversized body. Close
+            # this keep-alive connection after the 413 so unread bytes can
+            # never be parsed as a subsequent request.
+            self.close_connection = True
             return None  # Signal to caller: send 413
         if length < 0:
             return {}
         try:
             parsed = json.loads(self.rfile.read(length))
             return parsed if isinstance(parsed, dict) else {}
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, OSError, UnicodeError, ValueError):
             return {}
 
     def _is_post_allowed(self) -> bool:
@@ -2482,7 +2637,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         handler = routes.get(path)
         if handler:
-            self._json(handler())
+            try:
+                result = handler()
+                restart = bool(
+                    isinstance(result, dict)
+                    and result.get("success")
+                    and result.get("_restart")
+                )
+                try:
+                    self._json(result)
+                finally:
+                    if restart:
+                        try:
+                            _schedule_backend_restart(self.server)
+                        except Exception as restart_error:
+                            # The success response has already been emitted; do
+                            # not attempt a second HTTP response. The scheduler
+                            # cleared its flag and deliberately kept this old
+                            # backend alive so the user can retry safely.
+                            logging.error("Backend restart scheduling failed: %s", restart_error)
+            except Exception as exc:
+                if _debug_enabled:
+                    logging.exception("Unhandled API error for %s", path)
+                self._json({"success": False, "message": f"Request failed: {exc}"}, status=500)
         else:
             self.send_response(404)
             self.end_headers()
@@ -2548,13 +2725,13 @@ def main():
         logging.debug("Debug mode enabled (EASYSKILLS_DEBUG=1)")
         logging.debug("CENTRAL_DIR=%s SCRIPT_DIR=%s", CENTRAL_DIR, SCRIPT_DIR)
 
-    print(f"\n  🚀 EasySkills WebUI")
-    print(f"  ┌──────────────────────────────────────┐")
+    print("\n  🚀 EasySkills WebUI")
+    print("  ┌──────────────────────────────────────┐")
     print(f"  │   http://127.0.0.1:{PORT}              │")
-    print(f"  │   Press Ctrl+C to stop               │")
+    print("  │   Press Ctrl+C to stop               │")
     if _debug_enabled:
-        print(f"  │   Debug mode: ON                     │")
-    print(f"  └──────────────────────────────────────┘\n")
+        print("  │   Debug mode: ON                     │")
+    print("  └──────────────────────────────────────┘\n")
 
     # Auto-open browser (cross-platform), unless suppressed by caller
     if os.environ.get("EASYSKILLS_NO_BROWSER") != "1":
@@ -2601,7 +2778,7 @@ def main():
             logging.debug("Server shut down cleanly.")
     except OSError as e:
         print(f"  ❌ Cannot bind to port {PORT}: {e}")
-        print(f"     Is another instance already running?")
+        print("     Is another instance already running?")
     finally:
         if httpd is not None:
             httpd.server_close()

@@ -192,8 +192,14 @@ $script:DeployMutex = $null
 function Acquire-Lock {
   $script:DeployMutex = New-Object System.Threading.Mutex($false, "Global\EasySkillsDeploy")
   try {
-    if (-not $script:DeployMutex.WaitOne(0)) {
-      Write-Host "Another deploy is already running, skipping."
+    $ExplicitMutation = [bool]($Cleanup -or $Add -or $Remove)
+    $WaitMilliseconds = if ($ExplicitMutation) { 5000 } else { 0 }
+    if (-not $script:DeployMutex.WaitOne($WaitMilliseconds)) {
+      if ($ExplicitMutation) {
+        Write-Error "Another deploy is still running; the requested mutation was not performed."
+        exit 1
+      }
+      Write-Host "Another deploy is already running, skipping duplicate sync."
       exit 0
     }
   } catch [System.Threading.AbandonedMutexException] {
@@ -395,6 +401,27 @@ function Get-AgentName ([string]$Path) {
   }
 }
 
+function Test-EasySkillsLinkTarget($Item) {
+  # Compare the reparse point's lexical target without Resolve-Path. The final
+  # central skill can itself be a junction/symlink to an external directory;
+  # following it would make our own Agent mapping look foreign.
+  if (-not $Item -or -not ($Item.Attributes -match "ReparsePoint")) { return $false }
+  $RawTarget = [string](@($Item.Target)[0])
+  if (-not $RawTarget) { return $false }
+  try {
+    if (-not [System.IO.Path]::IsPathRooted($RawTarget)) {
+      $ItemParent = [System.IO.Path]::GetDirectoryName([string]$Item.FullName)
+      $RawTarget = Join-Path $ItemParent $RawTarget
+    }
+    $LexicalTarget = [System.IO.Path]::GetFullPath($RawTarget)
+    $CentralResolved = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $CentralDir).ProviderPath).TrimEnd('\')
+    return $LexicalTarget.Equals($CentralResolved, [System.StringComparison]::OrdinalIgnoreCase) -or
+      $LexicalTarget.StartsWith("$CentralResolved\", [System.StringComparison]::OrdinalIgnoreCase)
+  } catch {
+    return $false
+  }
+}
+
 function Run-Sync {
   Load-CustomTargets
   Load-DisabledTargets
@@ -519,10 +546,13 @@ function Run-Sync {
       $Existing = Get-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
       if ($Existing) {
         if ($Existing.Attributes -match "ReparsePoint") {
-          # Remove the link ITSELF only — never recurse into its target
-          # (Remove-Item -Recurse on a directory junction can delete the real
-          # target contents on Windows PowerShell 5.1).
-          [System.IO.Directory]::Delete($Existing.FullName, $false)
+          if (Test-EasySkillsLinkTarget $Existing) {
+            # Remove the link ITSELF only — never recurse into its target.
+            [System.IO.Directory]::Delete($Existing.FullName, $false)
+          } else {
+            Write-Host "      Warning: [$SkillName] already exists as a foreign link in $Target. Preserved and skipped." -ForegroundColor Yellow
+            continue
+          }
         } else {
           Write-Host "      Warning: [$SkillName] already exists as a real directory in $Target. Skipped." -ForegroundColor Yellow
           continue
@@ -539,9 +569,14 @@ function Run-Sync {
 
   # PART C: Compile and synchronize Agent Rules
   $WebUIScript = Join-Path $ScriptDir "webui.ps1"
-  if (Test-Path $WebUIScript) {
+  $InstructionsPath = Join-Path $CentralDir "instructions"
+  $RuleFiles = @(Get-ChildItem -Path $InstructionsPath -Filter "*.md" -File -ErrorAction SilentlyContinue)
+  if ((Test-Path $WebUIScript) -and $RuleFiles.Count -gt 0) {
     Write-Host "   Syncing Agent rules..."
     powershell -NoProfile -ExecutionPolicy Bypass -File "$WebUIScript" -SyncRules
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warning "Agent rule sync failed; skill junctions were still synchronized."
+    }
   }
 
   Write-Host "==========================================================" -ForegroundColor Cyan
@@ -641,35 +676,40 @@ function Remove-Target ([string]$Path) {
 
 function Run-Cleanup {
   Load-CustomTargets
-  $CentralResolved = (Resolve-Path -LiteralPath $CentralDir).ProviderPath
+  $CleanupErrors = @()
   Write-Host "==========================================================" -ForegroundColor Cyan
   Write-Host "Cleaning up all EasySkills junctions from agent directories..." -ForegroundColor Cyan
   Write-Host "==========================================================" -ForegroundColor Cyan
   foreach ($Target in $script:Targets) {
     if (Test-Path $Target) {
-      $Items = Get-ChildItem -Path $Target -Force
+      try {
+        $Items = Get-ChildItem -Path $Target -Force -ErrorAction Stop
+      } catch {
+        $CleanupErrors += "$Target`: $($_.Exception.Message)"
+        continue
+      }
       foreach ($Item in $Items) {
-        if ($Item.Attributes -match "ReparsePoint") {
-          $LinkTarget = $Item.Target
-          $ResolvedTarget = $null
-          if ($LinkTarget) {
-            try {
-              $ResolvedTarget = (Resolve-Path -LiteralPath $LinkTarget).ProviderPath
-            } catch {
-              try { $ResolvedTarget = [System.IO.Path]::GetFullPath($LinkTarget) } catch {}
-            }
-          }
-          if ($ResolvedTarget -and ($ResolvedTarget.Equals($CentralResolved, [System.StringComparison]::OrdinalIgnoreCase) -or $ResolvedTarget.StartsWith("$CentralResolved\", [System.StringComparison]::OrdinalIgnoreCase))) {
+        if (Test-EasySkillsLinkTarget $Item) {
+          try {
             # Delete the reparse point only, not its target's contents.
             [System.IO.Directory]::Delete($Item.FullName, $false)
             Write-Host "   Removed junction: $($Item.FullName)" -ForegroundColor Green
+          } catch {
+            $CleanupErrors += "$($Item.FullName): $($_.Exception.Message)"
           }
         }
       }
     }
   }
+  if ($CleanupErrors.Count -gt 0) {
+    foreach ($CleanupError in $CleanupErrors) { Write-Error "Cleanup failed: $CleanupError" }
+    Write-Host "Cleanup incomplete: $($CleanupErrors.Count) junction(s) could not be removed." -ForegroundColor Red
+    Write-Host "==========================================================" -ForegroundColor Cyan
+    return $false
+  }
   Write-Host "All EasySkills junctions cleaned up." -ForegroundColor Green
   Write-Host "==========================================================" -ForegroundColor Cyan
+  return $true
 }
 
 function Run-Status {
@@ -695,7 +735,7 @@ function Run-Status {
   $TotalSkills = 0
   foreach ($Target in $script:Targets) {
     if (Test-Path $Target) {
-      $Junctions = Get-ChildItem -Path $Target -Force | Where-Object { $_.Attributes -match "ReparsePoint" }
+      $Junctions = Get-ChildItem -Path $Target -Force | Where-Object { Test-EasySkillsLinkTarget $_ }
       if ($Junctions) {
         $Count = @($Junctions).Count
         $AgentCount++
@@ -747,7 +787,7 @@ try {
     }
     Write-Host "WebUI launching on http://localhost:6633"
   } elseif ($Cleanup) {
-    Run-Cleanup
+    if (-not (Run-Cleanup)) { exit 1 }
   } elseif ($List) {
     List-Links
   } elseif ($Add) {
