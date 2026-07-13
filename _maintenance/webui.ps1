@@ -1850,9 +1850,21 @@ function Remove-RulesFromOne([string]$PathStr, [string[]]$RuleNames) {
 
 function Write-InstructionsToAll {
     $Library = Get-RuleMap
-    if (-not $Library.success -or $Library.rules.Count -eq 0) { return @{ success = $false; message = "No rules in the library. Add rules first." } }
+    if (-not $Library.success) { return @{ success = $false; message = $Library.message } }
     $Targets = Get-DetectedInstructionTargets
     if ($Targets.Count -eq 0) { return @{ success = $false; message = "No detected agent instruction targets found." } }
+
+    if ($Library.rules.Count -eq 0) {
+        $Removed = @(); $Failed = @()
+        foreach ($T in $Targets) {
+            $Result = Remove-InstructionsFromOne $T.Path
+            if ($Result.success) { $Removed += $T.Name } else { $Failed += "$($T.Name) ($($T.Path))" }
+        }
+        $Msg = "No rules in library. Cleared managed block from $($Removed.Count) agent(s)."
+        if ($Failed.Count -gt 0) { $Msg += " Failed: $($Failed -join ', ')" }
+        return @{ success = ($Failed.Count -eq 0); message = $Msg; written = 0; failed = $Failed }
+    }
+
     $Written = @(); $Failed = @()
     foreach ($T in $Targets) {
         $Result = Write-RulesToOne $T.Path $Library.rules $true

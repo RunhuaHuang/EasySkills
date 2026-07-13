@@ -543,9 +543,7 @@ run_sync() {
   done
 
   # PART C: Compile and synchronize Agent Rules
-  if command -v python3 >/dev/null 2>&1 \
-      && [ -d "$CENTRAL_DIR/instructions" ] \
-      && find "$CENTRAL_DIR/instructions" -maxdepth 1 -type f -name '*.md' -print -quit 2>/dev/null | grep -q .; then
+  if command -v python3 >/dev/null 2>&1; then
     echo "   Syncing Agent rules..."
     if ! python3 "$SCRIPT_DIR/webui.py" --sync-rules; then
       echo "   Warning: Agent rule sync failed; skill links were still synchronized." >&2

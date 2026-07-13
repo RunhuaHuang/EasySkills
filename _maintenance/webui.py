@@ -1309,11 +1309,24 @@ def _known_instruction_target(path_str: str) -> Path | None:
 def write_instructions_to_all() -> dict:
     """Write every library rule to every detected agent instruction file."""
     rules, error = _rule_library()
-    if error or not rules:
-        return {"success": False, "message": "No rules in the library. Add rules first."}
+    if error:
+        return {"success": False, "message": error}
     targets = _detected_instruction_targets()
     if not targets:
         return {"success": False, "message": "No detected agent instruction targets found."}
+    
+    if not rules:
+        removed, failed = [], []
+        for name, path in targets:
+            if _remove_from_one(path):
+                removed.append(name)
+            else:
+                failed.append(f"{name} ({path})")
+        msg = f"No rules in library. Cleared managed block from {len(removed)} agent(s)."
+        if failed:
+            msg += f" Failed: {', '.join(failed)}"
+        return {"success": len(failed) == 0, "message": msg, "written": 0, "failed": failed}
+
     written, failed = [], []
     for name, path in targets:
         if _write_to_one(path, rules, replace=True):

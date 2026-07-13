@@ -840,13 +840,12 @@ class SecurityContractsTest(unittest.TestCase):
                     "_maintenance/webui.py", "_maintenance/webui.ps1"):
             src = read(rel)
             self.assertIn("agents.json", src, f"{rel} does not reference agents.json")
-
-    def test_skill_sync_skips_empty_optional_rule_library(self):
+    def test_skill_sync_runs_for_empty_optional_rule_library(self):
         sh_src = read("_maintenance/deploy.sh")
         ps_src = read("_maintenance/deploy.ps1")
-        self.assertIn("find \"$CENTRAL_DIR/instructions\"", sh_src)
+        self.assertNotIn("find \"$CENTRAL_DIR/instructions\"", sh_src)
         self.assertIn("Agent rule sync failed; skill links were still synchronized", sh_src)
-        self.assertIn("$RuleFiles.Count -gt 0", ps_src)
+        self.assertNotIn("$RuleFiles.Count -gt 0", ps_src)
         self.assertIn("Agent rule sync failed; skill junctions were still synchronized", ps_src)
 
     def test_hardcoded_fallbacks_match_agents_json(self):

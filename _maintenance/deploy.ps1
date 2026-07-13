@@ -569,9 +569,7 @@ function Run-Sync {
 
   # PART C: Compile and synchronize Agent Rules
   $WebUIScript = Join-Path $ScriptDir "webui.ps1"
-  $InstructionsPath = Join-Path $CentralDir "instructions"
-  $RuleFiles = @(Get-ChildItem -Path $InstructionsPath -Filter "*.md" -File -ErrorAction SilentlyContinue)
-  if ((Test-Path $WebUIScript) -and $RuleFiles.Count -gt 0) {
+  if (Test-Path $WebUIScript) {
     Write-Host "   Syncing Agent rules..."
     powershell -NoProfile -ExecutionPolicy Bypass -File "$WebUIScript" -SyncRules
     if ($LASTEXITCODE -ne 0) {
