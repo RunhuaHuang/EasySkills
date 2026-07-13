@@ -368,9 +368,9 @@ class SecurityContractsTest(unittest.TestCase):
         readme_en = read("README_EN.md")
 
         self.assertIn("http://127.0.0.1:6633", readme_en)
-        self.assertIn("skill library import/delete", readme_en)
+        self.assertIn("Skill Import/Delete", readme_en)
         self.assertIn("linked agents", readme_en)
-        self.assertIn("register unsupported agents by skills-folder path", readme_en)
+        self.assertIn("register a custom skills directory for an unsupported agent", readme_en)
         self.assertNotIn("http://localhost:6633", readme_en)
         self.assertNotIn("agent bridges", readme_en)
         self.assertNotIn("skill registry", readme_en)
@@ -378,7 +378,7 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("http://127.0.0.1:6633", readme_cn)
         self.assertIn("技能库导入/删除", readme_cn)
         self.assertIn("Agent 连接", readme_cn)
-        self.assertIn("默认未支持的 Agent 注册 skills 文件夹路径", readme_cn)
+        self.assertIn("非标准路径安装的 Agent", readme_cn)
         self.assertNotIn("http://localhost:6633", readme_cn)
 
     def test_python_skill_import_and_delete_are_confined_to_central_dir(self):
@@ -429,8 +429,8 @@ class SecurityContractsTest(unittest.TestCase):
 
         self.assertIn(f"Version-{version}", read("README_EN.md"))
         self.assertIn(f"版本-{version}", read("README.md"))
-        self.assertIn(f"{agent_count}+ agent targets are pre-configured", read("README_EN.md"))
-        self.assertIn(f"开箱即用支持 {agent_count}+ 个 Agent", read("README.md"))
+        self.assertIn(f"EasySkills pre-configures mappings for {agent_count}+ agent", read("README_EN.md"))
+        self.assertIn(f"EasySkills 开箱即用支持以下 {agent_count}+ 个 Agent", read("README.md"))
 
     def test_default_agent_targets_include_requested_agents_and_corrected_paths(self):
         # Driven by agents.json (the single source of truth): every agent entry

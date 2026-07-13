@@ -3,14 +3,13 @@
 # EasySkills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#installation)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#quick-start)
 [![Agents](https://img.shields.io/badge/Supported%20Agents-43+-orange.svg)](#supported-agents)
-[![Version](https://img.shields.io/badge/Version-4.0.2-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Version](https://img.shields.io/badge/Version-4.0.3-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
-**One central library, three capability channels, every Agent under control.**
+**One central library, three capability channels, every AI coding agent under control.**
 
-Drop a skill or instruction rule once into `~/EasySkills`.
-It syncs to Claude Code, Codex, Cursor, Gemini, Copilot, Windsurf, Trae, and 43+ more agent environments — instantly, through native links and non-destructive managed blocks.
+Simply drop a skill or instruction rule into `~/EasySkills`, or configure downstream MCP servers in the WebUI. EasySkills automatically syncs these capabilities to Claude Code, Cursor, Windsurf, Trae, Copilot, Gemini, and 43+ other agent environments.
 
 Local-first &bull; Zero idle CPU &bull; WebUI included
 
@@ -22,171 +21,186 @@ Local-first &bull; Zero idle CPU &bull; WebUI included
 
 ## Quick Start
 
-<table>
-<tr>
-<td><b>macOS / Linux</b></td>
-<td>
+### 1. One-Line Installation
 
+Please copy and run the command suitable for your system. The commands are split into two lines for improved readability and to ensure the copy buttons are fully visible in all views:
+
+**macOS / Linux**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+curl -fsSL \
+  https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>Windows</b></td>
-<td>
-
+**Windows (PowerShell)**
 ```powershell
-irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+irm `
+  https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
 ```
 
-</td>
-</tr>
-</table>
+> 💡 **Alternative Installation**: You can also clone this repository locally and double-click `install_mac.command` (macOS) or `install_windows.bat` (Windows).
 
-The installer creates `~/EasySkills`, detects supported agents, maps shared skills, installs the MCP Gateway, starts the watcher, and launches the WebUI. A Gateway installation failure does not affect Skills or Rules.
-
-> **Alternative:** Clone this repo and double-click `install_mac.command` (macOS) or `install_windows.bat` (Windows).
+The installer will automatically perform the following steps:
+1. Create `~/EasySkills` in your user directory as the central management folder.
+2. Auto-detect installed agents and establish shared skill mappings.
+3. Install the single-file MCP Gateway binary.
+4. Launch the background file watcher service (for real-time synchronization).
+5. Open the local WebUI manager console (`http://127.0.0.1:6633`).
 
 ---
 
 ## Open, Stop, Restart, and Update
 
-Use the **Quick Start** commands above to deploy. After deployment, EasySkills installs the background watcher and automatically starts the local WebUI at `http://127.0.0.1:6633`. The terminal will show:
+Once installed, the background daemon service keeps running and the WebUI automatically launches at `http://127.0.0.1:6633`.
 
-> Starting and mounting WebUI; the browser will open automatically when ready.
+### Open the WebUI Manually
+If you need to open the WebUI console manually at a later time:
+* **macOS / Linux**:
+  ```bash
+  bash ~/EasySkills/_maintenance/deploy.sh --webui
+  ```
+* **Windows (PowerShell)**:
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
+  ```
 
-### Open the WebUI
+### Stop Services
+Closing the browser tab only closes the dashboard; background watchers will continue sync operations. To stop them completely:
+* **macOS / Linux**:
+  ```bash
+  bash ~/EasySkills/_maintenance/deploy.sh --unwatch
+  launchctl remove com.easyskills.webui 2>/dev/null || true
+  launchctl remove com.easyskills.webui.manual 2>/dev/null || true
+  pkill -f '[E]asySkills/_maintenance/webui.py' 2>/dev/null || true
+  pkill -f '[E]asySkills/_maintenance/webui-service.sh' 2>/dev/null || true
+  ```
+* **Windows (PowerShell)**:
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Unwatch
+  ```
 
-The WebUI opens automatically after installation; use these commands later if you need to open it manually:
-
-```bash
-# macOS / Linux
-bash ~/EasySkills/_maintenance/deploy.sh --webui
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
-```
-
-### Stop
-
-If you only want to close the dashboard, close the browser tab; background sync keeps running.
-
-To stop the background watcher and WebUI service:
-
-```bash
-# macOS / Linux: stop the watcher
-bash ~/EasySkills/_maintenance/deploy.sh --unwatch
-
-# macOS: also stop the WebUI backend if needed
-launchctl remove com.easyskills.webui 2>/dev/null || true
-launchctl remove com.easyskills.webui.manual 2>/dev/null || true
-pkill -f '[E]asySkills/_maintenance/webui.py' 2>/dev/null || true
-pkill -f '[E]asySkills/_maintenance/webui-service.sh' 2>/dev/null || true
-```
-
-```powershell
-# Windows: stop watcher and WebUI scheduled tasks
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Unwatch
-```
-
-### Restart
-
-```bash
-# macOS / Linux
-bash ~/EasySkills/_maintenance/deploy.sh --unwatch
-bash ~/EasySkills/_maintenance/deploy.sh --watch
-bash ~/EasySkills/_maintenance/deploy.sh --webui
-```
-
-```powershell
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Unwatch
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Watch
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
-```
+### Restart Services
+* **macOS / Linux**:
+  ```bash
+  bash ~/EasySkills/_maintenance/deploy.sh --unwatch
+  bash ~/EasySkills/_maintenance/deploy.sh --watch
+  bash ~/EasySkills/_maintenance/deploy.sh --webui
+  ```
+* **Windows (PowerShell)**:
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Unwatch
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Watch
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
+  ```
 
 ### Update
+* **Recommended**: Click **Check for updates / Update now** inside the WebUI Dashboard to upgrade in place. This preserves your custom paths, tokens, and settings, while backing up the prior engine in `_maintenance.bak` for rollback.
+* **CLI**: Re-run the Quick Start installation scripts to perform an in-place upgrade:
 
-Recommended: use **Check for updates / Update now** in the WebUI. Updates preserve custom agent paths, disconnected targets, and the WebUI token; the previous `_maintenance.bak` is kept for rollback.
+  **macOS / Linux**
+  ```bash
+  curl -fsSL \
+    https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+  ```
 
-You can also rerun the installer to upgrade in place:
+  **Windows (PowerShell)**
+  ```powershell
+  irm `
+    https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+  ```
 
-```bash
-# macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+---
+
+## Core Features and Usage Guide
+
+EasySkills organizes AI Agent capabilities into three distinct channels. Here is how to use them:
+
 ```
-
-```powershell
-# Windows PowerShell
-irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+~/EasySkills/                           ← Your Central Directory
+│
+├── [Channel 1] Skills Sync
+│   ├── MyAwesomeSkill/                 ← Your custom skill folder
+│   └── DeployHelper/
+│               │
+│               ▼ Native Symlinks / Junctions Mapping
+│       ┌──────────────────────────────────────────────┐
+│       │ ~/.claude/skills/MyAwesomeSkill  ──→  ✓      │
+│       │ ~/.cursor/skills/MyAwesomeSkill  ──→  ✓      │
+│       └──────────────────────────────────────────────┘
+│
+├── [Channel 2] MCP Gateway
+│   ├── mcp/servers.json                ← Central config for downstream MCPs
+│   └── _runtime/easyskills-mcp         ← Single-file MCP Gateway Proxy
+│               │
+│               ▼ Connect Agent once; Gateway routes all downstream tools
+│       context7__* / github__* / database__* / ...
+│
+└── [Channel 3] Agents.md Agent Rules Sync
+    ├── instructions/                   ← Place your modular rule files (.md)
+    │   ├── git-rules.md
+    │   └── python-style.md
+    │           │
+    │           ▼ Non-Destructive Managed Block Injection
+    │   ┌──────────────────────────────────────────────┐
+    │   │ ~/.claude/CLAUDE.md      ──→ <!-- Managed -->│
+    │   │ ~/.cursor/AGENTS.md      ──→ <!-- Managed -->│
+    │   └──────────────────────────────────────────────┘
 ```
 
 ---
 
-## How It Works
+### 1. Skills Sync (Channel 1)
 
-EasySkills provides three capability channels to manage and distribute capabilities across all your AI assistants:
+Distribute your custom agent skills (prompt templates, workflows, custom tools) to all installed coding agents at once.
 
-```
-~/EasySkills/                           ← your central directory
-├── _maintenance/                       ← engine (invisible to agents)
-│
-├── instructions/                       ← [Channel 02] Modular Agent Rules (.md files)
-│   ├── rule1.md
-│   └── rule2.md
-│           │
-│           ▼ Safe compiled Managed Block Injection
-│   ┌──────────────────────────────────────────────┐
-│   │ ~/.claude/CLAUDE.md      ──→ <!-- Managed -->│
-│   │ ~/.cursor/AGENTS.md      ──→ <!-- Managed -->│
-│   └──────────────────────────────────────────────┘
-│
-├── mcp/servers.json                    ← [Channel 03] Central downstream MCP JSON
-├── _runtime/easyskills-mcp             ← Single-file MCP Gateway
-│           │
-│           ▼ Connect each Agent once; discover and route tools centrally
-│   context7__* / github__* / database__* / ...
-│
-├── MyAwesomeSkill/                     ← [Channel 01] Shared Skills Folders
-└── DeployHelper/
-            │
-            ▼ Symlinks (macOS/Linux) / Junctions (Windows)
-    ┌──────────────────────────────────────────────┐
-    │ ~/.claude/skills/MyAwesomeSkill  ──→  ✓      │
-    │ ~/.cursor/skills/MyAwesomeSkill  ──→  ✓      │
-    │ ... 43+ targets, all in sync, all the time   │
-    └──────────────────────────────────────────────┘
-```
+#### How to Use
+* **Via File Manager**: Create or place your skill folders (e.g., `MyAwesomeSkill/`) directly under the `~/EasySkills/` directory.
+* **Via WebUI**: Go to the **Skills** tab in the WebUI and click "Import Skill Folder" to upload it.
 
-* **Channel 01 (Skills Sync)** — Maps shared skills into agent-specific skill folders using native symlinks (macOS/Linux) or directory junctions (Windows). Edit a file once, every agent sees the change immediately.
-* **Channel 02 (Agent Rules Sync)** — Compiles and concatenates all Markdown rules in the `instructions/` folder and inserts them into global instruction files (e.g. `CLAUDE.md`, `AGENTS.md`) using non-destructive managed tags (`<!-- EasySkills:begin -->` / `<!-- EasySkills:end -->`). Manual edits outside this block are preserved.
-* **Channel 03 (MCP Gateway)** — Each Agent installs only the EasySkills MCP. The Gateway connects to downstream MCP servers from `mcp/servers.json` and exposes tools as `server__tool`; it supports stdio, Streamable HTTP, SSE, profiles, and tool allow/deny filters.
+#### Working Principle
+The EasySkills background watcher monitors directory additions and deletions in `~/EasySkills/`. It maps these folders to the corresponding skill directories of all installed agents using native **symlinks (macOS/Linux)** or **directory junctions (Windows)**.
+* **Instant Effect**: Since it uses symlinks, edits made within `~/EasySkills/MyAwesomeSkill/` are reflected across all agent environments immediately.
+* **Coexistence**: EasySkills only maps your shared folders; agent-specific private skills remain untouched and operational.
 
-### MCP Gateway quick configuration
+---
 
-Click **Add MCP** on the WebUI **MCP** page and use the structured form for its name, transport, endpoint or local command, headers/environment variables, and tool filters. Every MCP is an independent module that can be edited, tested, enabled, disabled, or deleted without exposing JSON to the user.
+### 2. MCP Gateway (Channel 2)
 
-Then choose Claude/Cursor/Kiro, VS Code, or Codex under **Connect an Agent once** and copy its connection. Future MCP, credential, and routing changes happen only in EasySkills.
+Eliminate the need to repeatedly configure the same downstream MCP services (like databases, web search, GitHub tools) across different AI editors. Connect each agent once to the EasySkills Gateway, and manage all downstream MCPs centrally.
 
-> API keys, tokens, headers, and environment variables are intentionally stored as plain text in the local JSON. The directory is owner-only, saves use atomic replacement, and `servers.json.bak` is retained. Do not share or commit this file.
+#### How to Use
+1. **Add Downstream MCPs**: In the WebUI **MCP** page, click "Add MCP" and fill out the structured form for your target MCP service (supports stdio, HTTP, and SSE transport protocols).
+2. **Retrieve Agent Configuration**: In the "Connect an Agent once" panel, select the agent you are using (e.g., Claude Code, Cursor, VS Code, or Codex) and copy the generated connection snippet. You can also copy the command and provide it directly to your Agent, letting it help you configure MCP automatically, then restart the Agent to enable it.
+3. **Configure the Agent**: Paste the copied configuration snippet into your agent's config file (e.g., `claude_desktop_config.json` or Cursor's MCP list).
+4. **Centralized Operations**: To add a new tool, update an API token, or disable a service, simply perform the action in the EasySkills WebUI. All agents will immediately pick up the changes without requiring any config edits.
+
+#### Key Features
+* **Routing Namespace**: Gateway maps downstream tools to `server__tool` (e.g., `github__create_issue`) to avoid namespace conflicts.
+* **Tool Filtering**: Apply a custom whitelist or blacklist to restrict which tools are exposed per MCP service.
+* **Connection Testing**: Execute one-click connectivity checks for downstream MCPs directly from the WebUI.
+
+---
+
+### 3. Agents.md Agent Rules Sync (Channel 3)
+
+Deploy your personal development guidelines (e.g., Git commit message format, coding style, formatting standards) across all coding agents.
+
+#### How to Use
+* Simply drop your Markdown rule files (e.g., `git-rules.md`, `python-style.md`) into the `~/EasySkills/instructions/` directory.
+
+#### Working Principle
+EasySkills compiles and concatenates all Markdown files in the `instructions/` folder and inserts them into the global system instruction files of your agents (e.g., `~/.claude/CLAUDE.md` for Claude Code, or `~/.cursor/AGENTS.md` for Cursor).
+* **Non-Destructive Managed Block**: The injected contents are bounded by `<!-- EasySkills:begin -->` and `<!-- EasySkills:end -->` comment blocks. EasySkills only overwrites content inside these markers, preserving any custom guidelines you write outside of them.
 
 ---
 
 ## WebUI Dashboard
 
-Manage everything from a local-only dashboard at `http://127.0.0.1:6633`.
+The local-only WebUI running at `http://127.0.0.1:6633` is the central interface for managing your setup.
 
-Provides skill library import/delete, modular Agent rules management, modular MCP controls and per-server connection testing, connected agents and path tracking, custom path registrations, manual synchronization, invalid link cleanup, and version checks.
-
-```bash
-# macOS / Linux
-bash ~/EasySkills/_maintenance/deploy.sh --webui
-
-# Windows (PowerShell)
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
-```
+* **Skills Management**: Import and delete shared skills, and monitor which agents are mapping them.
+* **Rules Management**: Online Markdown editor to create and manage custom prompt rules.
+* **MCP Management**: Graphical management of downstream MCP modules, testing connectivity, and copying agent-side connection configs.
+* **Agent Status**: View install status and directory path maps for 43+ built-in agents, and register custom agent paths.
 
 <p align="center">
   <img src="docs/assets/webui-dashboard-macos.jpg" alt="EasySkills WebUI dashboard on macOS" width="100%">
@@ -202,50 +216,52 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenan
 
 | | Feature | Details |
 |:---:|:---|:---|
-| **1** | **Skill library import/delete** | Import skill folders through the WebUI; delete with confirmation dialog. Manage linked agents visually |
-| **2** | **Agent rules / Agents.md sync** | Safe, non-destructive managed block injection (`<!-- EasySkills:begin/end -->`) into global instruction files |
-| **3** | **Agent auto-discovery** | Detects 43+ mainstream agents and only links paths that actually exist |
-| **4** | **Central MCP management** | Connect each Agent once; manage every downstream MCP, credential, and tool filter as an independent WebUI module |
-| **5** | **Non-invasive** | Shared skills sit beside agent-specific skills — private skills keep working |
-| **6** | **Zero-privilege Windows** | NTFS directory junctions — no admin mode or Developer Mode needed |
-| **7** | **Local-first safety** | Skips existing real folders, uses file locks, listens on `127.0.0.1` only |
-| **8** | **Concurrency protection** | PID lock (macOS) / named mutex (Windows) prevents overlapping syncs |
-| **9** | **Cross-platform single binary** | Static Go Gateway builds cover macOS, Linux, and Windows on amd64/arm64; users do not need Go |
+| **1** | **Skill Import/Delete** | Import and manage skill folders visually via WebUI with safe deletion prompts |
+| **2** | **Agents.md Agent Rules Sync** | Safe, non-destructive managed block injection (`<!-- EasySkills:begin/end -->`) into global instructions |
+| **3** | **Agent Auto-Detection** | Detects 43+ mainstream agents and creates links only for paths that actually exist |
+| **4** | **Central MCP Gateway** | Connect each agent once; manage downstream MCPs, API keys, and tool filters in the WebUI |
+| **5** | **Non-Invasive** | Shared skills reside alongside agent-specific skills — private skills continue to work |
+| **6** | **Zero-Privilege Windows** | NTFS directory junctions — no admin shell or Developer Mode required |
+| **7** | **Local-First Security** | Skips existing real folders, uses file locks, and listens strictly on `127.0.0.1` |
+| **8** | **Concurrency Protection** | macOS PID lock / Windows named mutex protects against overlapping syncs |
+| **9** | **Static Single Binary** | Go-based compiled binary covering amd64/arm64 on macOS, Windows, and Linux |
 
 ---
 
 ## CLI Reference
 
-```bash
-# macOS / Linux
-bash ~/EasySkills/_maintenance/deploy.sh [option]
+You can also run management scripts directly via terminal commands:
 
-# Windows (PowerShell)
+**macOS / Linux**
+```bash
+bash ~/EasySkills/_maintenance/deploy.sh [option]
+```
+
+**Windows (PowerShell)**
+```powershell
 powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
 ```
 
 | Option | Description |
 |---|---|
-| *(none)* / `--sync` | Sync all skills to all agents |
-| `--list` | List all active mappings |
-| `--add <path>` | Register unsupported agents by skills-folder path (add & persist a custom agent path) |
-| `--remove <path>` | Remove a persisted custom path |
-| `--watch` | Install background watcher |
-| `--unwatch` | Uninstall background watcher |
-| `--webui` | Start the local WebUI on port 6633 |
-| `--cleanup` | Remove all EasySkills symlinks |
-| `--help` | Show help |
-
-> **Tip:** You can also add / remove custom paths visually from the **Agents** tab in the WebUI — no commands to memorize.
+| *(none)* / `--sync` | Trigger an immediate sync of skills and rule files to all target agents |
+| `--list` | Output a list of all active skill mappings |
+| `--add <path>` | Manually register a custom skills directory for an unsupported agent |
+| `--remove <path>` | Remove a registered custom agent path |
+| `--watch` | Install and start the background file watcher service |
+| `--unwatch` | Stop and uninstall the background file watcher service |
+| `--webui` | Start the local WebUI manager service on port 6633 |
+| `--cleanup` | Delete all symlinks and junctions created by EasySkills (safe, keeps source directories) |
+| `--help` | Show command line usage help |
 
 ---
 
 ## Supported Agents
 
-43+ agent targets are pre-configured. Custom paths can be added at any time via CLI, WebUI, or chat.
+EasySkills pre-configures mappings for 43+ agent target directories. Custom paths can be added via the WebUI or using `deploy.sh --add <path>`.
 
 <details>
-<summary><b>View full agent list</b></summary>
+<summary><b>Click to expand the full agent list</b></summary>
 
 | # | Agent | macOS Path | Windows Path |
 |:-:|:---|:---|:---|
@@ -276,7 +292,7 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
 | 25 | **Goose (Block/AAIF)** | `~/.config/goose/skills` | `%USERPROFILE%\.config\goose\skills` |
 | 26 | **Agents (Standard)** | `~/.agents/skills` | `%USERPROFILE%\.agents\skills` |
 | 27 | **Run** | `~/.run/global-skills/skills` | `%USERPROFILE%\.run\global-skills\skills` |
-| 28 | **Qoder** | `~/.qoder/skills` | `%USERPROFILE%\.qoder\skills` |
+| 28 | **Qoder** | `~/.qoder/skills` | `%USERPROFILE%\.qoder/skills` |
 | 29 | **Qwen Code** | `~/.qwen/skills` | `%USERPROFILE%\.qwen\skills` |
 | 30 | **CodeBuddy** | `~/.codebuddy/skills` | `%USERPROFILE%\.codebuddy\skills` |
 | 31 | **Amp** | `~/.config/agents/skills` | `%USERPROFILE%\.config\agents\skills` |
@@ -293,37 +309,38 @@ powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
 | 42 | **Qoder CN** | `~/.qoder-cn/skills` | `%USERPROFILE%\.qoder-cn\skills` |
 | 43 | **MiniMax Code** | `~/.mavis/skills` | `%USERPROFILE%\.mavis\skills` |
 
-> Trae and Trae CN also map to `~/Library/Application Support/Trae[-CN]/skills` (macOS) and `%APPDATA%\Trae[-CN]\skills` (Windows).
+> *Note:* Trae and Trae CN also map to `~/Library/Application Support/Trae[-CN]/skills` (macOS) and `%APPDATA%\Trae[-CN]\skills` (Windows).
 
 </details>
 
 ---
 
-## Notes
+## Notes & Troubleshooting
 
-**Custom paths** — The 43+ built-in targets cover mainstream agents. To register unsupported agents by skills-folder path, use `--add <path>` (CLI), the **Agents** tab (WebUI), or just tell your assistant in chat. Custom paths persist across syncs and updates.
-
-**Windows Defender** — The installer can automatically add a Defender exclusion via UAC prompt. You can also manually whitelist `%USERPROFILE%\EasySkills` in Windows Security settings.
-
-**Watcher Scope** — The watcher monitors only the **top-level** of `~/EasySkills` (folder additions/removals). It does not watch inside subdirectories — since skills are symlinked, internal file changes are instantly reflected everywhere without re-syncing. If `~/.proma` exists, EasySkills also polls Proma workspace `skills` folders every 5 minutes so new workspaces are picked up automatically.
+* **Windows Defender**: On Windows, the installer tries to append a Defender exclusion for `~/EasySkills` via UAC shell execution. Agree to the prompts. Alternatively, you can add `%USERPROFILE%\EasySkills` to exclusions manually in Windows Security settings.
+* **Watcher Operations**: The background watcher service only monitors the **top-level** of the `~/EasySkills/` directory for additions and removals of folders. Subfolders within skills do not require file monitoring, as symlinks/junctions propagate internal edits instantly. If `~/.proma` exists, EasySkills checks the Proma workspace skills directories every 5 minutes to auto-mount.
 
 ---
 
 ## Contributing
 
-To add support for a new agent:
+To contribute support for a new Agent:
 
-1. Add an entry in `_maintenance/agents.json` (single source of truth)
-2. Add the corresponding path to the hardcoded fallback arrays in `deploy.sh` and `deploy.ps1`
-3. Update the agent tables in `README.md`, `README_EN.md`, and `README_SYSTEM.md`
-4. Run tests: `python3 -m unittest _maintenance/tests/test_security_contracts.py`
-5. Submit a pull request
+1. Add your agent configuration object to `_maintenance/agents.json` (the primary data source).
+2. Append the target path to the default silent arrays in `deploy.sh` and `deploy.ps1`.
+3. Update agent lists in `README.md`, `README_EN.md`, and `README_SYSTEM.md`.
+4. Run validation tests:
+   ```bash
+   python3 -m unittest _maintenance/tests/test_security_contracts.py
+   ```
+5. Submit a Pull Request!
 
 ---
 
 ## License
 
-[MIT](LICENSE) &copy; 2026 Runhua Huang
+Distributed under the [MIT License](LICENSE).
+&copy; 2026 Runhua Huang
 
 ---
 

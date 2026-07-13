@@ -14,7 +14,7 @@ import (
 )
 
 func TestNamespacedToolName(t *testing.T) {
-	if got := namespacedToolName("github", "create-issue"); got != "github__create-issue" {
+	if got := namespacedToolName("github", "create-issue"); got != "create-issue" {
 		t.Fatalf("got %q", got)
 	}
 	got := namespacedToolName("server with spaces", strings.Repeat("x", 200))
@@ -81,7 +81,7 @@ func TestGatewayRoutesToolCalls(t *testing.T) {
 	}
 	defer session.Close()
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "fixture__echo",
+		Name:      "echo",
 		Arguments: map[string]any{"value": "hello"},
 	})
 	if err != nil {

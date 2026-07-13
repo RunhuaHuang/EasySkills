@@ -310,15 +310,11 @@ func matchesAny(patterns []string, value string) bool {
 var invalidToolChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 func namespacedToolName(serverName, toolName string) string {
-	serverPart := strings.Trim(invalidToolChars.ReplaceAllString(serverName, "_"), "_")
 	toolPart := strings.Trim(invalidToolChars.ReplaceAllString(toolName, "_"), "_")
-	if serverPart == "" {
-		serverPart = "server"
-	}
 	if toolPart == "" {
 		toolPart = "tool"
 	}
-	result := serverPart + "__" + toolPart
+	result := toolPart
 	if len(result) <= 128 {
 		return result
 	}
