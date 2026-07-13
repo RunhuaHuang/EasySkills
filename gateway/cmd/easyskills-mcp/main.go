@@ -92,7 +92,7 @@ func serve(args []string) error {
 	defer router.Close()
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: "easyskills", Title: "EasySkills MCP Gateway", Version: version},
-		&mcp.ServerOptions{Instructions: "Tools are routed through EasySkills. Tool names use the server__tool namespace."},
+		&mcp.ServerOptions{Instructions: "Tools are routed through EasySkills."},
 	)
 	router.Register(server)
 	return server.Run(ctx, &mcp.StdioTransport{})

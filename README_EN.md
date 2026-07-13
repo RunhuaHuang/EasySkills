@@ -132,7 +132,7 @@ EasySkills organizes AI Agent capabilities into three distinct channels. Here is
 │   └── _runtime/easyskills-mcp         ← Single-file MCP Gateway Proxy
 │               │
 │               ▼ Connect Agent once; Gateway routes all downstream tools
-│       context7__* / github__* / database__* / ...
+│       (prismstudio / visionpower / ...)
 │
 └── [Channel 3] Agents.md Agent Rules Sync
     ├── instructions/                   ← Place your modular rule files (.md)
@@ -169,12 +169,11 @@ Eliminate the need to repeatedly configure the same downstream MCP services (lik
 
 #### How to Use
 1. **Add Downstream MCPs**: In the WebUI **MCP** page, click "Add MCP" and fill out the structured form for your target MCP service (supports stdio, HTTP, and SSE transport protocols).
-2. **Retrieve Agent Configuration**: In the "Connect an Agent once" panel, select the agent you are using (e.g., Claude Code, Cursor, VS Code, or Codex) and copy the generated connection snippet. You can also copy the command and provide it directly to your Agent, letting it help you configure MCP automatically, then restart the Agent to enable it.
+2. **Retrieve Agent Configuration**: In the "Connect an Agent once" panel, select the agent you are using (e.g., Claude Code, Cursor, VS Code, or Codex) and copy the generated connection snippet. If you do not know how to configure this on your Agent, you can also copy the command and provide it directly to your Agent, letting it help you configure MCP automatically, then restart the Agent to enable it.
 3. **Configure the Agent**: Paste the copied configuration snippet into your agent's config file (e.g., `claude_desktop_config.json` or Cursor's MCP list).
 4. **Centralized Operations**: To add a new tool, update an API token, or disable a service, simply perform the action in the EasySkills WebUI. All agents will immediately pick up the changes without requiring any config edits.
 
 #### Key Features
-* **Routing Namespace**: Gateway maps downstream tools to `server__tool` (e.g., `github__create_issue`) to avoid namespace conflicts.
 * **Tool Filtering**: Apply a custom whitelist or blacklist to restrict which tools are exposed per MCP service.
 * **Connection Testing**: Execute one-click connectivity checks for downstream MCPs directly from the WebUI.
 

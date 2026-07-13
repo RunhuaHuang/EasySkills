@@ -132,7 +132,7 @@ EasySkills 将 AI Agent 的核心能力统一抽象为三条能力通道，以�
 │   └── _runtime/easyskills-mcp         ← 单文件 MCP Gateway 代理
 │               │
 │               ▼ 智能体只需连接一次 Gateway，即可自动路由所有下游工具
-│       context7__* / github__* / database__* / ...
+│       (prismstudio / visionpower / ...)
 │
 └── [通道三] Agents.md Agent规则同步 (Agent Rules)
     ├── instructions/                   ← 放置您的模块化规则文件 (.md)
@@ -169,12 +169,11 @@ EasySkills 监听服务会捕捉到 `~/EasySkills/` 根目录下的文件夹变�
 
 #### 1. 如何使用
 1. **添加下游 MCP 服务**：在 WebUI 的 **MCP** 页面，点击 “添加 MCP”，通过表单可视化填写您的下游 MCP 服务配置（例如数据库连接、GitHub 工具等）。支持标准 stdio、HTTP、SSE 传输协议。
-2. **连接 AI 智能体**：在 WebUI 的 “只连接一次 Agent” 区域，选择您正在使用的 Agent（例如 Claude Code、Cursor、VS Code 或 Codex），复制生成的连接命令或 JSON 配置。也可以复制下来命令之后，把命令提供给你的 Agent，让他帮助你完成 MCP 配置，然后重启 Agent 即可启用。
+2. **连接 AI 智能体**：在 WebUI 的 “只连接一次 Agent” 区域，选择您正在使用的 Agent（例如 Claude Code、Cursor、VS Code 或 Codex），复制生成的连接命令或 JSON 配置。如果你不知道如何在你的agent完成配置，也可以复制下来命令之后，把命令提供给你的 Agent，让他帮助你完成 MCP 配置，然后重启 Agent 即可启用。
 3. **完成配置**：将配置粘贴进 Agent 对应的配置文件中（例如 `claude_desktop_config.json` 或 Cursor 的 MCP 列表）。
 4. **统一控制**：后续当您想新增 MCP、停用某项工具或修改 API Key 时，**无需**再去每个 Agent 里修改，直接在 EasySkills 的 WebUI 里开关或修改即可，所有 Agent 自动同步最新工具。
 
 #### 2. 特性
-* **路由隔离**：Gateway 会将所有下游工具名重命名为 `服务名__工具名` 的格式（例如 `github__create_issue`），防止多个下游 MCP 服务发生命名冲突。
 * **白名单/黑名单**：在 WebUI 中可针对单个 MCP 配置工具白名单或黑名单，按需分发。
 * **测试与测试连通**：在 WebUI 中可对任何下游 MCP 服务进行一键连通性测试。
 

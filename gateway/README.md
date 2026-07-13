@@ -2,7 +2,7 @@
 
 The Gateway is the third EasySkills capability channel. It is a small Go MCP
 server that speaks stdio to an Agent, connects to multiple downstream MCP
-servers, and republishes their tools as `server__tool`.
+servers, and republishes their tools.
 
 ## Build and test
 
@@ -42,7 +42,7 @@ manually in that terminal stops when the terminal is closed.
 
 - Downstream transports: stdio, Streamable HTTP, and SSE.
 - Agent-facing transport: stdio.
-- Exposed name: `<server>__<tool>`.
+- Exposed name: `<tool>`.
 - Optional servers degrade independently; a failed `required` server stops
   startup.
 - Connection/discovery and individual tool calls have configurable timeouts.
