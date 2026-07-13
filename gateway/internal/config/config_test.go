@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -40,8 +41,10 @@ func TestSaveUsesOwnerOnlyPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("permissions = %o, want 600", got)
+	if runtime.GOOS != "windows" {
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("permissions = %o, want 600", got)
+		}
 	}
 	if _, err := Load(path); err != nil {
 		t.Fatal(err)
