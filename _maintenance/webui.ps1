@@ -2825,7 +2825,7 @@ function Start-WebUIListener {
 if ($SyncRules) {
     $Res = Write-InstructionsToAll
     Write-Host "Rules Sync: $(if ($Res.success) { 'Success' } else { 'Failed' }) - $($Res.message)"
-    exit (if ($Res.success) { 0 } else { 1 })
+    if ($Res.success) { exit 0 } else { exit 1 }
 }
 
 Write-WebUILog "webui.ps1 starting up."
