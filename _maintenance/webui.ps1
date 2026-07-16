@@ -1919,7 +1919,7 @@ function Write-RulesToOne([string]$PathStr, $Rules, [bool]$Replace = $false) {
         }
         return @{ success = $true; message = "Wrote rules to $Resolved" }
     } catch {
-        return @{ success = $false; message = "Write failed for $PathStr: $_" }
+        return @{ success = $false; message = "Write failed for ${PathStr}: $_" }
     }
 }
 
@@ -1970,7 +1970,7 @@ function Remove-InstructionsFromOne([string]$PathStr) {
         }
         return @{ success = $true; message = "Removed managed block from $Resolved" }
     } catch {
-        return @{ success = $false; message = "Remove failed for $PathStr: $_" }
+        return @{ success = $false; message = "Remove failed for ${PathStr}: $_" }
     }
 }
 
@@ -2031,7 +2031,7 @@ function Remove-RulesFromOne([string]$PathStr, [string[]]$RuleNames) {
         if ($Current.Rules.Count -eq 0 -and -not $Current.Legacy.Trim()) { Remove-InstructionState $Resolved }
         return @{ success = $true; message = "Removed selected rules from $Resolved" }
     } catch {
-        return @{ success = $false; message = "Remove failed for $PathStr: $_" }
+        return @{ success = $false; message = "Remove failed for ${PathStr}: $_" }
     }
 }
 

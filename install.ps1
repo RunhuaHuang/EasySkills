@@ -221,7 +221,15 @@ try {
   $UsedScheduledTasks = $false
   if ((Test-Path $RegisterScript) -and (Get-Command Register-ScheduledTask -ErrorAction SilentlyContinue)) {
     try {
+      # register-tasks.ps1 runs as a child process, so a terminating error
+      # inside it does NOT surface as a catchable exception here — it only
+      # sets $LASTEXITCODE. Check the exit code explicitly, otherwise a failed
+      # registration would be silently reported as success and the startup
+      # shortcut fallback would never kick in.
       & powershell -NoProfile -ExecutionPolicy Bypass -File $RegisterScript
+      if ($LASTEXITCODE -ne 0) {
+        throw "register-tasks.ps1 exited with code $LASTEXITCODE"
+      }
       $UsedScheduledTasks = $true
       Write-Host "[OK] Background services registered with Task Scheduler." -ForegroundColor Green
     } catch {

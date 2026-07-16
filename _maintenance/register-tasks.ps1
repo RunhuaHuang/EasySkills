@@ -90,15 +90,24 @@ function Register-EasySkillsTask {
     # reliably detect a crashed supervisor to fire RestartCount — so the periodic
     # trigger is what actually revives a dead service. The supervisor's own
     # session mutex (Local\EasySkills*Service_v2) prevents duplicate instances.
-    $Triggers = @()
-    $Triggers += New-ScheduledTaskTrigger -AtLogOn -User $UserId
+    # NOTE: [TimeSpan]::MaxValue must NOT be used for -RepetitionDuration — it
+    # serialises to "P99999999DT23H59M59S", whose day count overflows what Task
+    # Scheduler accepts, and Register-ScheduledTask then fails with
+    # "The task XML contains a value which is incorrectly formatted or out of
+    # range". 3650 days (~10 years) is effectively "indefinite" for a
+    # self-healing backstop and is a value Task Scheduler accepts.
+    $LogonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $UserId
+    $PeriodicTrigger = $null
     try {
-        $Triggers += New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) `
+        $PeriodicTrigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) `
             -RepetitionInterval (New-TimeSpan -Minutes 10) `
-            -RepetitionDuration ([TimeSpan]::MaxValue)
+            -RepetitionDuration (New-TimeSpan -Days 3650)
     } catch {
         # Older PowerShell / older Task Scheduler: fall back to logon-only.
+        $PeriodicTrigger = $null
     }
+    $Triggers = @($LogonTrigger)
+    if ($PeriodicTrigger) { $Triggers += $PeriodicTrigger }
 
     # ExecutionTimeLimit 0 == unlimited. RestartCount is kept as a best-effort
     # backstop (it rarely fires given the non-blocking launcher, hence the
@@ -124,9 +133,23 @@ function Register-EasySkillsTask {
     # handled at the action level via wscript.exe + run-hidden.vbs, so the
     # LogonType only needs to be the simplest one that works without admin.
     $Principal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Limited
-    Register-ScheduledTask -TaskName $Name `
-        -Action $Action -Trigger $Triggers -Settings $Settings -Principal $Principal `
-        -Description $Description -Force | Out-Null
+    try {
+        Register-ScheduledTask -TaskName $Name `
+            -Action $Action -Trigger $Triggers -Settings $Settings -Principal $Principal `
+            -Description $Description -Force | Out-Null
+    } catch {
+        # If the periodic trigger is what Task Scheduler rejected (e.g. an older
+        # engine that dislikes the repetition value), retry with logon-only so
+        # persistence still works instead of aborting the whole registration.
+        if ($PeriodicTrigger) {
+            Write-Warning "Register with periodic trigger failed for ${Name}: $_. Retrying logon-only."
+            Register-ScheduledTask -TaskName $Name `
+                -Action $Action -Trigger $LogonTrigger -Settings $Settings -Principal $Principal `
+                -Description $Description -Force | Out-Null
+        } else {
+            throw
+        }
+    }
 }
 
 if (-not (Test-ScheduledTaskModule)) {
