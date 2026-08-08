@@ -139,6 +139,9 @@ fi
 # previous "rm -rf then cp" wiped the working copy before validating the copy).
 NEW_MAINT="$PERM_DIR/EasySkills维护工具/.engine.new"
 rm -rf "$NEW_MAINT"
+# The parent EasySkills维护工具/ may not exist yet on a fresh install; cp -R into a
+# nested target needs the parent to exist, so create it first.
+mkdir -p "$PERM_DIR/EasySkills维护工具"
 cp -R "$SRC_DIR/EasySkills维护工具/.engine" "$NEW_MAINT"
 # Verify the copy actually produced a usable tree before swapping.
 if [ ! -f "$NEW_MAINT/deploy.sh" ]; then

@@ -67,6 +67,8 @@ if [ "$CURRENT_DIR" != "$PERM_DIR" ]; then
   # the "rm -rf then cp" footgun where a failed cp bricks the install.
   NEW_MAINT="$PERM_DIR/EasySkills维护工具/.engine.new"
   rm -rf "$NEW_MAINT"
+  # The parent EasySkills维护工具/ may not exist yet on a fresh install.
+  mkdir -p "$PERM_DIR/EasySkills维护工具"
   cp -R "$CURRENT_DIR/EasySkills维护工具/.engine" "$NEW_MAINT"
   if [ ! -f "$NEW_MAINT/deploy.sh" ]; then
     echo "Error: copy of EasySkills维护工具/.engine/ failed. Aborting; existing install untouched." >&2
