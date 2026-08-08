@@ -13,16 +13,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestNamespacedToolName(t *testing.T) {
-	if got := namespacedToolName("github", "create-issue"); got != "create-issue" {
-		t.Fatalf("got %q", got)
-	}
-	got := namespacedToolName("server with spaces", strings.Repeat("x", 200))
-	if len(got) > 128 {
-		t.Fatalf("tool name has length %d", len(got))
-	}
-}
-
 func TestResolveToolName(t *testing.T) {
 	occupied := map[string]string{
 		"search":       "google",

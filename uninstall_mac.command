@@ -34,14 +34,14 @@ done
 # editor/grep with the file path on its command line (e.g. `code webui.py`,
 # `grep foo webui.py`) — killing those would destroy unsaved work.
 for script_name in webui-service.sh webui.py; do
-  pattern="[E]asySkills/_maintenance/$script_name"
+  pattern="[E]asySkills/EasySkills维护工具/.engine/$script_name"
   pids=$(pgrep -f "$pattern" 2>/dev/null || true)
   if [ -n "$pids" ]; then
     echo "$pids" | while read -r p; do
       comm=$(ps -p "$p" -o comm= 2>/dev/null || true)
       cmdline=$(ps -p "$p" -o command= 2>/dev/null || true)
       base="${comm##*/}"
-      [[ "$cmdline" == *"$HOME/EasySkills/_maintenance/$script_name"* ]] || continue
+      [[ "$cmdline" == *"$HOME/EasySkills/EasySkills维护工具/.engine/$script_name"* ]] || continue
       case "$base" in
         bash|sh|[Pp]ython|[Pp]ython[0-9]*)
           kill "$p" 2>/dev/null || true
@@ -75,12 +75,12 @@ APPLESCRIPT
   return 1
 }
 
-if [ -d "$HOME/EasySkills/_maintenance" ]; then
+if [ -d "$HOME/EasySkills/EasySkills维护工具/.engine" ]; then
   # Remove all EasySkills symlinks from agent directories BEFORE trashing the
   # install dir. If this fails, the symlinks would become dangling pointers to
   # a trashed target — warn loudly so the user can clean them up manually
   # instead of being left with broken skill directories across every agent.
-  bash "$HOME/EasySkills/_maintenance/deploy.sh" --cleanup
+  bash "$HOME/EasySkills/EasySkills维护工具/.engine/deploy.sh" --cleanup
   cleanup_rc=$?
   if [ "$cleanup_rc" -ne 0 ]; then
     echo "⚠️  WARNING: 'deploy.sh --cleanup' exited with code $cleanup_rc." >&2

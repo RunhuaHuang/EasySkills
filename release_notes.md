@@ -1,3 +1,80 @@
+## 目录结构重构（推广准备）
+
+为降低用户认知负担，对安装目录结构做了如下调整：
+
+- `_maintenance` → `EasySkills维护工具/.engine`：程序本体目录改用点前缀 + 中文名。点前缀使其在 **macOS Finder 中默认隐藏**（注：Windows 资源管理器不隐藏点前缀目录，Windows 用户仍会看到 `EasySkills维护工具/.engine/`），避免 macOS 用户被大量脚本文件干扰；同时点前缀保留了原有"以 `_`/`.` 开头的目录不参与 skill 扫描"的启发式，防止维护工具被误当成技能同步给各 AI Agent。
+- `_maintenance.bak` → `.maintenance-bak`、`_runtime` → `.runtime`：升级备份目录和 MCP 二进制目录同样改用点前缀（macOS 默认隐藏）。
+- 启动/关闭/卸载脚本统一收纳进 `EasySkills维护工具/.engine/launchers/`（隐藏引擎目录）；同时在 `EasySkills维护工具/` 下生成可见的 `macOS/`、`Windows/` 入口文件夹（符号链接/复制到 `.engine/launchers/`），这是用户唯一需要直接操作的入口。
+- Windows 批处理脚本（`install_windows.bat`、卸载脚本）开头新增 `chcp 65001`；全部 PowerShell 脚本转为 **UTF-8 with BOM** 编码，确保含中文的目录路径在非中文区域设置的 Windows（PowerShell 5.1）上也能正确解析。
+- 安装器现在会**自动迁移并清理旧版 `_maintenance/`、`_runtime/` 目录**，升级过程不再残留旧目录，也不会丢失已配置的自定义路径与 WebUI token。
+
+> 说明：`release_notes.md` 中更早版本里出现的 `_maintenance`、`_maintenance.bak` 等旧目录名属于历史变更记录，保留原文以便追溯。
+
+---
+
+## EasySkills 4.1.0
+
+A directory-structure release: the `_maintenance/` engine folder is renamed to
+`EasySkills维护工具/.engine/`, with a hardened install/upgrade pipeline,
+mainland-China mirror fallback, and a batch of Windows correctness fixes found
+in a full code audit. All 124 Python security/contract tests and all Go unit
+and routing tests pass.
+
+### Directory restructure
+
+- `_maintenance/` → `EasySkills维护工具/.engine/` (two-level layout). Visible
+  user entry folders `EasySkills维护工具/macOS/` and `Windows/` link back into
+  the hidden `.engine/launchers/` directory.
+- Backup/runtime dirs renamed: `_maintenance.bak` → `.maintenance-bak`,
+  `_runtime` → `.runtime`.
+
+### Install / upgrade hardening (bug fixes)
+
+- **[security]** `.gitignore` rules now match the real `.engine` location, so
+  the per-machine WebUI auth token (`.easyskills-token`) is correctly ignored
+  and can no longer be accidentally committed.
+- **[windows]** All three `.bat` scripts (install / uninstall / launcher
+  uninstall) used a `".EasySkills*"` wildcard (leading dot) that never matched
+  the real `EasySkills维护工具` directory — installation and uninstallation
+  silently no-op'd. Fixed the wildcard and the two-level `.engine` resolution.
+- **[windows]** `install_windows.bat` swap step used `ren <tmp>
+  EasySkills维护工具/.engine` — cmd's `ren` rejects a path in the new-name
+  argument. Restructured the swap to use a same-parent rename + cross-dir
+  `move`.
+- **[windows]** `install.ps1` used `Rename-Item` for the `.engine →
+  .maintenance-bak` rotation, but `Rename-Item` cannot relocate across
+  directories — the backup landed in the wrong place and rollback was
+  unreachable. Switched to `Move-Item` to match the bash `mv` semantics.
+- **[windows]** **Critical:** `deploy.ps1`, `webui.ps1`, `watcher-service.ps1`,
+  `install-gateway.ps1`, and `watch.ps1` all computed the central/root
+  directory as `ScriptDir`'s parent (one level up = `EasySkills维护工具/`),
+  but the skill folders live two levels up. This made Windows skill-sync find
+  nothing, the FileSystemWatcher monitor the wrong directory, and the Gateway
+  binary land in a mismatched `.runtime`. Fixed all five scripts to go up two
+  parents, matching `deploy.sh`'s `$SCRIPT_DIR/../..`.
+- **[macos]** `install_mac.command` referenced the deprecated `A-程序控制/`
+  launcher folder (real name is `launchers/`) and was missing the visible
+  `macOS/` + `Windows/` entry-folder creation that `install.sh` has. Fixed both.
+
+### Mainland-China mirror fallback
+
+- The installers (`install.sh` / `install.ps1`) and Gateway downloaders
+  (`install-gateway.sh` / `install-gateway.ps1`) now try GitHub first, then walk
+  a list of China-friendly mirror proxies (`ghfast.top`, `gh-proxy.com`,
+  `github.moeyy.xyz`) on failure/timeout. A mirror can be pinned via the
+  `EASYSKILLS_MIRROR` env var. Overseas users are unaffected.
+
+### Docs
+
+- README (zh + en) documents the mirror-prefixed install commands for users
+  behind the GFW.
+
+---
+
+## EasySkills 4.0.3
+
+---
+
 ## EasySkills 4.0.3
 
 A polish release hardening the MCP Gateway, the Windows WebUI backend, and

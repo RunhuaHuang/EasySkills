@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#quick-start)
 [![Agents](https://img.shields.io/badge/Supported%20Agents-43+-orange.svg)](#supported-agents)
-[![Version](https://img.shields.io/badge/Version-4.0.3-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Version](https://img.shields.io/badge/Version-4.1.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **One central library, three capability channels, every AI coding agent under control.**
 
@@ -37,6 +37,20 @@ irm `
   https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
 ```
 
+> 🇨🇳 **Users in mainland China**: If the commands above fail to reach GitHub, prefix them with a mirror proxy. The installer also has built-in multi-source fallback internally, so no extra setup is needed:
+>
+> **macOS / Linux**
+> ```bash
+> curl -fsSL \
+>   https://ghfast.top/https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+> ```
+> **Windows (PowerShell)**
+> ```powershell
+> irm `
+>   https://ghfast.top/https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+> ```
+> If `ghfast.top` is unavailable, substitute `gh-proxy.com`, `github.moeyy.xyz`, or pin one via `EASYSKILLS_MIRROR=https://gh-proxy.com bash install.sh`.
+
 > 💡 **Alternative Installation**: You can also clone this repository locally and double-click `install_mac.command` (macOS) or `install_windows.bat` (Windows).
 
 The installer will automatically perform the following steps:
@@ -56,44 +70,44 @@ Once installed, the background daemon service keeps running and the WebUI automa
 If you need to open the WebUI console manually at a later time:
 * **macOS / Linux**:
   ```bash
-  bash ~/EasySkills/_maintenance/deploy.sh --webui
+  bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh --webui
   ```
 * **Windows (PowerShell)**:
   ```powershell
-  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" -WebUI
   ```
 
 ### Stop Services
 Closing the browser tab only closes the dashboard; background watchers will continue sync operations. To stop them completely:
 * **macOS / Linux**:
   ```bash
-  bash ~/EasySkills/_maintenance/deploy.sh --unwatch
+  bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh --unwatch
   launchctl remove com.easyskills.webui 2>/dev/null || true
   launchctl remove com.easyskills.webui.manual 2>/dev/null || true
-  pkill -f '[E]asySkills/_maintenance/webui.py' 2>/dev/null || true
-  pkill -f '[E]asySkills/_maintenance/webui-service.sh' 2>/dev/null || true
+  pkill -f '[E]asySkills/EasySkills维护工具/.engine/webui.py' 2>/dev/null || true
+  pkill -f '[E]asySkills/EasySkills维护工具/.engine/webui-service.sh' 2>/dev/null || true
   ```
 * **Windows (PowerShell)**:
   ```powershell
-  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Unwatch
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" -Unwatch
   ```
 
 ### Restart Services
 * **macOS / Linux**:
   ```bash
-  bash ~/EasySkills/_maintenance/deploy.sh --unwatch
-  bash ~/EasySkills/_maintenance/deploy.sh --watch
-  bash ~/EasySkills/_maintenance/deploy.sh --webui
+  bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh --unwatch
+  bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh --watch
+  bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh --webui
   ```
 * **Windows (PowerShell)**:
   ```powershell
-  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Unwatch
-  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Watch
-  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" -Unwatch
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" -Watch
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" -WebUI
   ```
 
 ### Update
-* **Recommended**: Click **Check for updates / Update now** inside the WebUI Dashboard to upgrade in place. This preserves your custom paths, tokens, and settings, while backing up the prior engine in `_maintenance.bak` for rollback.
+* **Recommended**: Click **Check for updates / Update now** inside the WebUI Dashboard to upgrade in place. This preserves your custom paths, tokens, and settings, while backing up the prior engine in `.maintenance-bak` for rollback.
 * **CLI**: Re-run the Quick Start installation scripts to perform an in-place upgrade:
 
   **macOS / Linux**
@@ -129,7 +143,7 @@ EasySkills organizes AI Agent capabilities into three distinct channels. Here is
 │
 ├── [Channel 2] MCP Gateway
 │   ├── mcp/servers.json                ← Central config for downstream MCPs
-│   └── _runtime/easyskills-mcp         ← Single-file MCP Gateway Proxy
+│   └── .runtime/easyskills-mcp         ← Single-file MCP Gateway Proxy
 │               │
 │               ▼ Connect Agent once; Gateway routes all downstream tools
 │       (prismstudio / visionpower / ...)
@@ -233,12 +247,12 @@ You can also run management scripts directly via terminal commands:
 
 **macOS / Linux**
 ```bash
-bash ~/EasySkills/_maintenance/deploy.sh [option]
+bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh [option]
 ```
 
 **Windows (PowerShell)**
 ```powershell
-powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [option]
+powershell -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" [option]
 ```
 
 | Option | Description |
@@ -325,12 +339,12 @@ EasySkills pre-configures mappings for 43+ agent target directories. Custom path
 
 To contribute support for a new Agent:
 
-1. Add your agent configuration object to `_maintenance/agents.json` (the primary data source).
+1. Add your agent configuration object to `EasySkills维护工具/.engine/agents.json` (the primary data source).
 2. Append the target path to the default silent arrays in `deploy.sh` and `deploy.ps1`.
 3. Update agent lists in `README.md`, `README_EN.md`, and `README_SYSTEM.md`.
 4. Run validation tests:
    ```bash
-   python3 -m unittest _maintenance/tests/test_security_contracts.py
+   python3 -m unittest discover -s "EasySkills维护工具/.engine/tests" -p "test_security_contracts.py"
    ```
 5. Submit a Pull Request!
 

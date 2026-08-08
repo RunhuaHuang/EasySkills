@@ -65,9 +65,10 @@ func DefaultPath() string {
 		return expandHome(path)
 	}
 	if exe, err := os.Executable(); err == nil {
-		// Installed layout: EasySkills/_runtime/easyskills-mcp.
+		// Installed layout: EasySkills/.runtime/easyskills-mcp (or the legacy
+		// EasySkills/_runtime/ layout from before the directory rename).
 		binDir := filepath.Dir(exe)
-		if filepath.Base(binDir) == "_runtime" {
+		if filepath.Base(binDir) == ".runtime" || filepath.Base(binDir) == "_runtime" {
 			return filepath.Join(filepath.Dir(binDir), "mcp", "servers.json")
 		}
 	}

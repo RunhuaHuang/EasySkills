@@ -1,18 +1,15 @@
 @echo off
-:: ==============================================================================
-:: Script: uninstall_windows.bat (Windows)
-:: Description: Self-cleaning double-clickable batch uninstaller for Windows.
-:: ==============================================================================
+:: EasySkills Uninstaller (Windows) / 卸载 EasySkills
 
 :: Switch the console to UTF-8 for any output with non-ASCII text. The engine
 :: directory name is resolved below via the ASCII "EasySkills*" wildcard, so
 :: it matches on any codepage even if this page switch is unavailable.
 chcp 65001 > nul
 
-title EasySkills Uninstaller (Windows)
+title EasySkills Uninstaller
 
 echo =============================================
-echo Uninstalling EasySkills (Windows)...
+echo Uninstalling EasySkills / 正在卸载 EasySkills...
 echo =============================================
 
 set "PERM_DIR=%USERPROFILE%\EasySkills"
@@ -23,18 +20,14 @@ set "PERM_DIR=%USERPROFILE%\EasySkills"
 set "MAINT_DIR="
 for /d %%D in ("%PERM_DIR%\EasySkills*") do if exist "%%D\.engine\deploy.ps1" set "MAINT_DIR=%%D\.engine"
 
-:: Clean up all junctions in agent directories, then move the install dir to
-:: the Recycle Bin (recoverable) instead of an irreversible rd /S /Q — users
-:: keep their custom skills under %PERM_DIR%.
 if exist "%MAINT_DIR%\deploy.ps1" (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%MAINT_DIR%\deploy.ps1" -Cleanup
   if errorlevel 1 goto cleanup_failed
   powershell -NoProfile -ExecutionPolicy Bypass -File "%MAINT_DIR%\unwatch.ps1"
   if errorlevel 1 goto cleanup_failed
-
   powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $p = Join-Path $env:USERPROFILE 'EasySkills'; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } catch { Write-Host 'Warning: could not send to Recycle Bin automatically.'; Write-Host ('Please manually delete: ' + (Join-Path $env:USERPROFILE 'EasySkills')); exit 1 }"
   if errorlevel 1 goto cleanup_failed
-  echo Cleaned up permanent directory %USERPROFILE%\EasySkills ^(sent to Recycle Bin if possible^).
+  echo Cleaned agent junctions and sent %PERM_DIR% to the Recycle Bin if possible.
 )
 
 :uninstall_done

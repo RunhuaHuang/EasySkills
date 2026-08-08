@@ -577,10 +577,6 @@ func matchesAny(patterns []string, value string) bool {
 
 var invalidToolChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
-func namespacedToolName(serverName, toolName string) string {
-	return cleanToolName(toolName)
-}
-
 func resolveToolName(serverName, toolName string, occupied map[string]string) string {
 	cleanName := cleanToolName(toolName)
 	if _, ok := occupied[cleanName]; !ok {

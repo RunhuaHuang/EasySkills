@@ -1,0 +1,11 @@
+[Unit]
+Description=EasySkills Watcher — auto-sync skills to all agents
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/EasySkills/EasySkills维护工具/.engine/deploy.sh --sync
+WorkingDirectory=%h/EasySkills
+
+[Install]
+WantedBy=default.target

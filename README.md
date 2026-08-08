@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#快速开始)
 [![Agents](https://img.shields.io/badge/支持Agent-43+-orange.svg)](#支持的-agent-列表)
-[![Version](https://img.shields.io/badge/版本-4.0.3-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Version](https://img.shields.io/badge/版本-4.1.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **一个中央库、三条能力通道，统一管理所有 AI Coding Agent 的技能与规则。**
 
@@ -37,6 +37,20 @@ irm `
   https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
 ```
 
+> 🇨🇳 **国内用户加速**：如果上方命令因网络无法访问 GitHub，可在安装命令前加国内镜像代理前缀。安装器内部也已内置多源自动回退，无需额外配置：
+>
+> **macOS / Linux**
+> ```bash
+> curl -fsSL \
+>   https://ghfast.top/https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+> ```
+> **Windows (PowerShell)**
+> ```powershell
+> irm `
+>   https://ghfast.top/https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+> ```
+> 若 `ghfast.top` 不可用，可替换为 `gh-proxy.com`、`github.moeyy.xyz` 等同类镜像，或用环境变量指定：`EASYSKILLS_MIRROR=https://gh-proxy.com bash install.sh`。
+
 > 💡 **其他安装方式**：您也可以克隆本仓库到本地，然后双击运行 `install_mac.command` (macOS) 或 `install_windows.bat` (Windows)。
 
 安装器会自动执行以下操作：
@@ -56,44 +70,44 @@ irm `
 若之后需要手动重新打开 WebUI：
 * **macOS / Linux**：
   ```bash
-  bash ~/EasySkills/_maintenance/deploy.sh --webui
+  bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh --webui
   ```
 * **Windows (PowerShell)**：
   ```powershell
-  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" -WebUI
   ```
 
 ### 关闭服务
 如果仅关闭浏览器标签页，后台监听同步服务仍会继续工作。如需彻底停止后台监听与 WebUI 后端：
 * **macOS / Linux**：
   ```bash
-  bash ~/EasySkills/_maintenance/deploy.sh --unwatch
+  bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh --unwatch
   launchctl remove com.easyskills.webui 2>/dev/null || true
   launchctl remove com.easyskills.webui.manual 2>/dev/null || true
-  pkill -f '[E]asySkills/_maintenance/webui.py' 2>/dev/null || true
-  pkill -f '[E]asySkills/_maintenance/webui-service.sh' 2>/dev/null || true
+  pkill -f '[E]asySkills/EasySkills维护工具/.engine/webui.py' 2>/dev/null || true
+  pkill -f '[E]asySkills/EasySkills维护工具/.engine/webui-service.sh' 2>/dev/null || true
   ```
 * **Windows (PowerShell)**：
   ```powershell
-  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Unwatch
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" -Unwatch
   ```
 
 ### 重启服务
 * **macOS / Linux**：
   ```bash
-  bash ~/EasySkills/_maintenance/deploy.sh --unwatch
-  bash ~/EasySkills/_maintenance/deploy.sh --watch
-  bash ~/EasySkills/_maintenance/deploy.sh --webui
+  bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh --unwatch
+  bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh --watch
+  bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh --webui
   ```
 * **Windows (PowerShell)**：
   ```powershell
-  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Unwatch
-  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -Watch
-  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" -WebUI
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" -Unwatch
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" -Watch
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" -WebUI
   ```
 
 ### 更新升级
-* **推荐方式**：直接在 WebUI 的 **检查更新 / 立即更新** 按钮一键升级。更新过程会自动保留您的自定义路径、配置及 WebUI token，并在 `_maintenance.bak` 中备份上一版本。
+* **推荐方式**：直接在 WebUI 的 **检查更新 / 立即更新** 按钮一键升级。更新过程会自动保留您的自定义路径、配置及 WebUI token，并在 `.maintenance-bak` 中备份上一版本。
 * **命令行方式**：重新运行快速开始中的一键安装命令，即可在原地无损覆盖升级：
   
   **macOS / Linux**
@@ -129,7 +143,7 @@ EasySkills 将 AI Agent 的核心能力统一抽象为三条能力通道，以�
 │
 ├── [通道二] MCP 中枢网关
 │   ├── mcp/servers.json                ← 下游 MCP 的统一配置文件
-│   └── _runtime/easyskills-mcp         ← 单文件 MCP Gateway 代理
+│   └── .runtime/easyskills-mcp         ← 单文件 MCP Gateway 代理
 │               │
 │               ▼ 智能体只需连接一次 Gateway，即可自动路由所有下游工具
 │       (prismstudio / visionpower / ...)
@@ -233,12 +247,12 @@ EasySkills 会自动扫描 `instructions/` 目录下的所有 Markdown 文件，
 
 **macOS / Linux**
 ```bash
-bash ~/EasySkills/_maintenance/deploy.sh [选项]
+bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh [选项]
 ```
 
 **Windows (PowerShell)**
 ```powershell
-powershell -File "$env:USERPROFILE\EasySkills\_maintenance\deploy.ps1" [选项]
+powershell -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" [选项]
 ```
 
 | 选项 | 说明 |
@@ -325,12 +339,12 @@ EasySkills 开箱即用支持以下 43+ 个 Agent 目标路径。您可通过 We
 
 如果您想为 EasySkills 增加对新 Agent 的支持，请按照以下步骤：
 
-1. 在 `_maintenance/agents.json` 配置文件中添加对应 Agent 条目（项目核心数据源）。
+1. 在 `EasySkills维护工具/.engine/agents.json` 配置文件中添加对应 Agent 条目（项目核心数据源）。
 2. 在 `deploy.sh` 与 `deploy.ps1` 脚本的备用映射数组中添加对应的静默初始化路径。
 3. 更新 `README.md`、`README_EN.md` 和 `README_SYSTEM.md` 文档中的支持列表。
 4. 运行本地自动化测试进行校验：
    ```bash
-   python3 -m unittest _maintenance/tests/test_security_contracts.py
+   python3 -m unittest discover -s "EasySkills维护工具/.engine/tests" -p "test_security_contracts.py"
    ```
 5. 提交 Pull Request！
 

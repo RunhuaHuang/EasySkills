@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # Script: install.ps1 (Windows remote installer)
 # Usage:  irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
 # ==============================================================================
@@ -14,7 +14,7 @@ function Cleanup { if (Test-Path $TmpDir) { Remove-Item $TmpDir -Recurse -Force 
 
 function Stop-StaleEasySkillsProcesses {
   # Terminate any supervisor / webui.ps1 from a prior install so that the
-  # _maintenance folder isn't held open by a running powershell.exe when we
+  # EasySkills维护工具/.engine folder isn't held open by a running powershell.exe when we
   # try to overwrite it. Matches by command-line via WMI, then waits up to
   # 5 seconds for the OS to release the file handles.
   try {
@@ -73,12 +73,35 @@ try {
   Write-Host "=============================================" -ForegroundColor Cyan
 
   # --- Download ---
+  # Multi-source with auto-fallback: GitHub is tried first; on failure/timeout
+  # we walk a list of China-friendly mirrors so users behind the GFW aren't
+  # blocked. A mirror can be pinned with $env:EASYSKILLS_MIRROR (a URL prefix
+  # prepended to the github.com URL). Mirror URLs change frequently, so we probe
+  # rather than trust any single host.
   Write-Host "Downloading EasySkills..."
   New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
-  $ZipUrl = "https://github.com/$Repo/archive/refs/heads/$Branch.zip"
   $ZipPath = Join-Path $TmpDir "repo.zip"
-  Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath -UseBasicParsing -TimeoutSec 60
-  Expand-Archive -Path $ZipPath -DestinationPath $TmpDir -Force
+  $ArchivePath = "/$Repo/archive/refs/heads/$Branch.zip"
+  # GitHub native goes first; then China-friendly mirror proxies.
+  $MirrorPrefixes = @("", "https://ghfast.top", "https://gh-proxy.com", "https://github.moeyy.xyz")
+  # A user-pinned mirror always wins (replaces the whole list).
+  if ($env:EASYSKILLS_MIRROR) { $MirrorPrefixes = @($env:EASYSKILLS_MIRROR) }
+
+  $Downloaded = $false
+  foreach ($Prefix in $MirrorPrefixes) {
+    $ZipUrl = "${Prefix}${ArchivePath}"
+    try {
+      Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+      Expand-Archive -Path $ZipPath -DestinationPath $TmpDir -Force -ErrorAction Stop
+      $Downloaded = $true
+      break
+    } catch {
+      # This source failed; silently try the next mirror.
+    }
+  }
+  if (-not $Downloaded) {
+    throw "Could not download EasySkills from GitHub or any mirror. Check your network, or pin a mirror with: `$env:EASYSKILLS_MIRROR='https://ghfast.top'"
+  }
   $SrcDir = Join-Path $TmpDir "EasySkills-$Branch"
 
   # --- Install ---
@@ -86,11 +109,11 @@ try {
 
   # Preserve old version for upgrade reporting
   $OldVersion = $null
-  $VersionFile = Join-Path $PermDir "_maintenance\.version"
+  $VersionFile = Join-Path $PermDir "EasySkills维护工具/.engine\.version"
   if (Test-Path $VersionFile) { $OldVersion = (Get-Content $VersionFile -Raw).Trim() }
 
-  # Preserve user custom-targets.txt before wiping _maintenance/
-  $MaintDir = Join-Path $PermDir "_maintenance"
+  # Preserve user custom-targets.txt before wiping EasySkills维护工具/.engine/
+  $MaintDir = Join-Path $PermDir "EasySkills维护工具/.engine"
   $CustomFile = Join-Path $MaintDir "custom-targets.txt"
   $CustomBackup = $null
   if (Test-Path $CustomFile) {
@@ -113,63 +136,89 @@ try {
     }
     Remove-Item $LegacyRootCT -Force
   }
+  # Migrate user config from a legacy _maintenance install (pre-4.1.0 directory
+  # rename) when the new paths are absent. Keeps the upgrade non-destructive.
+  $LegacyMaint = Join-Path $PermDir "_maintenance"
+  if (-not $CustomBackup) {
+    $LegacyCustom = Join-Path $LegacyMaint "custom-targets.txt"
+    if (Test-Path $LegacyCustom) { $CustomBackup = Get-Content $LegacyCustom -Raw -Encoding UTF8 -ErrorAction SilentlyContinue }
+  }
+  if (-not (Test-Path $DisabledFile)) {
+    $LegacyDisabled = Join-Path $LegacyMaint "disabled-targets.txt"
+    if (Test-Path $LegacyDisabled) { Copy-Item $LegacyDisabled $DisabledFile -Force -ErrorAction SilentlyContinue }
+  }
+  if (-not (Test-Path $TokenFile)) {
+    $LegacyToken = Join-Path $LegacyMaint ".easyskills-token"
+    if (Test-Path $LegacyToken) { Copy-Item $LegacyToken $TokenFile -Force -ErrorAction SilentlyContinue }
+  }
 
-  # Clean install of _maintenance/. Kill any prior supervisors first so
+  # Clean install of EasySkills维护工具/.engine/. Kill any prior supervisors first so
   # they don't hold file handles to the directory we're about to swap.
   Stop-StaleEasySkillsProcesses
 
   # Validate the downloaded source before touching the existing install — a
   # failed download/extract must NOT brick a working install.
-  $SrcMaint = Join-Path $SrcDir "_maintenance"
+  $SrcMaint = Join-Path $SrcDir "EasySkills维护工具/.engine"
   $SrcDeploy = Join-Path $SrcMaint "deploy.ps1"
-  $SrcReadme = Join-Path $SrcDir "README_SYSTEM.md"
+  $SrcReadme = Join-Path $SrcDir "EasySkills维护工具/README_SYSTEM.md"
   if (-not (Test-Path $SrcMaint) -or -not (Test-Path $SrcDeploy) -or -not (Test-Path $SrcReadme)) {
-    throw "Downloaded source _maintenance/ is missing or incomplete (network/GitHub failure?). Existing install left untouched."
+    throw "Downloaded source EasySkills维护工具/.engine/ is missing or incomplete (network/GitHub failure?). Existing install left untouched."
   }
 
   # Atomic install: copy into a sibling temp dir, verify, then swap via rename.
   # Avoids the previous "Remove-Item then Copy-Item" footgun where a failed
-  # copy left no _maintenance at all.
-  $NewMaint = Join-Path $PermDir "_maintenance.new"
+  # copy left no EasySkills维护工具/.engine at all.
+  $NewMaint = Join-Path $PermDir "EasySkills维护工具/.engine.new"
   if (Test-Path $NewMaint) { Remove-Item $NewMaint -Recurse -Force }
   Copy-Item -Path $SrcMaint -Destination $NewMaint -Recurse
   $NewDeploy = Join-Path $NewMaint "deploy.ps1"
   if (-not (Test-Path $NewDeploy)) {
     if (Test-Path $NewMaint) { Remove-Item $NewMaint -Recurse -Force }
-    throw "Copy of _maintenance/ failed (disk full? permissions?). Existing install left untouched."
+    throw "Copy of EasySkills维护工具/.engine/ failed (disk full? permissions?). Existing install left untouched."
   }
   # Swap with rollback: current -> .bak, new -> current. Avoid a window where a
-  # failed rename leaves no usable _maintenance at all.
-  $BackupMaint = Join-Path $PermDir "_maintenance.bak"
-  $PrevBackup = Join-Path $PermDir "_maintenance.bak.prev"
+  # failed rename leaves no usable EasySkills维护工具/.engine at all. Use
+  # Move-Item (not Rename-Item) for the .engine -> .maintenance-bak step:
+  # Rename-Item only changes the leaf name, so it would leave the backup nested
+  # inside EasySkills维护工具\ instead of at $PermDir (mismatching $BackupMaint,
+  # which would then break the rollback path below).
+  $BackupMaint = Join-Path $PermDir ".maintenance-bak"
+  $PrevBackup = Join-Path $PermDir ".maintenance-bak.prev"
   if (Test-Path $PrevBackup) { Remove-Item $PrevBackup -Recurse -Force }
   try {
     if (Test-Path $MaintDir) {
       if (Test-Path $BackupMaint) {
-        Rename-Item -Path $BackupMaint -NewName "_maintenance.bak.prev" -Force
+        Move-Item -Path $BackupMaint -Destination $PrevBackup -Force
       }
-      Rename-Item -Path $MaintDir -NewName "_maintenance.bak" -Force
+      Move-Item -Path $MaintDir -Destination $BackupMaint -Force
     }
-    Rename-Item -Path $NewMaint -NewName "_maintenance" -Force
+    Move-Item -Path $NewMaint -Destination $MaintDir -Force
     if (Test-Path $PrevBackup) { Remove-Item $PrevBackup -Recurse -Force }
   } catch {
     if (Test-Path $NewMaint) { Remove-Item $NewMaint -Recurse -Force -ErrorAction SilentlyContinue }
     if ((-not (Test-Path $MaintDir)) -and (Test-Path $BackupMaint)) {
-      Rename-Item -Path $BackupMaint -NewName "_maintenance" -Force -ErrorAction SilentlyContinue
+      Move-Item -Path $BackupMaint -Destination $MaintDir -Force -ErrorAction SilentlyContinue
     }
     if (Test-Path $PrevBackup) {
       if (-not (Test-Path $BackupMaint)) {
-        Rename-Item -Path $PrevBackup -NewName "_maintenance.bak" -Force -ErrorAction SilentlyContinue
+        Move-Item -Path $PrevBackup -Destination $BackupMaint -Force -ErrorAction SilentlyContinue
       } else {
         Remove-Item $PrevBackup -Recurse -Force -ErrorAction SilentlyContinue
       }
     }
-    throw "Install swap failed; previous _maintenance was restored where possible. $($_.Exception.Message)"
+    throw "Install swap failed; previous EasySkills维护工具/.engine was restored where possible. $($_.Exception.Message)"
   }
-  Copy-Item -Path $SrcReadme -Destination (Join-Path $PermDir "README_SYSTEM.md") -Force
+  Copy-Item -Path $SrcReadme -Destination (Join-Path $PermDir "EasySkills维护工具/README_SYSTEM.md") -Force
   # Remove legacy SKILL.md left by older installations to avoid ambiguity
   $LegacySkillMd = Join-Path $PermDir "SKILL.md"
   if (Test-Path $LegacySkillMd) { Remove-Item $LegacySkillMd -Force }
+
+  # After the swap, $MaintDir now points at the OLD tree (renamed to
+  # .maintenance-bak), while the LIVE engine lives at $NewMaint's original
+  # path. Re-point $MaintDir at the live tree so every subsequent reference
+  # (restore, MCP template, gateway installer, version, deploy.ps1, service
+  # scripts) targets the newly installed directory instead of the backup.
+  $MaintDir = $NewMaint
 
   # Restore user custom-targets.txt
   if ($CustomBackup) {
@@ -267,6 +316,21 @@ try {
 
     try { Start-BackgroundPowerShell $WebUIServiceScript $MaintDir; Write-Host "[OK] WebUI launching." -ForegroundColor Green }
     catch { Write-Warning "Failed to start WebUI: $_" }
+  }
+
+  # --- Remove legacy _maintenance/_runtime dirs (pre-4.1.0 installs) ---
+  # The Scheduled Tasks above were re-registered against EasySkills维护工具/.engine;
+  # the old trees are no longer referenced and their runtime config was
+  # migrated earlier. Removing them prevents a stale watcher from double-syncing.
+  $LegacyMaint = Join-Path $PermDir "_maintenance"
+  if ((Test-Path $LegacyMaint) -and (Test-Path (Join-Path $LegacyMaint "deploy.ps1"))) {
+    Write-Host "Removing legacy _maintenance/ directory (config already migrated)..."
+    try { Remove-Item $LegacyMaint -Recurse -Force -ErrorAction Stop } catch { Write-Warning "Could not remove legacy _maintenance/: $_" }
+  }
+  $LegacyRuntime = Join-Path $PermDir "_runtime"
+  if (Test-Path $LegacyRuntime) {
+    Write-Host "Removing legacy _runtime/ directory (gateway re-installed above)..."
+    try { Remove-Item $LegacyRuntime -Recurse -Force -ErrorAction Stop } catch { Write-Warning "Could not remove legacy _runtime/: $_" }
   }
 
   # --- Wait for the WebUI port to come up, then open the browser ---
