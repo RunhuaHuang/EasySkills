@@ -55,7 +55,13 @@ try {
     # Walk mirrors: download asset + checksums from the same source. Both must
     # succeed and the checksum must verify before we accept a mirror.
     foreach ($Prefix in $MirrorPrefixes) {
-        $BaseUrl = "${Prefix}${ReleasePath}"
+        # Empty prefix = GitHub native; mirror proxies prepend themselves to the
+        # full github.com URL. Without this the empty prefix yields a host-less URL.
+        if ($Prefix) {
+            $BaseUrl = "${Prefix}/https://github.com${ReleasePath}"
+        } else {
+            $BaseUrl = "https://github.com${ReleasePath}"
+        }
         try {
             Invoke-WebRequest -Uri "$BaseUrl/$Asset" -OutFile $Archive -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
             Invoke-WebRequest -Uri "$BaseUrl/checksums.txt" -OutFile $Checksums -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop

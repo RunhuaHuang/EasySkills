@@ -60,7 +60,13 @@ download_release() {
   # Walk mirrors: download asset + checksums from the same source. Both must
   # succeed and the checksum must verify before we accept a mirror.
   for _prefix in "${MIRROR_PREFIXES[@]}"; do
-    _base_url="${_prefix}${RELEASE_PATH}"
+    # Empty prefix = GitHub native; mirror proxies prepend themselves to the
+    # full github.com URL. Without this the empty prefix yields a host-less URL.
+    if [ -z "$_prefix" ]; then
+      _base_url="https://github.com${RELEASE_PATH}"
+    else
+      _base_url="${_prefix}/https://github.com${RELEASE_PATH}"
+    fi
     rm -f "$TMP_DIR/$ASSET" "$TMP_DIR/checksums.txt"
     curl -fsSL --retry 2 --connect-timeout 15 "$_base_url/$ASSET" -o "$TMP_DIR/$ASSET" || continue
     curl -fsSL --retry 2 --connect-timeout 15 "$_base_url/checksums.txt" -o "$TMP_DIR/checksums.txt" || continue

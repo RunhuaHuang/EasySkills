@@ -61,7 +61,14 @@ fi
 # Fallback path: download the archive tarball over curl, walking mirrors.
 if [ -z "$SRC_DIR" ]; then
   for _prefix in "${MIRROR_PREFIXES[@]}"; do
-    _url="${_prefix}${ARCHIVE_PATH}"
+    # Empty prefix = GitHub native; mirror proxies prepend themselves to the
+    # full github.com URL. Without this special case the empty prefix would
+    # produce a host-less "/RunhuaHuang/..." URL that curl rejects.
+    if [ -z "$_prefix" ]; then
+      _url="https://github.com${ARCHIVE_PATH}"
+    else
+      _url="${_prefix}/https://github.com${ARCHIVE_PATH}"
+    fi
     if curl -fsSL --connect-timeout 15 "$_url" -o "$TMP_DIR/repo.tar.gz" 2>/dev/null; then
       if tar -xzf "$TMP_DIR/repo.tar.gz" -C "$TMP_DIR" 2>/dev/null; then
         SRC_DIR="$TMP_DIR/EasySkills-$BRANCH"

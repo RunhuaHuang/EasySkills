@@ -89,7 +89,14 @@ try {
 
   $Downloaded = $false
   foreach ($Prefix in $MirrorPrefixes) {
-    $ZipUrl = "${Prefix}${ArchivePath}"
+    # Empty prefix = GitHub native; mirror proxies prepend themselves to the
+    # full github.com URL. Without this special case the empty prefix would
+    # produce a host-less "/RunhuaHuang/..." URL that Invoke-WebRequest rejects.
+    if ($Prefix) {
+      $ZipUrl = "${Prefix}/https://github.com${ArchivePath}"
+    } else {
+      $ZipUrl = "https://github.com${ArchivePath}"
+    }
     try {
       Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
       Expand-Archive -Path $ZipPath -DestinationPath $TmpDir -Force -ErrorAction Stop
