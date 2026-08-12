@@ -3,7 +3,7 @@
 # EasySkills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#快速开始)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-brightgreen.svg)](#快速开始)
 [![Agents](https://img.shields.io/badge/支持Agent-43+-orange.svg)](#支持的-agent-列表)
 [![Version](https://img.shields.io/badge/版本-4.1.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
@@ -16,6 +16,14 @@
 [**English Version**](README_EN.md)
 
 </div>
+
+---
+
+## 系统要求
+
+* **macOS / Linux**：技能映射依赖 Bash 与系统原生软链接；WebUI 和 Agent 规则同步需要 **Python 3.10+**。若缺少合适版本的 Python，安装器仍会保留技能同步能力，并明确提示 WebUI 未启动。
+* **Windows**：需要 Windows PowerShell 5.1+；目录联结无需管理员权限。Gateway 使用预编译单文件程序，通常不需要本地 Go 环境。
+* **网络**：首次安装、在线更新以及下载 Gateway 发布文件时需要访问 GitHub 或用户明确选择的镜像；日常本地同步不依赖网络。
 
 ---
 
@@ -37,19 +45,37 @@ irm `
   https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
 ```
 
-> 🇨🇳 **国内用户加速**：如果上方命令因网络无法访问 GitHub，可在安装命令前加国内镜像代理前缀。安装器内部也已内置多源自动回退，无需额外配置：
+安装器默认部署当前稳定版 `v4.1.0`，而不是直接安装 `main` 的未发布快照。需要指定版本或体验开发分支时：
+
+```bash
+# macOS / Linux：固定指定版本
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_VERSION=4.1.0 bash
+
+# macOS / Linux：显式使用 main
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_CHANNEL=edge bash
+```
+
+```powershell
+# Windows：显式使用 main
+$env:EASYSKILLS_CHANNEL = "edge"
+irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+```
+
+> 🇨🇳 **国内用户加速**：如果上方命令无法访问 GitHub，可以显式选择并信任一个 HTTPS 镜像。为避免第三方镜像在后台静默改变安装源码，安装器不会自动切换镜像：
 >
 > **macOS / Linux**
 > ```bash
 > curl -fsSL \
->   https://ghfast.top/https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+>   https://ghfast.top/https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh \
+>   | EASYSKILLS_MIRROR=https://ghfast.top bash
 > ```
 > **Windows (PowerShell)**
 > ```powershell
+> $env:EASYSKILLS_MIRROR = "https://ghfast.top"
 > irm `
 >   https://ghfast.top/https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
 > ```
-> 若 `ghfast.top` 不可用，可替换为 `gh-proxy.com`、`github.moeyy.xyz` 等同类镜像，或用环境变量指定：`EASYSKILLS_MIRROR=https://gh-proxy.com bash install.sh`。
+> 若使用其他镜像，请同时替换下载前缀和 `EASYSKILLS_MIRROR`。该变量表示你明确同意信任该镜像返回的安装源码与 Gateway 二进制；仅接受 HTTPS 地址。
 
 > 💡 **其他安装方式**：您也可以克隆本仓库到本地，然后双击运行 `install_mac.command` (macOS) 或 `install_windows.bat` (Windows)。
 
@@ -190,6 +216,7 @@ EasySkills 监听服务会捕捉到 `~/EasySkills/` 根目录下的文件夹变�
 #### 2. 特性
 * **白名单/黑名单**：在 WebUI 中可针对单个 MCP 配置工具白名单或黑名单，按需分发。
 * **测试与测试连通**：在 WebUI 中可对任何下游 MCP 服务进行一键连通性测试。
+* **环境变量凭证引用**：`env` 和 HTTP `headers` 支持 `${env:变量名}`，也可以写成 `Bearer ${env:变量名}`。Gateway 连接时才读取环境变量，避免把密钥直接保存在 `servers.json`；如果变量缺失，会明确返回连接错误。
 
 ---
 
@@ -216,12 +243,14 @@ EasySkills 会自动扫描 `instructions/` 目录下的所有 Markdown 文件，
 * **智能体管理**：查看 43+ 个内置 Agent 的安装与连接状态；对于非标准路径安装的 Agent，可在本页手动添加其专属技能文件夹路径。
 
 <p align="center">
-  <img src="docs/assets/webui-dashboard-macos.jpg" alt="EasySkills macOS WebUI 控制台" width="100%">
+  <img src="easyskills-final.png" alt="EasySkills WebUI 控制台（当前三通道界面示意）" width="100%">
 </p>
 
 <p align="center">
-  <img src="docs/assets/webui-agents-macos.jpg" alt="EasySkills macOS Agent 连接管理界面" width="100%">
+  <img src="easyskills-guide-final.png" alt="EasySkills WebUI 使用教程界面示意" width="100%">
 </p>
+
+> 界面截图为 4.0.x 系列的实机示意图；4.1.0 保持同一套 WebUI 信息架构，并新增了 MCP、规则同步与回滚诊断能力。
 
 ---
 
@@ -243,6 +272,8 @@ EasySkills 会自动扫描 `instructions/` 目录下的所有 Markdown 文件，
 
 ## 命令行工具
 
+v5 的长期演进采用“单一 Go Core + 薄启动脚本”的渐进式方案，完整兼容与回滚设计见 [`docs/ARCHITECTURE_V5.md`](docs/ARCHITECTURE_V5.md)。当前 4.1.x 不会自动迁移或删除用户目录。
+
 除了 WebUI 界面，您也可以通过本地脚本执行维护操作：
 
 **macOS / Linux**
@@ -263,9 +294,21 @@ powershell -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\dep
 | `--remove <路径>` | 移除已持久化的自定义 Agent 路径 |
 | `--watch` | 安装并启动后台文件监听服务 |
 | `--unwatch` | 卸载并停止后台文件监听服务 |
+| `--status` / `-Status` | 显示监听器与技能映射的简要状态 |
+| `--doctor` / `-Doctor` | 输出只读、脱敏的 JSON 深度诊断报告；不会创建认证文件或迁移用户配置 |
 | `--webui` | 启动本地 WebUI 后端服务（默认端口 6633） |
 | `--cleanup` | 清除当前所有 EasySkills 创建的软链接/目录联结（不伤及源文件） |
 | `--help` | 显示命令行帮助信息 |
+
+需要提交故障信息时，建议先运行 doctor，并直接复制其脱敏输出：
+
+```bash
+bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh --doctor
+```
+
+```powershell
+powershell -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" -Doctor
+```
 
 ---
 
@@ -305,7 +348,7 @@ EasySkills 开箱即用支持以下 43+ 个 Agent 目标路径。您可通过 We
 | 25 | **Goose (Block/AAIF)** | `~/.config/goose/skills` | `%USERPROFILE%\.config\goose\skills` |
 | 26 | **Agents (Standard)** | `~/.agents/skills` | `%USERPROFILE%\.agents\skills` |
 | 27 | **Run** | `~/.run/global-skills/skills` | `%USERPROFILE%\.run\global-skills\skills` |
-| 28 | **Qoder** | `~/.qoder/skills` | `%USERPROFILE%\.qoder/skills` |
+| 28 | **Qoder** | `~/.qoder/skills` | `%USERPROFILE%\.qoder\skills` |
 | 29 | **Qwen Code** | `~/.qwen/skills` | `%USERPROFILE%\.qwen\skills` |
 | 30 | **CodeBuddy** | `~/.codebuddy/skills` | `%USERPROFILE%\.codebuddy\skills` |
 | 31 | **Amp** | `~/.config/agents/skills` | `%USERPROFILE%\.config\agents\skills` |
@@ -330,7 +373,7 @@ EasySkills 开箱即用支持以下 43+ 个 Agent 目标路径。您可通过 We
 
 ## 注意事项
 
-* **Windows Defender 提示**：在 Windows 系统上，EasySkills 安装器会自动尝试通过 UAC 弹窗为 `~/EasySkills` 目录添加 Defender 白名单排除项，请在弹窗时选择“是”。您也可以手动前往 Windows 安全中心进行排除配置。
+* **Windows Defender 提示**：EasySkills 安装器不会修改 Defender 排除项，也不会为此请求管理员权限。若安全软件报警，请先核对下载来源并检查被拦截文件；不建议把整个 `%USERPROFILE%\EasySkills` 加入排除列表，因为其中可能包含第三方技能脚本和 MCP 凭证。确认是误报后，再只针对具体文件采取最小范围的例外处理。
 * **监听限制说明**：后台文件监听器（Watcher）默认只监控 `~/EasySkills/` **顶层目录**的文件夹新增与删除。不需要也不推荐监听技能子目录内部的变化，因为技能是通过软链接同步映射的，内部任何文件修改均会立即可见。对于 `~/.proma` 的工作空间，EasySkills 会以每 5 分钟轮询一次的机制自动检测并挂载新工作区。
 
 ---

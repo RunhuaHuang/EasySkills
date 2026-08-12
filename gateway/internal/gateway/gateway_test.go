@@ -3,7 +3,10 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -45,10 +48,37 @@ func TestValidateToolDefinitionRejectsInvalidSchemas(t *testing.T) {
 	}
 	if err := validateToolDefinition(&mcp.Tool{
 		Name:         "bad-output",
-		InputSchema:  map[string]any{"type": "object"},
 		OutputSchema: map[string]any{"type": "array"},
 	}); err == nil {
-		t.Fatal("expected non-object output schema to be rejected")
+		t.Fatal("expected non-object output schema to be rejected even without an input schema")
+	}
+}
+
+func TestHTTPClientDoesNotForwardConfiguredHeadersAcrossOrigins(t *testing.T) {
+	var targetReceivedAuthorization bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		targetReceivedAuthorization = request.Header.Get("Authorization") != ""
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer target.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer secret" {
+			t.Error("configured header was not attached to the original MCP request")
+		}
+		http.Redirect(w, request, target.URL, http.StatusFound)
+	}))
+	defer source.Close()
+
+	response, err := newHTTPClient(map[string]string{"Authorization": "Bearer secret"}).Get(source.URL)
+	if response != nil {
+		response.Body.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "cross-origin") {
+		t.Fatalf("cross-origin redirect error = %v", err)
+	}
+	if targetReceivedAuthorization {
+		t.Fatal("configured authorization header leaked to the redirect target")
 	}
 }
 
@@ -66,6 +96,56 @@ func TestToolFiltering(t *testing.T) {
 	}
 }
 
+func TestRedactConnectionError(t *testing.T) {
+	cfg := config.ServerConfig{
+		Transport: "http",
+		URL:       "https://example.com/mcp?token=super-secret#fragment",
+		Env:       map[string]string{"TOKEN": "env-secret"},
+		Headers:   map[string]string{"Authorization": "Bearer header-secret"},
+	}
+	err := redactConnectionError(
+		fmt.Errorf("Get %s: authorization=%s env=%s", cfg.URL, cfg.Headers["Authorization"], cfg.Env["TOKEN"]),
+		cfg,
+	)
+	if err == nil {
+		t.Fatal("redactConnectionError returned nil")
+	}
+	message := err.Error()
+	for _, secret := range []string{"super-secret", "fragment", "Bearer header-secret", "env-secret"} {
+		if strings.Contains(message, secret) {
+			t.Fatalf("connection error leaked %q: %s", secret, message)
+		}
+	}
+	if !strings.Contains(message, "https://example.com/mcp") {
+		t.Fatalf("redacted endpoint lost useful context: %s", message)
+	}
+}
+
+func TestRedactConnectionErrorDoesNotLeakOverlappingSecrets(t *testing.T) {
+	cfg := config.ServerConfig{
+		Transport: "stdio",
+		Command:   "secret-command",
+		Args:      []string{"secret", "secret-long"},
+		Env:       map[string]string{"TOKEN": "secret"},
+	}
+	err := redactConnectionError(fmt.Errorf("command=secret-long short=secret"), cfg)
+	if err == nil {
+		t.Fatal("redactConnectionError returned nil")
+	}
+	message := err.Error()
+	for _, secret := range []string{"secret-long", "secret"} {
+		if strings.Contains(message, secret) {
+			t.Fatalf("overlapping secret leaked %q: %s", secret, message)
+		}
+	}
+}
+
+func TestDecodeArgumentsRejectsNull(t *testing.T) {
+	if _, err := DecodeArguments(json.RawMessage("null")); err == nil {
+		t.Fatal("null tool arguments were accepted")
+	}
+}
+
 func TestSummaryUsesEmptyArrays(t *testing.T) {
 	router := &Router{tools: map[string]toolRoute{}}
 	encoded, err := json.Marshal(router.Summary("default"))
@@ -74,6 +154,39 @@ func TestSummaryUsesEmptyArrays(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "null") {
 		t.Fatalf("summary contains null arrays: %s", encoded)
+	}
+}
+
+func TestGatewayCloseClearsVisibleStateAndIsIdempotent(t *testing.T) {
+	cfg := &config.Config{
+		Version: 1,
+		Servers: map[string]config.ServerConfig{
+			"fixture": {
+				Transport:             "stdio",
+				Command:               os.Args[0],
+				Args:                  []string{"-test.run=TestMCPHelperProcess"},
+				Env:                   map[string]string{"EASYSKILLS_MCP_TEST_HELPER": "1"},
+				StartupTimeoutSeconds: 10,
+			},
+		},
+		Profiles: map[string]config.Profile{"default": {Servers: []string{"*"}}},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	router, err := Open(ctx, cfg, "default", slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := router.Close(); err != nil {
+		t.Fatal(err)
+	}
+	summary := router.Summary("default")
+	if len(summary.Servers) != 0 || len(summary.Tools) != 0 {
+		t.Fatalf("closed router retained visible state: %#v", summary)
+	}
+	if err := router.Close(); err != nil {
+		t.Fatalf("second Close returned an error: %v", err)
 	}
 }
 
@@ -285,6 +398,58 @@ func TestGatewayReloadAddsServer(t *testing.T) {
 	}
 	if _, ok := router.tools["echo"]; !ok {
 		t.Fatal("new server tools were not discovered")
+	}
+}
+
+func TestGatewayReloadRemovesDeletedServerRoutes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	fixture := config.ServerConfig{
+		Transport:             "stdio",
+		Command:               os.Args[0],
+		Args:                  []string{"-test.run=TestMCPHelperProcess"},
+		Env:                   map[string]string{"EASYSKILLS_MCP_TEST_HELPER": "1"},
+		StartupTimeoutSeconds: 10,
+	}
+	router, err := Open(ctx, &config.Config{
+		Version:  1,
+		Servers:  map[string]config.ServerConfig{"fixture": fixture},
+		Profiles: map[string]config.Profile{"default": {Servers: []string{"*"}}},
+	}, "default", slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer router.Close()
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "gateway-test", Version: "1"}, nil)
+	router.Register(server)
+	router.mu.RLock()
+	_, hadRoute := router.tools["echo"]
+	router.mu.RUnlock()
+	if !hadRoute {
+		t.Fatal("expected fixture route before deletion")
+	}
+
+	if err := router.Reload(ctx, &config.Config{
+		Version:  1,
+		Servers:  map[string]config.ServerConfig{},
+		Profiles: map[string]config.Profile{"default": {Servers: []string{"*"}}},
+	}, "default", server); err != nil {
+		t.Fatalf("failed to reload after deleting server: %v", err)
+	}
+
+	router.mu.RLock()
+	if _, ok := router.sessions["fixture"]; ok {
+		t.Fatal("deleted server session was retained")
+	}
+	if _, ok := router.tools["echo"]; ok {
+		t.Fatal("deleted server tool route was retained")
+	}
+	toolCount := len(router.tools)
+	router.mu.RUnlock()
+	if got := router.Summary("default").Tools; len(got) != 0 || toolCount != 0 {
+		t.Fatalf("summary retained deleted server tools: %#v", got)
 	}
 }
 

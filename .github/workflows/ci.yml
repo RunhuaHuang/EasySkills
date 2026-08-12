@@ -1,0 +1,236 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-tests:
+    name: Contract tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.10"
+          - os: ubuntu-latest
+            python: "3.13"
+          - os: macos-14
+            python: "3.13"
+          - os: windows-latest
+            python: "3.13"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Compile Python sources
+        run: >-
+          python -m py_compile
+          "EasySkills维护工具/.engine/webui.py"
+          "EasySkills维护工具/.engine/tests/test_security_contracts.py"
+      - name: Run security and contract tests
+        run: >-
+          python -m unittest discover
+          -s "EasySkills维护工具/.engine/tests"
+          -p "test_security_contracts.py"
+          -v
+
+  go-tests:
+    name: Gateway tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache-dependency-path: gateway/go.sum
+      - name: Test gateway
+        run: go test ./...
+      - name: Vet gateway
+        run: go vet ./...
+      - name: Scan gateway dependencies for reachable vulnerabilities
+        if: runner.os == 'Linux'
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+      - name: Check Go formatting
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [[ -n "$unformatted" ]]; then
+            printf 'Go files need gofmt:\n%s\n' "$unformatted"
+            exit 1
+          fi
+      - name: Test gateway with race detector
+        if: runner.os == 'Linux'
+        run: go test -race ./...
+
+  shell-quality:
+    name: Shell syntax and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Bash syntax
+        shell: bash
+        run: |
+          while IFS= read -r -d '' script; do
+            bash -n "$script"
+          done < <(git ls-files -z '*.sh' '*.command')
+      - name: Run ShellCheck
+        shell: bash
+        run: |
+          while IFS= read -r -d '' script; do
+            shellcheck -x -S warning "$script"
+          done < <(git ls-files -z '*.sh' '*.command')
+      - name: Run read-only doctor smoke test
+        shell: bash
+        run: |
+          test ! -e "EasySkills维护工具/.engine/.easyskills-token"
+          report="$(bash "EasySkills维护工具/.engine/deploy.sh" --doctor)"
+          REPORT="$report" python3 - <<'PY'
+          import json
+          import os
+          report = json.loads(os.environ["REPORT"])
+          assert report["schema_version"] == 1
+          assert report["version"]
+          assert report["summary"]["errors"] == 0
+          assert isinstance(report["checks"], list)
+          PY
+          test ! -e "EasySkills维护工具/.engine/.easyskills-token"
+
+  powershell-syntax:
+    name: Windows scripts
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Parse PowerShell sources
+        shell: pwsh
+        run: |
+          $Failed = $false
+          foreach ($File in (git ls-files '*.ps1')) {
+            $Tokens = $null
+            $Errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path -LiteralPath $File),
+              [ref]$Tokens,
+              [ref]$Errors
+            ) | Out-Null
+            foreach ($ParseError in $Errors) {
+              Write-Error "$File`: $($ParseError.Message)"
+              $Failed = $true
+            }
+          }
+          if ($Failed) { exit 1 }
+      - name: Run PowerShell doctor smoke test
+        shell: pwsh
+        run: |
+          $DoctorScript = (Resolve-Path -LiteralPath "EasySkills维护工具/.engine/webui.ps1").Path
+          $TokenFile = Join-Path (Split-Path -Parent $DoctorScript) ".easyskills-token"
+          if (Test-Path -LiteralPath $TokenFile) { throw "Token file existed before doctor smoke test." }
+          $DoctorJson = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $DoctorScript -Doctor | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw "PowerShell doctor exited with $LASTEXITCODE.`n$DoctorJson" }
+          $Report = $DoctorJson | ConvertFrom-Json
+          if ($Report.schema_version -ne 1 -or -not $Report.version -or $Report.summary.errors -ne 0 -or -not $Report.checks) {
+            throw "PowerShell doctor returned an invalid report.`n$DoctorJson"
+          }
+          if ($DoctorJson.Contains($HOME)) { throw "PowerShell doctor exposed the user profile path." }
+          if (Test-Path -LiteralPath $TokenFile) { throw "Doctor created a WebUI token file." }
+      - name: Validate PowerShell JSON serializer (PS5.1 / Python parity)
+        shell: bash
+        run: |
+          set -e
+          SCRIPT="EasySkills维护工具/.engine/webui.ps1"
+          OUTFILE="$RUNNER_TEMP/json-selftest.txt"
+          # Run under real Windows PowerShell 5.1 (powershell.exe), not pwsh:
+          # the whole point is to catch the PS5.1 ConvertTo-Json quirks the
+          # custom serializer exists to defeat (empty array -> null, top-level
+          # array unrolling, lost non-ASCII). Output is captured to a UTF-8 file
+          # (the script forces [Console]::OutputEncoding = UTF8 in this mode) so
+          # the Chinese fixture survives intact; Python reads it back as UTF-8.
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$SCRIPT" -JsonSelfTest > "$OUTFILE"
+          echo "----- JsonSelfTest output -----"
+          cat "$OUTFILE"
+          echo "-------------------------------"
+          python - "$OUTFILE" <<'PY'
+          import json, sys
+          path = sys.argv[1]
+          with open(path, encoding="utf-8") as f:
+              docs = [json.loads(line) for line in f if line.strip()]
+          expected = [
+              [],                                    # empty top-level array -> []
+              [{"name": "solo"}],                    # single element stays an array
+              [{"n": 1}, {"n": 2}],                  # multi element
+              {"items": [], "nested": {"inner": []}},# empty arrays as values -> []
+              {"ok": True, "flag": False, "nil": None, "cnt": 42},  # bool/null/int
+              {"name": "技能", "path": "/路径/技能"},  # non-ASCII passes through raw
+              {"q": 'a"B\\c\nd'},                    # quote/backslash/newline escaping
+              # PSCustomObject (real /api/mcp config path): nested objects,
+              # string array, empty object, deep nesting all round-trip.
+              {"name": "ctx7", "args": ["-y", "--port"],
+               "env": {"KEY": "v"}, "empty": {},
+               "nested": {"deep": {"x": 1}}},
+          ]
+          if len(docs) != len(expected):
+              sys.exit(f"JsonSelfTest produced {len(docs)} docs, expected {len(expected)}")
+          for i, (got, exp) in enumerate(zip(docs, expected)):
+              if got != exp:
+                  sys.exit(f"JsonSelfTest doc {i} mismatch:\n  got={got!r}\n  exp={exp!r}")
+          print("JsonSelfTest OK: empty arrays -> [], single-element arrays preserved, non-ASCII raw, escaping correct.")
+          PY
+      - name: Run Windows batch installer smoke tests
+        shell: pwsh
+        run: |
+          $OriginalProfile = $env:USERPROFILE
+          try {
+            $SmokeRoot = Join-Path $env:RUNNER_TEMP "easyskills-bat-smoke"
+            $SourceDir = Join-Path $SmokeRoot "source"
+            $ProfileDir = Join-Path $SmokeRoot "profile"
+            $SourceEngine = Join-Path $SourceDir "EasySkills维护工具/.engine"
+            New-Item -ItemType Directory -Path $SourceEngine -Force | Out-Null
+            Copy-Item -LiteralPath "install_windows.bat" -Destination $SourceDir
+            Set-Content -LiteralPath (Join-Path $SourceEngine "deploy.ps1") -Value "# smoke stub" -Encoding UTF8
+            Set-Content -LiteralPath (Join-Path $SourceEngine ".version") -Value "0.0.0-smoke" -Encoding ASCII
+            New-Item -ItemType Directory -Path (Join-Path $SourceDir "EasySkills维护工具") -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $SourceDir "EasySkills维护工具/README_SYSTEM.md") -Value "smoke" -Encoding UTF8
+
+            $env:USERPROFILE = $ProfileDir
+            Push-Location $SourceDir
+            try { & cmd.exe /d /c install_windows.bat } finally { Pop-Location }
+            if ($LASTEXITCODE -ne 0) { throw "Fresh batch installation failed with exit code $LASTEXITCODE." }
+            $InstalledDeploy = Join-Path $ProfileDir "EasySkills/EasySkills维护工具/.engine/deploy.ps1"
+            if (-not (Test-Path -LiteralPath $InstalledDeploy -PathType Leaf)) {
+              throw "Batch installer did not produce the expected live engine."
+            }
+
+            # Running from a damaged in-place installation used to leave the
+            # engine path empty and still return success. It must fail closed.
+            $BrokenProfile = Join-Path $SmokeRoot "broken-profile"
+            $BrokenInstall = Join-Path $BrokenProfile "EasySkills"
+            New-Item -ItemType Directory -Path $BrokenInstall -Force | Out-Null
+            Copy-Item -LiteralPath "install_windows.bat" -Destination $BrokenInstall
+            $env:USERPROFILE = $BrokenProfile
+            Push-Location $BrokenInstall
+            try { & cmd.exe /d /c install_windows.bat } finally { Pop-Location }
+            if ($LASTEXITCODE -eq 0) { throw "Damaged in-place batch installation unexpectedly returned success." }
+          } finally {
+            $env:USERPROFILE = $OriginalProfile
+          }

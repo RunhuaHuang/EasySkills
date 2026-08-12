@@ -5,7 +5,7 @@
 # Description: Self-cleaning double-clickable uninstaller for macOS.
 # ==============================================================================
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 
 echo "============================================="
 echo "Uninstalling EasySkills (macOS)..."
@@ -16,11 +16,16 @@ UID_VAL=$(id -u)
 SERVICE_TARGET="gui/$UID_VAL/$LABEL"
 PLIST_PATH="$HOME/Library/LaunchAgents/com.easyskills.watcher.plist"
 WEBUI_LABELS=("com.easyskills.webui" "com.easyskills.webui.manual")
+uninstall_ok=true
 
 # 1. Unload launchd service (modern API with fallback)
-if [ -f "$PLIST_PATH" ]; then
-  launchctl bootout "$SERVICE_TARGET" 2>/dev/null || launchctl unload "$PLIST_PATH" 2>/dev/null
-  rm -f "$PLIST_PATH"
+launchctl bootout "$SERVICE_TARGET" 2>/dev/null || {
+  [ -f "$PLIST_PATH" ] && launchctl unload "$PLIST_PATH" 2>/dev/null || true
+}
+rm -f "$PLIST_PATH"
+if launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then
+  echo "Warning: watcher service is still loaded: $SERVICE_TARGET" >&2
+  uninstall_ok=false
 fi
 
 # Stop WebUI launchd jobs and their detached backend child before moving the
@@ -28,6 +33,10 @@ fi
 # a detached child, so removing the launchd job alone is not enough.
 for webui_label in "${WEBUI_LABELS[@]}"; do
   launchctl remove "$webui_label" 2>/dev/null || true
+  if launchctl print "gui/$UID_VAL/$webui_label" >/dev/null 2>&1; then
+    echo "Warning: WebUI service is still loaded: $webui_label" >&2
+    uninstall_ok=false
+  fi
 done
 # Kill lingering EasySkills backend processes before removing the install dir.
 # IMPORTANT: verify each match is actually the intended interpreter, NOT an
@@ -53,7 +62,6 @@ done
 
 # 2. Clean up all symlinks in agent directories, then move ~/EasySkills to Trash
 #    (recoverable) instead of irreversible rm -rf — users keep custom skills there.
-uninstall_ok=true
 move_to_trash() {
   local target="$1"
   if [ ! -e "$target" ]; then return 0; fi
@@ -90,7 +98,7 @@ if [ -d "$HOME/EasySkills/EasySkills维护工具/.engine" ]; then
     echo "    (repeat for any other agent skills folders you use)" >&2
     echo ""
     uninstall_ok=false
-  elif ! move_to_trash "$HOME/EasySkills"; then
+  elif [ "$uninstall_ok" = true ] && ! move_to_trash "$HOME/EasySkills"; then
     uninstall_ok=false
   fi
 fi
@@ -102,5 +110,5 @@ else
   echo "Uninstallation incomplete; no user data was destroyed."
 fi
 echo "Press any key to close this window..."
-read -n 1 -s
+read -r -n 1 -s
 [ "$uninstall_ok" = true ] || exit 1

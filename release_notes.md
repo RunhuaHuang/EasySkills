@@ -16,8 +16,8 @@
 
 A directory-structure release: the `_maintenance/` engine folder is renamed to
 `EasySkills维护工具/.engine/`, with a hardened install/upgrade pipeline,
-mainland-China mirror fallback, and a batch of Windows correctness fixes found
-in a full code audit. All 124 Python security/contract tests and all Go unit
+explicit opt-in mainland-China mirror support, and a batch of Windows correctness fixes found
+in a full code audit. All 180 Python security/contract tests and all Go unit
 and routing tests pass.
 
 ### Directory restructure
@@ -45,6 +45,19 @@ and routing tests pass.
   .maintenance-bak` rotation, but `Rename-Item` cannot relocate across
   directories — the backup landed in the wrong place and rollback was
   unreachable. Switched to `Move-Item` to match the bash `mv` semantics.
+- **[windows]** The WebUI self-update and rollback paths had the same
+  cross-directory `Rename-Item -NewName` mistake in a later code path. They now
+  use explicit `Move-Item -Destination` operations for the root backup and
+  same-parent leaf renames for `.engine`, with regression contracts covering
+  both directions.
+- **[security]** PowerShell ZIP validation now treats a single Windows
+  backslash as an absolute-path/link boundary and validates the complete
+  symbolic-link graph before extraction. The Unix WebUI supervisor also uses
+  literal process-command matching instead of a path regex, preventing an
+  installation path from matching an unrelated Python process.
+- **[gateway]** Connection failures redact configured endpoint query strings,
+  environment values, and HTTP header values before they reach logs, status
+  JSON, or WebUI test output.
 - **[windows]** **Critical:** `deploy.ps1`, `webui.ps1`, `watcher-service.ps1`,
   `install-gateway.ps1`, and `watch.ps1` all computed the central/root
   directory as `ScriptDir`'s parent (one level up = `EasySkills维护工具/`),
@@ -56,22 +69,19 @@ and routing tests pass.
   launcher folder (real name is `launchers/`) and was missing the visible
   `macOS/` + `Windows/` entry-folder creation that `install.sh` has. Fixed both.
 
-### Mainland-China mirror fallback
+### Explicit mainland-China mirror support
 
-- The installers (`install.sh` / `install.ps1`) and Gateway downloaders
-  (`install-gateway.sh` / `install-gateway.ps1`) now try GitHub first, then walk
-  a list of China-friendly mirror proxies (`ghfast.top`, `gh-proxy.com`,
-  `github.moeyy.xyz`) on failure/timeout. A mirror can be pinned via the
-  `EASYSKILLS_MIRROR` env var. Overseas users are unaffected.
+- The installers (`install.sh` / `install.ps1`) and Gateway downloaders use
+  GitHub by default. A third-party mirror is used only when the user explicitly
+  selects an HTTPS prefix via `EASYSKILLS_MIRROR`; installers never silently
+  change the source trust boundary after a GitHub failure.
 
 ### Docs
 
 - README (zh + en) documents the mirror-prefixed install commands for users
   behind the GFW.
-
----
-
-## EasySkills 4.0.3
+- The README Agent tables are checked against `agents.json`, including Windows
+  path separators, so documentation cannot silently drift from runtime paths.
 
 ---
 

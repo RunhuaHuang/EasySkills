@@ -7,15 +7,136 @@
 
 Param(
     [Parameter(Mandatory=$false)][switch]$NoBrowser,
-    [Parameter(Mandatory=$false)][switch]$SyncRules
+    [Parameter(Mandatory=$false)][switch]$SyncRules,
+    [Parameter(Mandatory=$false)][switch]$Doctor,
+    [Parameter(Mandatory=$false)][switch]$JsonSelfTest
 )
+
+# ==============================================================================
+# EasySkills JSON serializer (dependency-free)
+# ------------------------------------------------------------------------------
+# Windows PowerShell 5.1's ConvertTo-Json has two quirks that break parity with
+# the Python backend (json.dumps, ensure_ascii=False) and render the WebUI
+# incorrectly on Windows:
+#   1. Piping a collection unrolls it, so a top-level array with 0 or 1 element
+#      serializes as "null" / a bare object instead of "[]" / "[{...}]".
+#   2. An empty array stored as an object value serializes as "null", not "[]".
+# This recursive serializer is immune to both (no pipeline, explicit IList
+# handling), emits "[]" for every empty array, and passes non-ASCII (e.g.
+# Chinese) through as raw UTF-8 — matching the Python contract exactly. It is
+# validated by -JsonSelfTest, which the CI runs on real Windows PowerShell 5.1.
+# ==============================================================================
+function Format-EasySkillsJsonString([string]$Value) {
+    $Builder = New-Object System.Text.StringBuilder
+    [void]$Builder.Append('"')
+    foreach ($Char in $Value.ToCharArray()) {
+        $Code = [int][char]$Char
+        if ($Code -eq 34) { [void]$Builder.Append('\"') }        # "
+        elseif ($Code -eq 92) { [void]$Builder.Append('\\') }    # \
+        elseif ($Code -eq 8) { [void]$Builder.Append('\b') }
+        elseif ($Code -eq 9) { [void]$Builder.Append('\t') }
+        elseif ($Code -eq 10) { [void]$Builder.Append('\n') }
+        elseif ($Code -eq 12) { [void]$Builder.Append('\f') }
+        elseif ($Code -eq 13) { [void]$Builder.Append('\r') }
+        elseif ($Code -lt 32) { [void]$Builder.AppendFormat('\u{0:x4}', $Code) }
+        else { [void]$Builder.Append($Char) }
+    }
+    [void]$Builder.Append('"')
+    return $Builder.ToString()
+}
+
+function ConvertTo-EasySkillsJson($Node) {
+    if ($null -eq $Node) { return 'null' }
+    # String before IList: a string is IList<char> and would be misrouted.
+    if ($Node -is [string]) { return (Format-EasySkillsJsonString $Node) }
+    # Boolean before numeric, to avoid any bool/number coercion edge.
+    if ($Node -is [bool]) { if ($Node) { return 'true' } else { return 'false' } }
+    if ($Node -is [int] -or $Node -is [long] -or $Node -is [byte]) { return $Node.ToString() }
+    if ($Node -is [double] -or $Node -is [single] -or $Node -is [decimal]) {
+        return $Node.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+    }
+    # Array / list (covers @(), [object[]], and any IList).
+    if ($Node -is [System.Collections.IList]) {
+        if ($Node.Count -eq 0) { return '[]' }
+        $Parts = @()
+        foreach ($Item in $Node) { $Parts += (ConvertTo-EasySkillsJson $Item) }
+        return '[' + ($Parts -join ',') + ']'
+    }
+    # Hashtable / ordered dictionary.
+    if ($Node -is [System.Collections.IDictionary]) {
+        if ($Node.Count -eq 0) { return '{}' }
+        $Pairs = @()
+        foreach ($Key in $Node.Keys) {
+            $Pairs += ((Format-EasySkillsJsonString ([string]$Key)) + ':' + (ConvertTo-EasySkillsJson $Node[$Key]))
+        }
+        return '{' + ($Pairs -join ',') + '}'
+    }
+    # PSCustomObject (defensive; the WebUI emits hashtables, never PSCustomObject).
+    if ($Node -is [pscustomobject]) {
+        $Props = @($Node.PSObject.Properties)
+        if ($Props.Count -eq 0) { return '{}' }
+        $Pairs = @()
+        foreach ($Prop in $Props) {
+            $Pairs += ((Format-EasySkillsJsonString $Prop.Name) + ':' + (ConvertTo-EasySkillsJson $Prop.Value))
+        }
+        return '{' + ($Pairs -join ',') + '}'
+    }
+    # Fallback for anything else (enums, etc.): stringify.
+    return (Format-EasySkillsJsonString ([string]$Node))
+}
+
+if ($JsonSelfTest) {
+    # Force UTF-8 on stdout so the non-ASCII fixture survives capture by the CI
+    # (which redirects this process's stdout). Under PS5.1 a redirected stream
+    # otherwise falls back to the system OEM code page and replaces Chinese
+    # chars with '?'. This only affects this diagnostic mode; the live HTTP
+    # path already writes explicit UTF-8 bytes.
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+    # Hermetic behavioral check: serialize fixtures that pin down the exact
+    # ConvertTo-Json quirks above. One JSON document per line; the CI asserts
+    # each line so a PS5.1 regression (empty array -> null, array unrolling,
+    # lost non-ASCII) cannot slip through unnoticed.
+    $Empty = @()
+    $Single = @(@{ name = 'solo' })
+    $Multi = @(@{ n = 1 }, @{ n = 2 })
+    $Fixtures = @(
+        (ConvertTo-EasySkillsJson $Empty),
+        (ConvertTo-EasySkillsJson $Single),
+        (ConvertTo-EasySkillsJson $Multi),
+        (ConvertTo-EasySkillsJson @{ items = @(); nested = @{ inner = @() } }),
+        (ConvertTo-EasySkillsJson @{ ok = $true; flag = $false; nil = $null; cnt = 42 }),
+        (ConvertTo-EasySkillsJson @{ name = '技能'; path = '/路径/技能' }),
+        (ConvertTo-EasySkillsJson @{ q = 'a"B\c' + [char]10 + 'd' }),
+        # PSCustomObject path: /api/mcp always returns config as a PSCustomObject
+        # (from ConvertFrom-Json / [pscustomobject]@{}), never a hashtable. This
+        # fixture mirrors a real server entry and exercises nested PSCustomObject
+        # recursion, a string array value, an empty object, and deep nesting.
+        (ConvertTo-EasySkillsJson ('{"name":"ctx7","args":["-y","--port"],"env":{"KEY":"v"},"empty":{},"nested":{"deep":{"x":1}}}' | ConvertFrom-Json))
+    )
+    foreach ($F in $Fixtures) { Write-Output $F }
+    exit 0
+}
 
 $ErrorActionPreference = 'Continue'
 $script:RestartRequested = $false
 
 function Write-Utf8NoBom([string]$Path, [string]$Content) {
     $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($Path, $Content, $Utf8NoBom)
+    $Parent = Split-Path -Path $Path -Parent
+    if (-not (Test-Path $Parent)) { New-Item -ItemType Directory -Path $Parent -Force | Out-Null }
+    $Leaf = Split-Path -Path $Path -Leaf
+    $TempPath = Join-Path $Parent (".$Leaf.$([guid]::NewGuid().ToString('N')).tmp")
+    try {
+        [System.IO.File]::WriteAllText($TempPath, $Content, $Utf8NoBom)
+        if (Test-Path $Path) {
+            [System.IO.File]::Replace($TempPath, $Path, $null)
+        } else {
+            [System.IO.File]::Move($TempPath, $Path)
+        }
+    } finally {
+        if (Test-Path $TempPath) { Remove-Item -LiteralPath $TempPath -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 # Port must match webui.py:PORT (the single source of truth for the server).
@@ -29,6 +150,17 @@ $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 # the skill scan resolve to the wrong place.
 $CentralDir = Split-Path -Path (Split-Path -Path $ScriptDir -Parent) -Parent
 
+# Dynamically resolve to the official home installation before deriving any
+# token, log, or runtime paths.  Initializing those files first would leave a
+# repository checkout's backend using stale state even after switching to the
+# installed copy under $Home\EasySkills.
+$HomeCentralDir = Join-Path $Home "EasySkills"
+$RepoGitDir = Join-Path $CentralDir ".git"
+if ((Test-Path $HomeCentralDir) -and -not (Test-Path $RepoGitDir)) {
+    $CentralDir = $HomeCentralDir
+    $ScriptDir = Join-Path $HomeCentralDir "EasySkills维护工具/.engine"
+}
+
 # Keep this long-running process's working directory OUTSIDE the engine dir so a
 # self-update / rollback can rename that directory without a sharing violation.
 try { [System.IO.Directory]::SetCurrentDirectory($CentralDir) } catch {}
@@ -39,37 +171,40 @@ $TokenFile = Join-Path $ScriptDir ".easyskills-token"
 function Initialize-WebUIToken {
     $EnvToken = $env:EASYSKILLS_WEBUI_TOKEN
     if ($EnvToken) { return $EnvToken }
-    if (Test-Path $TokenFile) {
-        $Saved = (Get-Content $TokenFile -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
-        if ($Saved -and $Saved.Length -ge 16) { return $Saved }
-    }
-    $New = [Guid]::NewGuid().ToString("N") + [Guid]::NewGuid().ToString("N").Substring(0, 16)
+    $TokenMutex = New-Object System.Threading.Mutex($false, "Local\EasySkillsWebUIToken")
+    $Held = $false
     try {
-        # Atomic create: throws if file already exists
-        $Fs = [System.IO.File]::Open($TokenFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-        $Writer = [System.IO.StreamWriter]::new($Fs)
-        $Writer.Write($New)
-        $Writer.Close()
-        $Fs.Close()
-    } catch [System.IO.IOException] {
-        # File already exists — another process won the race. Read their token with retries.
-        for ($i = 0; $i -lt 3; $i++) {
+        try {
+            $Held = $TokenMutex.WaitOne(5000)
+        } catch [System.Threading.AbandonedMutexException] {
+            # Ownership is transferred to this process when the prior owner
+            # exited without releasing the mutex.
+            $Held = $true
+        }
+        if (-not $Held) { throw "Timed out waiting for the WebUI token lock." }
+
+        if (Test-Path $TokenFile) {
             $Saved = (Get-Content $TokenFile -ErrorAction SilentlyContinue | Select-Object -First 1)
             if ($Saved) { $Saved = $Saved.Trim() }
             if ($Saved -and $Saved.Length -ge 16) { return $Saved }
-            Start-Sleep -Milliseconds 50
         }
-        throw "Token file exists but could not be read after 3 retries."
-    } catch {
-        Write-Warning "Could not persist WebUI token: $_"
+
+        # Reclaim empty, truncated, or invalid token files atomically. A stable
+        # named mutex prevents concurrent backends from generating different
+        # in-memory tokens while File.Replace swaps the on-disk value.
+        $New = [Guid]::NewGuid().ToString("N") + [Guid]::NewGuid().ToString("N").Substring(0, 16)
+        Write-Utf8NoBom $TokenFile $New
+        return $New
+    } finally {
+        if ($Held) { try { $TokenMutex.ReleaseMutex() } catch {} }
+        $TokenMutex.Dispose()
     }
-    return $New
 }
-$WebUIToken = Initialize-WebUIToken
+$WebUIToken = if ($Doctor) { "" } else { Initialize-WebUIToken }
 
 $WebUILogDir  = Join-Path $ScriptDir "logs"
 $WebUILogFile = Join-Path $WebUILogDir "webui.log"
-if (-not (Test-Path $WebUILogDir)) {
+if (-not $Doctor -and -not (Test-Path $WebUILogDir)) {
     try { New-Item -ItemType Directory -Path $WebUILogDir -Force | Out-Null } catch {}
 }
 function Write-WebUILog([string]$Message) {
@@ -84,14 +219,64 @@ function Write-WebUILog([string]$Message) {
     } catch {}
 }
 
-# Dynamically resolve to official home directory installation if it exists.
-# $CentralDir is already the true root (two parents above .engine), so the
-# "are we in a git checkout?" guard can check it directly.
-$HomeCentralDir = Join-Path $Home "EasySkills"
-$RepoGitDir = Join-Path $CentralDir ".git"
-if ((Test-Path $HomeCentralDir) -and -not (Test-Path $RepoGitDir)) {
-    $CentralDir = $HomeCentralDir
-    $ScriptDir = Join-Path $HomeCentralDir "EasySkills维护工具/.engine"
+# Keep direct WebUI mutations consistent with deploy.ps1's system-wide lock.
+# Child deploy.ps1 invocations acquire the same mutex themselves; therefore
+# callers must hold this lock only around direct file/link mutations and release
+# it before invoking Run-DeployCommand.
+ $script:DeployLockDepth = 0
+ $script:DeployLockMutex = $null
+
+function Test-InheritedDeployLock {
+    if ($env:EASYSKILLS_DEPLOY_LOCK_HELD -ne "1") { return $false }
+    $OwnerPid = 0
+    if (-not [int]::TryParse([string]$env:EASYSKILLS_DEPLOY_LOCK_PID, [ref]$OwnerPid)) { return $false }
+    if ($OwnerPid -le 0 -or $OwnerPid -eq $PID) { return $false }
+    try {
+        [void](Get-Process -Id $OwnerPid -ErrorAction Stop)
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Invoke-WithDeployLock([scriptblock]$Action) {
+    if ($script:DeployLockDepth -gt 0) {
+        $script:DeployLockDepth++
+        try { return (& $Action) }
+        finally { $script:DeployLockDepth-- }
+    }
+
+    # Child deploy/webui processes inherit this marker from a parent that
+    # already owns the named mutex.  Re-enter the parent's critical section
+    # instead of waiting on the same mutex and deadlocking the request.
+    if (Test-InheritedDeployLock) {
+        return (& $Action)
+    }
+
+    $Mutex = New-Object System.Threading.Mutex($false, "Global\EasySkillsDeploy")
+    $script:DeployLockMutex = $Mutex
+    $Held = $false
+    try {
+        try {
+            $Held = $Mutex.WaitOne(10000)
+        } catch [System.Threading.AbandonedMutexException] {
+            # .NET transfers ownership to this process after an abandoned
+            # mutex, so the mutation can proceed safely.
+            $Held = $true
+        }
+        if (-not $Held) {
+            return @{ success = $false; message = "Another EasySkills synchronization is still running. Please retry shortly." }
+        }
+        $script:DeployLockDepth = 1
+        return (& $Action)
+    } finally {
+        if ($Held) {
+            $script:DeployLockDepth = 0
+            try { $Mutex.ReleaseMutex() } catch {}
+        }
+        $script:DeployLockMutex = $null
+        $Mutex.Dispose()
+    }
 }
 
 $CustomTargetsFile = Join-Path -Path $ScriptDir -ChildPath "custom-targets.txt"
@@ -125,6 +310,58 @@ function Get-DefaultMCPConfig {
     }
 }
 
+function Test-MCPRuntimeValueSyntax([string]$Value) {
+    $Marker = [char]0 + "EASYSKILLS_ESCAPED_ENV_REFERENCE" + [char]0
+    $Escaped = $Value.Replace('$${env:', $Marker)
+    $WithoutValidReferences = [regex]::Replace($Escaped, '\$\{env:[A-Za-z_][A-Za-z0-9_]*\}', '')
+    return -not $WithoutValidReferences.Contains('${env:')
+}
+
+function Test-MCPToolPatternSyntax([string]$Pattern) {
+    $Index = 0
+    while ($Index -lt $Pattern.Length) {
+        $Char = $Pattern[$Index]
+        if ($Char -eq '\') {
+            if ($Index + 1 -ge $Pattern.Length) { return $false }
+            $Index += 2
+            continue
+        }
+        if ($Char -ne '[') {
+            $Index++
+            continue
+        }
+
+        $Index++
+        if ($Index -lt $Pattern.Length -and $Pattern[$Index] -eq '^') { $Index++ }
+        $Ranges = 0
+        while ($true) {
+            if ($Index -lt $Pattern.Length -and $Pattern[$Index] -eq ']' -and $Ranges -gt 0) {
+                $Index++
+                break
+            }
+            if ($Index -ge $Pattern.Length -or $Pattern[$Index] -eq '-' -or $Pattern[$Index] -eq ']') { return $false }
+            if ($Pattern[$Index] -eq '\') {
+                $Index++
+                if ($Index -ge $Pattern.Length) { return $false }
+            }
+            $Index++
+            if ($Index -ge $Pattern.Length) { return $false }
+            if ($Pattern[$Index] -eq '-') {
+                $Index++
+                if ($Index -ge $Pattern.Length -or $Pattern[$Index] -eq '-' -or $Pattern[$Index] -eq ']') { return $false }
+                if ($Pattern[$Index] -eq '\') {
+                    $Index++
+                    if ($Index -ge $Pattern.Length) { return $false }
+                }
+                $Index++
+                if ($Index -ge $Pattern.Length) { return $false }
+            }
+            $Ranges++
+        }
+    }
+    return $true
+}
+
 function Test-MCPConfig($ConfigData) {
     if (-not $ConfigData) { return @{ success = $false; message = "MCP configuration must be a JSON object." } }
     $AllowedTop = @("version", "servers", "profiles")
@@ -139,7 +376,11 @@ function Test-MCPConfig($ConfigData) {
     }
     if ($null -eq $ConfigData.servers) { return @{ success = $false; message = "servers must be a JSON object." } }
     if ($ConfigData.servers -isnot [System.Management.Automation.PSCustomObject]) { return @{ success = $false; message = "servers must be a JSON object." } }
-    if ($null -ne $ConfigData.profiles -and $ConfigData.profiles -isnot [System.Management.Automation.PSCustomObject]) {
+    $ProfilesProperty = $ConfigData.PSObject.Properties["profiles"]
+    if ($null -ne $ProfilesProperty -and $null -eq $ConfigData.profiles) {
+        return @{ success = $false; message = "profiles must be a JSON object." }
+    }
+    if ($null -ne $ProfilesProperty -and $ConfigData.profiles -isnot [System.Management.Automation.PSCustomObject]) {
         return @{ success = $false; message = "profiles must be a JSON object." }
     }
     $NamePattern = '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
@@ -159,35 +400,50 @@ function Test-MCPConfig($ConfigData) {
                 return @{ success = $false; message = "Server '$Name' has unknown fields: $($Prop.Name)" }
             }
         }
-        if ($null -ne $Server.enabled -and $Server.enabled -isnot [bool]) {
+        $EnabledProperty = $Server.PSObject.Properties["enabled"]
+        if ($null -ne $EnabledProperty -and $null -eq $Server.enabled) {
             return @{ success = $false; message = "Server '$Name' enabled must be a boolean." }
         }
-        if ($null -ne $Server.required -and $Server.required -isnot [bool]) {
+        if ($null -ne $EnabledProperty -and $Server.enabled -isnot [bool]) {
+            return @{ success = $false; message = "Server '$Name' enabled must be a boolean." }
+        }
+        $RequiredProperty = $Server.PSObject.Properties["required"]
+        if ($null -ne $RequiredProperty -and $null -eq $Server.required) {
+            return @{ success = $false; message = "Server '$Name' required must be a boolean." }
+        }
+        if ($null -ne $RequiredProperty -and $Server.required -isnot [bool]) {
             return @{ success = $false; message = "Server '$Name' required must be a boolean." }
         }
         if ($null -eq $Server.transport -or $Server.transport -isnot [string]) {
             return @{ success = $false; message = "Server '$Name' transport must be a string." }
         }
-        if ($null -ne $Server.cwd -and $Server.cwd -isnot [string]) {
-            return @{ success = $false; message = "Server '$Name' cwd must be a string." }
+        foreach ($TypedField in @("cwd", "command", "url")) {
+            $TypedProperty = $Server.PSObject.Properties[$TypedField]
+            if ($null -ne $TypedProperty -and ($null -eq $Server.$TypedField -or $Server.$TypedField -isnot [string])) {
+                return @{ success = $false; message = "Server '$Name' $TypedField must be a string." }
+            }
         }
-        if ($null -ne $Server.command -and $Server.command -isnot [string]) {
-            return @{ success = $false; message = "Server '$Name' command must be a string." }
-        }
-        if ($null -ne $Server.url -and $Server.url -isnot [string]) {
-            return @{ success = $false; message = "Server '$Name' url must be a string." }
+        foreach ($ScalarField in @("command", "cwd", "url")) {
+            $ScalarValue = [string]$Server.$ScalarField
+            if ($ScalarValue.Contains([char]0)) {
+                return @{ success = $false; message = "Server '$Name' $ScalarField must not contain NUL." }
+            }
         }
         if ($null -ne $Server.startup_timeout_seconds) {
             $val = $Server.startup_timeout_seconds
             if ($val -is [bool] -or ($val -isnot [int] -and $val -isnot [long]) -or $val -lt 0 -or $val -gt 600) {
                 return @{ success = $false; message = "Server '$Name' startup_timeout_seconds must be an integer from 0 to 600." }
             }
+        } elseif ($null -ne $Server.PSObject.Properties["startup_timeout_seconds"]) {
+            return @{ success = $false; message = "Server '$Name' startup_timeout_seconds must be an integer from 0 to 600." }
         }
         if ($null -ne $Server.tool_timeout_seconds) {
             $val = $Server.tool_timeout_seconds
             if ($val -is [bool] -or ($val -isnot [int] -and $val -isnot [long]) -or $val -lt 0 -or $val -gt 3600) {
                 return @{ success = $false; message = "Server '$Name' tool_timeout_seconds must be an integer from 0 to 3600." }
             }
+        } elseif ($null -ne $Server.PSObject.Properties["tool_timeout_seconds"]) {
+            return @{ success = $false; message = "Server '$Name' tool_timeout_seconds must be an integer from 0 to 3600." }
         }
         if ($null -ne $Server.args) {
             if ($Server.args -isnot [array]) {
@@ -196,6 +452,9 @@ function Test-MCPConfig($ConfigData) {
             foreach ($arg in $Server.args) {
                 if ($arg -isnot [string]) {
                     return @{ success = $false; message = "Server '$Name' args must be an array of strings." }
+                }
+                if ($arg.Contains([char]0)) {
+                    return @{ success = $false; message = "Server '$Name' args must not contain NUL." }
                 }
             }
         }
@@ -208,6 +467,9 @@ function Test-MCPConfig($ConfigData) {
                 foreach ($item in $val) {
                     if ($item -isnot [string]) {
                         return @{ success = $false; message = "Server '$Name' $list_field must be an array of strings." }
+                    }
+                    if (-not (Test-MCPToolPatternSyntax $item)) {
+                        return @{ success = $false; message = "Server '$Name' $list_field contains invalid pattern '$item'." }
                     }
                 }
             }
@@ -222,6 +484,20 @@ function Test-MCPConfig($ConfigData) {
                     if ($Prop.Value -isnot [string]) {
                         return @{ success = $false; message = "Server '$Name' $map_field must be an object of string values." }
                     }
+                    $MapKey = [string]$Prop.Name
+                    $MapValue = [string]$Prop.Value
+                    if ($map_field -eq "env" -and (-not $MapKey -or $MapKey.Contains("=") -or $MapKey.Contains([char]0))) {
+                        return @{ success = $false; message = "Server '$Name' env '$MapKey' has an invalid variable name." }
+                    }
+                    if ($map_field -eq "headers" -and $MapKey -notmatch '^[!#$%&''*+\-.^_`|~0-9A-Za-z]+$') {
+                        return @{ success = $false; message = "Server '$Name' header '$MapKey' has an invalid HTTP field name." }
+                    }
+                    if ($MapValue.Contains([char]0) -or ($map_field -eq "headers" -and ($MapValue.Contains("`r") -or $MapValue.Contains("`n")))) {
+                        return @{ success = $false; message = "Server '$Name' $map_field '$MapKey' contains invalid control characters." }
+                    }
+                    if (-not (Test-MCPRuntimeValueSyntax ([string]$Prop.Value))) {
+                        return @{ success = $false; message = "Server '$Name' $map_field '$($Prop.Name)' has an invalid environment reference; expected `${env:NAME}." }
+                    }
                 }
             }
         }
@@ -231,8 +507,12 @@ function Test-MCPConfig($ConfigData) {
             if (-not ([string]$Server.command).Trim()) { return @{ success = $false; message = "Server '$Name' requires command for stdio." } }
         } elseif ($Transport -eq "http" -or $Transport -eq "sse") {
             try {
-                $Uri = [System.Uri]([string]$Server.url)
-                if (-not $Uri.IsAbsoluteUri -or $Uri.Scheme -notin @("http", "https")) { throw "invalid" }
+                $RawUrl = [string]$Server.url
+                if ($RawUrl -ne $RawUrl.Trim() -or $RawUrl -match '\s' -or $RawUrl.Contains('\') -or $RawUrl.Contains([char]0)) { throw "invalid" }
+                if ($RawUrl -match '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*:$') { throw "invalid" }
+                $Uri = [System.Uri]$RawUrl
+                $Scheme = $Uri.Scheme.ToLowerInvariant()
+                if (-not $Uri.IsAbsoluteUri -or $Uri.Host -eq "" -or $Scheme -notin @("http", "https") -or $Uri.UserInfo -or $Uri.Port -lt 1 -or $Uri.Port -gt 65535) { throw "invalid" }
             } catch { return @{ success = $false; message = "Server '$Name' requires a valid http(s) URL." } }
         } else {
             return @{ success = $false; message = "Server '$Name' transport must be stdio, http, streamable-http, or sse." }
@@ -260,6 +540,9 @@ function Test-MCPConfig($ConfigData) {
                         if ($item -isnot [string]) {
                             return @{ success = $false; message = "Profile '$($Property.Name)' $($PProp.Name) must be an array of strings." }
                         }
+                        if ($PProp.Name -ne "servers" -and -not (Test-MCPToolPatternSyntax $item)) {
+                            return @{ success = $false; message = "Profile '$($Property.Name)' $($PProp.Name) contains invalid pattern '$item'." }
+                        }
                     }
                 }
             }
@@ -276,6 +559,8 @@ function Test-MCPConfig($ConfigData) {
 
 function Get-MCPConfigObject {
     if (-not (Test-Path $MCPConfigFile -PathType Leaf)) { return (Get-DefaultMCPConfig) }
+    $ConfigInfo = Get-Item $MCPConfigFile -ErrorAction Stop
+    if ($ConfigInfo.Length -gt 1048576) { throw "MCP configuration exceeds the 1 MB limit." }
     return (Get-Content $MCPConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json)
 }
 
@@ -287,10 +572,46 @@ function Get-MCPGatewayInfo {
     }
     $Installed = Test-Path $Path -PathType Leaf
     $Version = ""
+    $VersionNumber = ""
+    $ExpectedVersion = Get-EasySkillsVersion
+    $VersionMatches = $null
     if ($Installed) {
         try { $Version = (& $Path version 2>$null | Select-Object -First 1) } catch {}
+        if ([string]$Version -match '^easyskills-mcp\s+([^\s]+)\s+\(') {
+            $VersionNumber = $Matches[1]
+            if ($ExpectedVersion -ne "unknown") { $VersionMatches = ($VersionNumber -eq $ExpectedVersion) }
+        }
     }
-    return @{ installed = [bool]$Installed; path = $Path; version = [string]$Version }
+    return @{
+        installed = [bool]$Installed
+        path = $Path
+        version = [string]$Version
+        version_number = [string]$VersionNumber
+        expected_version = [string]$ExpectedVersion
+        version_matches = $VersionMatches
+    }
+}
+
+function Install-MCPGatewayForEngine([string]$EngineDir, [string]$SourceDir = "") {
+    $Installer = Join-Path $EngineDir "install-gateway.ps1"
+    if (-not (Test-Path $Installer -PathType Leaf)) {
+        return @{ attempted = $false; success = $true; message = "" }
+    }
+    try {
+        $CommandArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $Installer)
+        if ($SourceDir -and (Test-Path $SourceDir -PathType Container)) {
+            $CommandArgs += @("-SourceDir", $SourceDir)
+        }
+        $Output = (& powershell @CommandArgs 2>&1 | Out-String).Trim()
+        $ExitCode = $LASTEXITCODE
+        return @{
+            attempted = $true
+            success = ($ExitCode -eq 0)
+            message = if ($Output.Length -gt 4000) { $Output.Substring($Output.Length - 4000) } else { $Output }
+        }
+    } catch {
+        return @{ attempted = $true; success = $false; message = [string]$_ }
+    }
 }
 
 function Get-MCPConfigData {
@@ -310,12 +631,18 @@ function Get-MCPConfigData {
     }
 }
 
-function Save-MCPConfig($ConfigData) {
+function Save-MCPConfig-Core($ConfigData) {
     $Validation = Test-MCPConfig $ConfigData
     if (-not $Validation.success) { return $Validation }
     try {
         if (-not (Test-Path $MCPDir)) { New-Item -ItemType Directory -Path $MCPDir -Force | Out-Null }
-        if (Test-Path $MCPConfigFile -PathType Leaf) { Copy-Item $MCPConfigFile $MCPConfigBackupFile -Force }
+        if (Test-Path $MCPConfigFile -PathType Leaf) {
+            # Write the snapshot through the same atomic replacement gate as
+            # the live config. This replaces a pre-existing backup link instead
+            # of following it into an unrelated user file.
+            $ExistingConfig = [System.IO.File]::ReadAllText($MCPConfigFile, [System.Text.Encoding]::UTF8)
+            Write-Utf8Atomic-Core $MCPConfigBackupFile $ExistingConfig
+        }
         $Json = $ConfigData | ConvertTo-Json -Depth 20
         if ([System.Text.Encoding]::UTF8.GetByteCount($Json) -gt 1048576) {
             return @{ success = $false; message = "MCP configuration exceeds the 1 MB limit." }
@@ -327,7 +654,11 @@ function Save-MCPConfig($ConfigData) {
     }
 }
 
-function Add-MCPServer([string]$Name, $ServerData) {
+function Save-MCPConfig($ConfigData) {
+    return Invoke-WithDeployLock { Save-MCPConfig-Core $ConfigData }
+}
+
+function Add-MCPServer-Core([string]$Name, $ServerData) {
     $Clean = $Name.Trim()
     if ($Clean -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') {
         return @{ success = $false; message = "Server name must use letters, numbers, dot, underscore, or hyphen." }
@@ -335,19 +666,27 @@ function Add-MCPServer([string]$Name, $ServerData) {
     try { $Data = Get-MCPConfigObject } catch { return @{ success = $false; message = "Could not read MCP config: $_" } }
     if ($Data.servers.PSObject.Properties[$Clean]) { return @{ success = $false; message = "MCP server '$Clean' already exists." } }
     $Data.servers | Add-Member -MemberType NoteProperty -Name $Clean -Value $ServerData
-    return Save-MCPConfig $Data
+    return Save-MCPConfig-Core $Data
 }
 
-function Update-MCPServer([string]$Name, $ServerData) {
+function Add-MCPServer([string]$Name, $ServerData) {
+    return Invoke-WithDeployLock { Add-MCPServer-Core $Name $ServerData }
+}
+
+function Update-MCPServer-Core([string]$Name, $ServerData) {
     $Clean = $Name.Trim()
     try { $Data = Get-MCPConfigObject } catch { return @{ success = $false; message = "Could not read MCP config: $_" } }
     $Property = $Data.servers.PSObject.Properties[$Clean]
     if (-not $Property) { return @{ success = $false; message = "MCP server '$Clean' does not exist." } }
     $Property.Value = $ServerData
-    return Save-MCPConfig $Data
+    return Save-MCPConfig-Core $Data
 }
 
-function Remove-MCPServer([string]$Name) {
+function Update-MCPServer([string]$Name, $ServerData) {
+    return Invoke-WithDeployLock { Update-MCPServer-Core $Name $ServerData }
+}
+
+function Remove-MCPServer-Core([string]$Name) {
     $Clean = $Name.Trim()
     try { $Data = Get-MCPConfigObject } catch { return @{ success = $false; message = "Could not read MCP config: $_" } }
     if (-not $Data.servers.PSObject.Properties[$Clean]) { return @{ success = $false; message = "MCP server '$Clean' does not exist." } }
@@ -355,7 +694,11 @@ function Remove-MCPServer([string]$Name) {
     foreach ($Profile in @($Data.profiles.PSObject.Properties)) {
         $Profile.Value.servers = @($Profile.Value.servers | Where-Object { $_ -ne $Clean })
     }
-    return Save-MCPConfig $Data
+    return Save-MCPConfig-Core $Data
+}
+
+function Remove-MCPServer([string]$Name) {
+    return Invoke-WithDeployLock { Remove-MCPServer-Core $Name }
 }
 
 function Test-MCPGateway([string]$Profile = "default", [string]$ServerName = "") {
@@ -414,10 +757,30 @@ function Test-MCPGateway([string]$Profile = "default", [string]$ServerName = "")
     }
 }
 
+function Get-TargetPathFromLine([string]$Line) {
+    $Stripped = if ($null -eq $Line) { "" } else { $Line.Trim() }
+    if (-not $Stripped -or $Stripped.StartsWith("#")) { return "" }
+    if ($Stripped.Contains("=")) {
+        $Parts = $Stripped.Split("=", 2)
+        $Prefix = $Parts[0].Trim()
+        $Candidate = $Parts[1].Trim()
+        $CandidateLooksLikePath = $Candidate.StartsWith("/") -or $Candidate.StartsWith("\") -or
+            $Candidate.StartsWith("~") -or $Candidate.StartsWith(".") -or $Candidate.Contains("/") -or
+            $Candidate.Contains("\") -or $Candidate -match '^[A-Za-z]:[\\/]'
+        $PrefixLooksLikePath = $Prefix.StartsWith("/") -or $Prefix.StartsWith("\") -or
+            $Prefix.StartsWith("~") -or $Prefix.StartsWith(".") -or $Prefix.Contains("/") -or
+            $Prefix.Contains("\") -or $Prefix -match '^[A-Za-z]:[\\/]'
+        if ($Prefix -and $CandidateLooksLikePath -and -not $PrefixLooksLikePath) {
+            $Stripped = $Candidate
+        }
+    }
+    return $Stripped
+}
+
 function Add-DisabledTarget([string]$Path) {
-    if (-not $Path) { return }
+    if (-not $Path -or -not $Path.Trim()) { return $false }
     $Path = $Path.Trim()
-    try { $AbsPath = [System.IO.Path]::GetFullPath($Path) } catch { $AbsPath = $Path }
+    try { $AbsPath = Normalize-AgentPath $Path } catch { $AbsPath = $Path }
 
     $Lines = @()
     if (Test-Path $DisabledTargetsFile) {
@@ -426,8 +789,9 @@ function Add-DisabledTarget([string]$Path) {
 
     $Exists = $false
     foreach ($Line in $Lines) {
-        if (-not $Line -or $Line.Trim().StartsWith("#")) { continue }
-        try { $LineAbs = [System.IO.Path]::GetFullPath($Line.Trim()) } catch { $LineAbs = $Line.Trim() }
+        $LinePath = Get-TargetPathFromLine $Line
+        if (-not $LinePath) { continue }
+        try { $LineAbs = Normalize-AgentPath $LinePath } catch { $LineAbs = $LinePath }
         if ($LineAbs -eq $AbsPath) {
             $Exists = $true
             break
@@ -438,25 +802,27 @@ function Add-DisabledTarget([string]$Path) {
         $Lines += $AbsPath
         try {
             Write-Utf8NoBom $DisabledTargetsFile (($Lines -join "`n") + "`n")
-        } catch {}
+        } catch { return $false }
     }
+    return $true
 }
 
 function Remove-DisabledTarget([string]$Path) {
-    if (-not $Path) { return }
+    if (-not $Path -or -not $Path.Trim()) { return $false }
     $Path = $Path.Trim()
-    try { $AbsPath = [System.IO.Path]::GetFullPath($Path) } catch { $AbsPath = $Path }
+    try { $AbsPath = Normalize-AgentPath $Path } catch { $AbsPath = $Path }
 
-    if (-not (Test-Path $DisabledTargetsFile)) { return }
+    if (-not (Test-Path $DisabledTargetsFile -PathType Leaf)) { return $true }
     $Lines = @(Get-Content $DisabledTargetsFile -Encoding UTF8 -ErrorAction SilentlyContinue)
     $NewLines = @()
     $Updated = $false
     foreach ($Line in $Lines) {
-        if (-not $Line -or $Line.Trim().StartsWith("#")) {
+        $LinePath = Get-TargetPathFromLine $Line
+        if (-not $LinePath) {
             $NewLines += $Line
             continue
         }
-        try { $LineAbs = [System.IO.Path]::GetFullPath($Line.Trim()) } catch { $LineAbs = $Line.Trim() }
+        try { $LineAbs = Normalize-AgentPath $LinePath } catch { $LineAbs = $LinePath }
         if ($LineAbs -eq $AbsPath) {
             $Updated = $true
         } else {
@@ -467,8 +833,9 @@ function Remove-DisabledTarget([string]$Path) {
     if ($Updated) {
         try {
             Write-Utf8NoBom $DisabledTargetsFile (($NewLines -join "`n") + "`n")
-        } catch {}
+        } catch { return $false }
     }
+    return $true
 }
 
 function Get-DisabledTargets {
@@ -476,9 +843,9 @@ function Get-DisabledTargets {
     if (Test-Path $DisabledTargetsFile) {
         $Lines = Get-Content $DisabledTargetsFile -Encoding UTF8 -ErrorAction SilentlyContinue
         foreach ($Line in $Lines) {
-            $Stripped = $Line.Trim()
-            if ($Stripped -and -not $Stripped.StartsWith("#")) {
-                try { $Norm = [System.IO.Path]::GetFullPath($Stripped) } catch { $Norm = $Stripped }
+            $Stripped = Get-TargetPathFromLine $Line
+            if ($Stripped) {
+                try { $Norm = Normalize-AgentPath $Stripped } catch { $Norm = $Stripped }
                 $Set[$Norm] = $true
             }
         }
@@ -618,11 +985,12 @@ function Resolve-AgentInstructionPath([string]$Name, [string]$SkillsPath, $Confi
 # Ensure ~/.qoder-cn/skills exists — Qoder CN relies on EasySkills to
 # create the path if it does not already exist.
 $qoderCnSkillsDir = Join-Path $Home ".qoder-cn\skills"
-if (-not (Test-Path $qoderCnSkillsDir)) {
+if (-not $Doctor -and -not (Test-Path $qoderCnSkillsDir)) {
     New-Item -Path $qoderCnSkillsDir -ItemType Directory -Force | Out-Null
 }
 
 $ExcludeNames = @("EasySkills维护工具", ".git", "node_modules", "dist", "docs", "instructions", "mcp", ".runtime", ".maintenance-bak")
+$WindowsReservedFileNames = @("CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9")
 $GitHubRepo = "RunhuaHuang/EasySkills"
 $GitHubApiLatestRelease = "https://api.github.com/repos/$GitHubRepo/releases/latest"
 $GitHubLatestRelease = "https://github.com/$GitHubRepo/releases/latest"
@@ -631,17 +999,184 @@ $TrustedDownloadHosts = @("api.github.com", "github.com", "codeload.github.com",
 
 function Test-TrustedGitHubDownloadUrl([string]$Url) {
     try { $Uri = [System.Uri]$Url } catch { return $false }
-    return ($Uri.Scheme -eq "https") -and ($TrustedDownloadHosts -contains $Uri.Host)
+    $DownloadHostName = $Uri.Host.ToLowerInvariant()
+    $DefaultPort = $Uri.IsDefaultPort -or $Uri.Port -eq 443
+    return ($Uri.Scheme -eq "https") -and
+        [string]::IsNullOrEmpty($Uri.UserInfo) -and
+        $DefaultPort -and
+        ($TrustedDownloadHosts -contains $DownloadHostName)
 }
 
-function Get-WebResponseFinalUrl($Response) {
-    if ($Response -and $Response.BaseResponse.ResponseUri) {
-        return $Response.BaseResponse.ResponseUri.AbsoluteUri
+function Save-BoundedWebFile(
+    [string]$Uri,
+    [string]$Path,
+    [long]$MaxBytes,
+    [string]$LimitMessage,
+    [int]$TimeoutSeconds = 60,
+    [hashtable]$Headers = @{}
+) {
+    Add-Type -AssemblyName System.Net.Http
+    $Handler = [System.Net.Http.HttpClientHandler]::new()
+    $Handler.AllowAutoRedirect = $true
+    $Handler.MaxAutomaticRedirections = 5
+    $Client = [System.Net.Http.HttpClient]::new($Handler)
+    $Client.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
+    $Request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, [System.Uri]$Uri)
+    foreach ($Header in $Headers.GetEnumerator()) {
+        [void]$Request.Headers.TryAddWithoutValidation([string]$Header.Key, [string]$Header.Value)
     }
-    if ($Response -and $Response.BaseResponse.RequestMessage -and $Response.BaseResponse.RequestMessage.RequestUri) {
-        return $Response.BaseResponse.RequestMessage.RequestUri.AbsoluteUri
+    try {
+        $Response = $Client.SendAsync(
+            $Request,
+            [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead
+        ).GetAwaiter().GetResult()
+        try {
+            if (-not $Response.IsSuccessStatusCode) {
+                throw "Download failed with HTTP status $([int]$Response.StatusCode)."
+            }
+            $FinalUri = $Response.RequestMessage.RequestUri
+            if (-not $FinalUri -or $FinalUri.Scheme -ne "https") {
+                throw "Download redirected to a non-HTTPS URL."
+            }
+            if (-not [string]::IsNullOrEmpty($FinalUri.UserInfo)) {
+                throw "Download redirected to a URL containing userinfo."
+            }
+            $DeclaredLength = $Response.Content.Headers.ContentLength
+            if ($null -ne $DeclaredLength -and [long]$DeclaredLength -gt $MaxBytes) { throw $LimitMessage }
+            $InputStream = $Response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+            $OutputStream = [System.IO.File]::Open(
+                $Path,
+                [System.IO.FileMode]::Create,
+                [System.IO.FileAccess]::Write,
+                [System.IO.FileShare]::None
+            )
+            try {
+                $Buffer = New-Object byte[] 65536
+                [long]$Written = 0
+                while (($Read = $InputStream.Read($Buffer, 0, $Buffer.Length)) -gt 0) {
+                    $Written += $Read
+                    if ($Written -gt $MaxBytes) { throw $LimitMessage }
+                    $OutputStream.Write($Buffer, 0, $Read)
+                }
+                $OutputStream.Flush($true)
+            } finally {
+                $OutputStream.Dispose()
+                $InputStream.Dispose()
+            }
+            return $FinalUri.AbsoluteUri
+        } finally {
+            $Response.Dispose()
+        }
+    } catch {
+        Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        throw
+    } finally {
+        $Request.Dispose()
+        $Client.Dispose()
+        $Handler.Dispose()
     }
-    return ""
+}
+
+# Keep WebUI self-update extraction on the same safety contract as the
+# installer. Expand-Archive behavior varies across Windows PowerShell/.NET
+# versions, and a plain path-prefix check does not model ZIP symlink chains.
+function Normalize-ZipPath([string]$Name) {
+    if (-not $Name -or $Name.Contains([char]0)) {
+        throw "Release archive contains an invalid path."
+    }
+    if ($Name.StartsWith('/') -or $Name.StartsWith('\') -or $Name -match '^[A-Za-z]:') {
+        throw "Release archive contains an unsafe path: $Name"
+    }
+    $Parts = $Name.Replace('\', '/').Split('/')
+    $Stack = New-Object System.Collections.Generic.List[string]
+    foreach ($Part in $Parts) {
+        if (-not $Part -or $Part -eq '.') { continue }
+        if ($Part -eq '..') {
+            if ($Stack.Count -eq 0) { throw "Release archive contains an unsafe path: $Name" }
+            [void]$Stack.RemoveAt($Stack.Count - 1)
+            continue
+        }
+        if ($Part.Contains(':')) { throw "Release archive contains an unsafe path: $Name" }
+        [void]$Stack.Add($Part)
+    }
+    return ($Stack -join '/')
+}
+
+function Resolve-ZipVirtualPath([string]$PathName, [hashtable]$Links, [bool]$FollowFinal = $true) {
+    $Current = Normalize-ZipPath $PathName
+    $Visited = @{}
+    for ($Round = 0; $Round -lt 64; $Round++) {
+        $Parts = if ($Current) { $Current.Split('/') } else { @() }
+        $Replaced = $false
+        for ($Index = 1; $Index -le $Parts.Count; $Index++) {
+            $Prefix = ($Parts[0..($Index - 1)] -join '/')
+            if (-not $Links.ContainsKey($Prefix) -or (-not $FollowFinal -and $Index -eq $Parts.Count)) { continue }
+            if ($Visited.ContainsKey($Prefix)) { throw "Release archive contains a cyclic link: $Prefix" }
+            $Target = [string]$Links[$Prefix]
+            if ($Target.StartsWith('/') -or $Target.StartsWith('\') -or $Target -match '^[A-Za-z]:') {
+                throw "Release archive contains an unsafe link: $Prefix"
+            }
+            $Base = if ($Index -gt 1) { ($Parts[0..($Index - 2)] -join '/') } else { '' }
+            $Joined = if ($Base) { "$Base/$Target" } else { $Target }
+            $Replacement = Normalize-ZipPath $Joined
+            $Rest = if ($Index -lt $Parts.Count) { ($Parts[$Index..($Parts.Count - 1)] -join '/') } else { '' }
+            $Current = if ($Rest) { Normalize-ZipPath "$Replacement/$Rest" } else { $Replacement }
+            $Visited[$Prefix] = $true
+            $Replaced = $true
+            break
+        }
+        if (-not $Replaced) { return $Current }
+    }
+    throw "Release archive contains an excessively deep link chain."
+}
+
+function Assert-SafeZipArchive([string]$ZipPath, [string]$DestinationPath) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $Archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        if ($Archive.Entries.Count -gt 10000) {
+            throw "Release archive contains too many entries."
+        }
+        [long]$ExpandedBytes = 0
+        $DestinationRoot = [System.IO.Path]::GetFullPath($DestinationPath).TrimEnd('\\') + '\\'
+        $Seen = @{}
+        $Links = @{}
+        foreach ($Entry in $Archive.Entries) {
+            $ExpandedBytes += [long]$Entry.Length
+            if ($ExpandedBytes -gt 536870912) {
+                throw "Release archive exceeds the 512 MB extracted-size safety limit."
+            }
+            $NormalizedName = Normalize-ZipPath $Entry.FullName
+            if (-not $NormalizedName -or $Seen.ContainsKey($NormalizedName)) {
+                throw "Release archive contains a duplicate path: $($Entry.FullName)"
+            }
+            $Seen[$NormalizedName] = $true
+
+            # GitHub ZIP archives preserve Unix symlink metadata in the upper
+            # mode bits of ExternalAttributes. Validate the complete virtual
+            # graph before Expand-Archive writes anything.
+            $UnixType = (([uint64]$Entry.ExternalAttributes -shr 16) -band 0xF000)
+            if ($UnixType -eq 0xA000) {
+                $LinkStream = $Entry.Open()
+                try {
+                    $Reader = [System.IO.StreamReader]::new($LinkStream, [System.Text.UTF8Encoding]::new($false), $true)
+                    try { $LinkTarget = $Reader.ReadToEnd() } finally { $Reader.Dispose() }
+                } finally { $LinkStream.Dispose() }
+                if (-not $LinkTarget) { throw "Release archive contains an empty symbolic link: $($Entry.FullName)" }
+                $Links[$NormalizedName] = $LinkTarget.TrimEnd([char]0, "`r", "`n")
+            }
+
+            $EntryPath = [System.IO.Path]::GetFullPath((Join-Path $DestinationPath $NormalizedName))
+            if (-not $EntryPath.StartsWith($DestinationRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "Release archive contains an unsafe path: $($Entry.FullName)"
+            }
+        }
+        foreach ($Name in @($Seen.Keys)) {
+            [void](Resolve-ZipVirtualPath $Name $Links $true)
+        }
+    } finally {
+        $Archive.Dispose()
+    }
 }
 
 $VersionFile = Join-Path -Path $ScriptDir -ChildPath ".version"
@@ -913,10 +1448,10 @@ function Get-AgentsData {
     $CustomList = @()
 
     foreach ($Ct in $CustomTargets) {
-        if ($Ct.Contains("=")) {
-            $Parts = $Ct.Split("=", 2)
-            $CtName = $Parts[0].Trim()
-            $CtPath = Normalize-AgentPath $Parts[1]
+        $CtPath = Get-TargetPathFromLine $Ct
+        if ($CtPath -ne $Ct.Trim()) {
+            $CtName = $Ct.Substring(0, $Ct.IndexOf("=")).Trim()
+            $CtPath = Normalize-AgentPath $CtPath
             if (-not $CtPath) { continue }
             if (Is-PromaWorkspaceTarget $CtPath) { continue }
             $CustomOverrides[$CtName] = $CtPath
@@ -1090,6 +1625,10 @@ function Run-DeployCommand([string[]]$ArgsArr) {
         $ProcInfo.RedirectStandardOutput = $true
         $ProcInfo.RedirectStandardError = $true
         $ProcInfo.CreateNoWindow = $true
+        if ($script:DeployLockDepth -gt 0) {
+            $ProcInfo.EnvironmentVariables["EASYSKILLS_DEPLOY_LOCK_HELD"] = "1"
+            $ProcInfo.EnvironmentVariables["EASYSKILLS_DEPLOY_LOCK_PID"] = [string]$PID
+        }
 
         $Process = New-Object System.Diagnostics.Process
         $Process.StartInfo = $ProcInfo
@@ -1123,7 +1662,7 @@ function Run-DeployCommand([string[]]$ArgsArr) {
     }
 }
 
-function Update-AgentPaths(
+function Update-AgentPaths-Core(
     [string]$Name,
     [string]$OldSkillsPath,
     [string]$SkillsPath,
@@ -1141,7 +1680,9 @@ function Update-AgentPaths(
             return @{ success = $false; message = "Instructions file path cannot be empty" }
         }
     }
-    $NewPath = Normalize-AgentPath $SkillsPath
+    $TargetValidation = Resolve-MappingTarget $SkillsPath
+    if (-not $TargetValidation.success) { return $TargetValidation }
+    $NewPath = $TargetValidation.path
     $NewInstructionsPath = Normalize-AgentPath $InstructionsPath
     if ((Test-Path $NewInstructionsPath) -and -not (Test-Path $NewInstructionsPath -PathType Leaf)) {
         return @{ success = $false; message = "Instructions path must point to a file, not a directory" }
@@ -1212,10 +1753,8 @@ function Update-AgentPaths(
         return @{ success = $false; message = "Failed to write Agent path config: $_" }
     }
 
-    Remove-DisabledTarget $OldPath
     $WasMapped = $Current.Count -gt 0 -and [bool]$Current[0].mapped
     if ($WasMapped) {
-        Remove-DisabledTarget $NewPath
         $CleanupWarning = ""
         if ($NewPath -ne $OldPath) {
             $MapResult = Do-Map $NewPath
@@ -1229,20 +1768,44 @@ function Update-AgentPaths(
                 }
             }
             $CleanupResult = Do-Unmap $OldPath
-            Remove-DisabledTarget $OldPath
             if (-not $CleanupResult.success) {
                 $CleanupWarning = " Warning: old skills links at $OldPath could not be fully removed: $($CleanupResult.message)."
+            } elseif (-not (Remove-DisabledTarget $OldPath)) {
+                $CleanupWarning = " Warning: old skills links were removed, but the disabled-target state for $OldPath could not be cleared."
             }
+        } elseif (-not (Remove-DisabledTarget $NewPath)) {
+            $CleanupWarning = " Warning: the Agent is mapped, but the disabled-target state for $NewPath could not be cleared."
         }
     } else {
-        Add-DisabledTarget $NewPath
+        if (-not (Add-DisabledTarget $NewPath)) {
+            return @{
+                success = $false
+                message = "Agent paths were saved, but the disabled-target state for $NewPath could not be persisted."
+                skills_path = $NewPath
+                instructions_path = $NewInstructionsPath
+                partial = $true
+            }
+        }
         $CleanupWarning = ""
     }
-    return @{
+    $Result = @{
         success = $true
         message = "Updated $Name skills and instructions paths.$CleanupWarning"
         skills_path = $NewPath
         instructions_path = $NewInstructionsPath
+    }
+    if ($CleanupWarning) { $Result.partial = $true }
+    return $Result
+}
+
+function Update-AgentPaths(
+    [string]$Name,
+    [string]$OldSkillsPath,
+    [string]$SkillsPath,
+    [string]$InstructionsPath
+) {
+    return Invoke-WithDeployLock {
+        Update-AgentPaths-Core $Name $OldSkillsPath $SkillsPath $InstructionsPath
     }
 }
 
@@ -1257,12 +1820,11 @@ function Update-AgentPath([string]$Name, [string]$OldPath, [string]$NewPath) {
     return (Update-AgentPaths $Name $OldPath $NewPath $InstructionsPath)
 }
 
-function Register-CustomAgent([string]$SkillsPath, [string]$InstructionsPath) {
-    $SkillsPath = Normalize-AgentPath $SkillsPath
+function Register-CustomAgent-Core([string]$SkillsPath, [string]$InstructionsPath) {
+    $SkillsValidation = Resolve-MappingTarget $SkillsPath
+    if (-not $SkillsValidation.success) { return $SkillsValidation }
+    $SkillsPath = $SkillsValidation.path
     $InstructionsPath = Normalize-AgentPath $InstructionsPath
-    if (-not $SkillsPath) {
-        return @{ success = $false; message = "Skills path cannot be empty" }
-    }
     if (-not $InstructionsPath) {
         return @{ success = $false; message = "Instructions file path cannot be empty" }
     }
@@ -1272,7 +1834,7 @@ function Register-CustomAgent([string]$SkillsPath, [string]$InstructionsPath) {
 
     $WasRegistered = $false
     foreach ($Target in @(Get-CustomTargets)) {
-        $TargetPath = if ($Target.Contains("=")) { $Target.Split("=", 2)[1].Trim() } else { $Target.Trim() }
+        $TargetPath = Get-TargetPathFromLine $Target
         if ((Normalize-AgentPath $TargetPath) -eq $SkillsPath) {
             $WasRegistered = $true
             break
@@ -1307,7 +1869,13 @@ function Register-CustomAgent([string]$SkillsPath, [string]$InstructionsPath) {
     }
 }
 
-function Remove-CustomAgent([string]$SkillsPath) {
+function Register-CustomAgent([string]$SkillsPath, [string]$InstructionsPath) {
+    # Run-DeployCommand inherits this parent's lock marker, so the complete
+    # deploy + metadata transaction remains serialized without deadlocking.
+    return Invoke-WithDeployLock { Register-CustomAgent-Core $SkillsPath $InstructionsPath }
+}
+
+function Remove-CustomAgent-Core([string]$SkillsPath) {
     $SkillsPath = Normalize-AgentPath $SkillsPath
     $Result = Run-DeployCommand @("-Remove", $SkillsPath)
     if (-not $Result.success) { return $Result }
@@ -1327,14 +1895,42 @@ function Remove-CustomAgent([string]$SkillsPath) {
     return $Result
 }
 
-function Do-Map([string]$TargetPath) {
-    if (-not $TargetPath -or -not $TargetPath.Trim()) {
+function Remove-CustomAgent([string]$SkillsPath) {
+    return Invoke-WithDeployLock { Remove-CustomAgent-Core $SkillsPath }
+}
+
+function Resolve-MappingTarget([string]$PathStr) {
+    if (-not $PathStr -or -not $PathStr.Trim()) {
         return @{ success = $false; message = "Target path cannot be empty" }
     }
-    $TargetPath = $TargetPath.Trim()
-    Remove-DisabledTarget $TargetPath
+    $Normalized = Normalize-AgentPath $PathStr
+    if (-not $Normalized) {
+        return @{ success = $false; message = "Target path cannot be empty" }
+    }
+    if (Test-Path -LiteralPath $Normalized) {
+        if (-not (Test-Path -LiteralPath $Normalized -PathType Container)) {
+            return @{ success = $false; message = "Target path must be a directory" }
+        }
+        try { $Resolved = (Resolve-Path -LiteralPath $Normalized -ErrorAction Stop).ProviderPath }
+        catch { $Resolved = $Normalized }
+    } else {
+        $Resolved = $Normalized
+    }
+    try { $CentralResolved = (Resolve-Path -LiteralPath $CentralDir -ErrorAction Stop).ProviderPath }
+    catch { $CentralResolved = Normalize-AgentPath $CentralDir }
+    if ($Resolved.Equals($CentralResolved, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $Resolved.StartsWith("$CentralResolved\", [System.StringComparison]::OrdinalIgnoreCase)) {
+        return @{ success = $false; message = "Target path cannot be the EasySkills library or one of its subdirectories" }
+    }
+    return @{ success = $true; path = $Normalized }
+}
+
+function Do-Map-Core([string]$TargetPath) {
+    $Validation = Resolve-MappingTarget $TargetPath
+    if (-not $Validation.success) { return $Validation }
+    $TargetPath = $Validation.path
     try {
-        if (!(Test-Path $TargetPath)) {
+        if (!(Test-Path -LiteralPath $TargetPath -PathType Container)) {
             New-Item -ItemType Directory -Path $TargetPath -Force | Out-Null
         }
         # Per-skill links
@@ -1363,6 +1959,9 @@ function Do-Map([string]$TargetPath) {
                 New-Item -ItemType Junction -Path $Dest -Value $Skill.FullName | Out-Null
             }
         }
+        if (-not (Remove-DisabledTarget $TargetPath)) {
+            return @{ success = $false; partial = $true; message = "Skills were mapped, but the disabled-target state could not be updated; please retry" }
+        }
         $Message = "Mapped to $TargetPath"
         if ($Conflicts.Count -gt 0) {
             $Message += " (preserved $($Conflicts.Count) foreign link conflict(s): $($Conflicts -join ', '))"
@@ -1371,6 +1970,10 @@ function Do-Map([string]$TargetPath) {
     } catch {
         return @{ success = $false; message = $_.Exception.Message }
     }
+}
+
+function Do-Map([string]$TargetPath) {
+    return Invoke-WithDeployLock { Do-Map-Core $TargetPath }
 }
 
 function Get-PayloadValue($Item, [string]$Name) {
@@ -1387,13 +1990,26 @@ function Get-PayloadValue($Item, [string]$Name) {
 function Test-SkillName([string]$Name) {
     $Clean = if ($Name) { $Name.Trim() } else { "" }
     if (-not $Clean) { return @{ ok = $false; value = "Skill name cannot be empty" } }
+    if ($Clean -ne $Name) { return @{ ok = $false; value = "Invalid skill name" } }
     if ($Clean.StartsWith("_") -or $Clean.StartsWith(".") -or ($ExcludeNames -contains $Clean)) {
         return @{ ok = $false; value = "Reserved skill name" }
     }
-    if ($Clean.Contains("/") -or $Clean.Contains("\") -or $Clean.Contains([char]0) -or $Clean -eq "." -or $Clean -eq "..") {
+    $BaseName = $Clean.Split('.')[0].ToUpperInvariant()
+    if ($Clean -match '[<>:"/\\|?*\x00-\x1F]' -or $Clean.EndsWith(".") -or $Clean.EndsWith(" ") -or ($WindowsReservedFileNames -contains $BaseName) -or $Clean -eq "." -or $Clean -eq "..") {
         return @{ ok = $false; value = "Invalid skill name" }
     }
     return @{ ok = $true; value = $Clean }
+}
+
+function Find-CaseInsensitiveChild([string]$Directory, [string]$Name) {
+    if (-not (Test-Path $Directory -PathType Container)) { return $null }
+    try {
+        return Get-ChildItem -LiteralPath $Directory -Force -ErrorAction Stop |
+            Where-Object { $_.Name.Equals($Name, [System.StringComparison]::OrdinalIgnoreCase) } |
+            Select-Object -First 1
+    } catch {
+        return $null
+    }
 }
 
 function ConvertTo-SafeRelativePath([string]$PathValue) {
@@ -1403,11 +2019,15 @@ function ConvertTo-SafeRelativePath([string]$PathValue) {
     $Parts = $Normalized.Split("/")
     foreach ($Part in $Parts) {
         if (-not $Part -or $Part -eq "." -or $Part -eq "..") { return $null }
+        $BaseName = $Part.Split('.')[0].ToUpperInvariant()
+        if ($Part -match '[<>:"/\\|?*\x00-\x1F]' -or $Part.EndsWith(".") -or $Part.EndsWith(" ") -or ($WindowsReservedFileNames -contains $BaseName)) {
+            return $null
+        }
     }
     return ($Parts -join [System.IO.Path]::DirectorySeparatorChar)
 }
 
-function Import-SkillFolder([string]$Name, $Files) {
+function Import-SkillFolder-Core([string]$Name, $Files) {
     $NameCheck = Test-SkillName $Name
     if (-not $NameCheck.ok) { return @{ success = $false; message = $NameCheck.value } }
     $CleanName = $NameCheck.value
@@ -1422,13 +2042,21 @@ function Import-SkillFolder([string]$Name, $Files) {
     if (Test-Path $Target) {
         return @{ success = $false; message = "Skill already exists: $CleanName" }
     }
+    $Collision = Find-CaseInsensitiveChild $CentralDir $CleanName
+    if ($Collision) {
+        return @{ success = $false; message = "Skill name conflicts case-insensitively with: $($Collision.Name)" }
+    }
 
     $Prepared = @()
+    $SeenPaths = @{}
     $HasSkillMd = $false
     foreach ($File in @($Files)) {
         $RelRaw = [string](Get-PayloadValue $File "path")
         $Rel = ConvertTo-SafeRelativePath $RelRaw
         if (-not $Rel) { return @{ success = $false; message = "Invalid file path in upload" } }
+        $Folded = $Rel.Replace('\', '/').ToLowerInvariant()
+        if ($SeenPaths.ContainsKey($Folded)) { return @{ success = $false; message = "Duplicate file path in upload: $RelRaw" } }
+        $SeenPaths[$Folded] = $true
         $Data = Get-PayloadValue $File "data"
         if (-not ($Data -is [string])) {
             return @{ success = $false; message = "Invalid file data: $RelRaw" }
@@ -1465,10 +2093,16 @@ function Import-SkillFolder([string]$Name, $Files) {
     $Sync = Run-DeployCommand @("-Sync")
     $Msg = "Imported $CleanName"
     if ($Sync.message) { $Msg = "$Msg`n$($Sync.message)" }
-    return @{ success = $true; message = $Msg; skill = $CleanName }
+    $Result = @{ success = $true; message = $Msg; skill = $CleanName; sync_success = [bool]$Sync.success }
+    if (-not $Sync.success) { $Result.partial = $true }
+    return $Result
 }
 
-function Delete-Skill([string]$Name) {
+function Import-SkillFolder([string]$Name, $Files) {
+    return Invoke-WithDeployLock { Import-SkillFolder-Core $Name $Files }
+}
+
+function Delete-Skill-Core([string]$Name) {
     $NameCheck = Test-SkillName $Name
     if (-not $NameCheck.ok) { return @{ success = $false; message = $NameCheck.value } }
     $CleanName = $NameCheck.value
@@ -1497,7 +2131,13 @@ function Delete-Skill([string]$Name) {
     foreach ($Result in @($Cleanup, $Sync)) {
         if ($Result.message) { $Msg = "$Msg`n$($Result.message)" }
     }
-    return @{ success = $true; message = $Msg; skill = $CleanName }
+    $Result = @{ success = $true; message = $Msg; skill = $CleanName; cleanup_success = [bool]$Cleanup.success; sync_success = [bool]$Sync.success }
+    if (-not $Cleanup.success -or -not $Sync.success) { $Result.partial = $true }
+    return $Result
+}
+
+function Delete-Skill([string]$Name) {
+    return Invoke-WithDeployLock { Delete-Skill-Core $Name }
 }
 
 # --------------------------------------------------------------
@@ -1549,10 +2189,13 @@ function Resolve-KnownInstructionTarget([string]$PathStr) {
 function Test-InstructionName([string]$Name) {
     $Clean = if ($Name) { $Name.Trim() } else { "" }
     if (-not $Clean) { return @{ ok = $false; value = "Rule name cannot be empty" } }
-    if ($Clean.Contains("/") -or $Clean.Contains("\") -or $Clean.Contains([char]0) -or $Clean -eq "." -or $Clean -eq "..") {
+    if ($Clean -ne $Name) { return @{ ok = $false; value = "Invalid rule name" } }
+    $BaseName = $Clean.Split('.')[0].ToUpperInvariant()
+    if ($Clean -match '[<>:"/\\|?*\x00-\x1F]' -or $Clean.EndsWith(".") -or $Clean.EndsWith(" ") -or ($WindowsReservedFileNames -contains $BaseName) -or $Clean -eq "." -or $Clean -eq "..") {
         return @{ ok = $false; value = "Invalid rule name" }
     }
-    if (-not $Clean.EndsWith(".md")) { $Clean = $Clean + ".md" }
+    if ($Clean.ToLowerInvariant().EndsWith(".md")) { $Clean = $Clean.Substring(0, $Clean.Length - 3) + ".md" }
+    else { $Clean = $Clean + ".md" }
     return @{ ok = $true; value = $Clean }
 }
 
@@ -1687,7 +2330,189 @@ function Get-InstructionsData {
     return @{ success = $true; rules = $Rules; agents = $AgentsStatus }
 }
 
-function Write-Utf8Atomic([string]$Path, [string]$Content) {
+function Get-SupportSafePath([string]$PathStr) {
+    if (-not $PathStr) { return "" }
+    try {
+        $FullPath = [System.IO.Path]::GetFullPath($PathStr)
+        $HomePath = [System.IO.Path]::GetFullPath($Home)
+        while ($HomePath.EndsWith("\") -or $HomePath.EndsWith("/")) {
+            $HomePath = $HomePath.Substring(0, $HomePath.Length - 1)
+        }
+        if ($FullPath.Equals($HomePath, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return "~"
+        }
+        $HomePrefixBackslash = "$HomePath\"
+        $HomePrefixSlash = "$HomePath/"
+        if ($FullPath.StartsWith($HomePrefixBackslash, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $FullPath.StartsWith($HomePrefixSlash, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return "~" + $FullPath.Substring($HomePath.Length)
+        }
+        return $FullPath
+    } catch {
+        return $PathStr
+    }
+}
+
+function Test-MCPSensitiveValue([string]$Field, [string]$Name) {
+    $Normalized = $Name.Trim().ToLowerInvariant()
+    if ($Field -eq "headers" -and $Normalized -in @(
+        "authorization", "proxy-authorization", "x-api-key", "api-key",
+        "cookie", "set-cookie"
+    )) {
+        return $true
+    }
+    return $Normalized -match '(?:^|[_-])(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|credential|authorization|auth|cookie)(?:[_-]|$)'
+}
+
+function Get-MCPCredentialPosture($ConfigData) {
+    $References = 0
+    $Literals = 0
+    if (-not $ConfigData -or -not $ConfigData.servers) {
+        return @{ environment_references = 0; literal_values = 0 }
+    }
+    foreach ($ServerProperty in @($ConfigData.servers.PSObject.Properties)) {
+        $Server = $ServerProperty.Value
+        if (-not $Server) { continue }
+        foreach ($Field in @("env", "headers")) {
+            $Values = $Server.$Field
+            if (-not $Values) { continue }
+            foreach ($Property in @($Values.PSObject.Properties)) {
+                $Value = [string]$Property.Value
+                if (-not $Value -or -not (Test-MCPSensitiveValue $Field ([string]$Property.Name))) { continue }
+                if ($Value -match '(?<!\$)\$\{env:[A-Za-z_][A-Za-z0-9_]*\}') {
+                    $References++
+                } else {
+                    $Literals++
+                }
+            }
+        }
+    }
+    return @{ environment_references = $References; literal_values = $Literals }
+}
+
+function Get-DoctorReport {
+    $Skills = @(Get-SkillsData)
+    $Agents = @(Get-VisibleAgentsData)
+    $DetectedAgents = @($Agents | Where-Object { $_.active })
+    $MappedAgents = @($DetectedAgents | Where-Object { $_.mapped })
+    $Instructions = Get-InstructionsData
+    $InstructionAgents = @($Instructions.agents)
+    $DetectedInstructionAgents = @($InstructionAgents | Where-Object { $_.active })
+    $ManagedInstructionAgents = @($DetectedInstructionAgents | Where-Object { [int]$_.managed_rule_count -gt 0 })
+    $Rules = @($Instructions.rules)
+    $LinkWarnings = Get-CentralDirWarnings
+    $Watcher = Get-WatcherStatus
+    $MCPData = Get-MCPConfigData
+    $MCPServerProperties = @()
+    if ($MCPData.success -and $MCPData.config -and $MCPData.config.servers) {
+        $MCPServerProperties = @($MCPData.config.servers.PSObject.Properties)
+    }
+    $EnabledMCPServers = @($MCPServerProperties | Where-Object {
+        $null -eq $_.Value.enabled -or [bool]$_.Value.enabled
+    })
+    $MCPConfigForPosture = $null
+    if ($MCPData.success) { $MCPConfigForPosture = $MCPData.config }
+    $CredentialPosture = Get-MCPCredentialPosture $MCPConfigForPosture
+    $Gateway = $MCPData.gateway
+    $Checks = New-Object System.Collections.ArrayList
+    $AddCheck = {
+        param([string]$Id, [string]$Status, [string]$Message, [string]$Action = "")
+        [void]$Checks.Add(@{ id = $Id; status = $Status; message = $Message; action = $Action })
+    }
+
+    if (Test-Path $CentralDir -PathType Container) {
+        & $AddCheck "central-directory" "ok" "Central EasySkills directory is available."
+    } else {
+        & $AddCheck "central-directory" "error" "Central EasySkills directory is missing." "Reinstall EasySkills or restore the directory from backup."
+    }
+
+    if ($Watcher.running) {
+        & $AddCheck "watcher" "ok" "Background synchronization watcher is running."
+    } else {
+        & $AddCheck "watcher" "warning" "Background synchronization watcher is stopped." "Start the watcher from the dashboard or run deploy.ps1 -Watch."
+    }
+
+    $Dangling = [int]$LinkWarnings.dangling_count
+    $External = [int]$LinkWarnings.external_link_count
+    if ($Dangling -gt 0) {
+        & $AddCheck "link-health" "warning" "$Dangling dangling central skill link(s) detected." "Run a full sync to prune dangling links."
+    } elseif ($External -gt 0) {
+        & $AddCheck "link-health" "warning" "$External externally linked skill folder(s) detected." "Keep external targets available or import them into the central library."
+    } else {
+        & $AddCheck "link-health" "ok" "No dangling or external central skill links detected."
+    }
+
+    if ($Skills.Count -gt 0 -and $MappedAgents.Count -gt 0) {
+        & $AddCheck "skills-channel" "ok" "$($Skills.Count) skill(s) are connected to $($MappedAgents.Count) detected Agent(s)."
+    } elseif ($Skills.Count -gt 0) {
+        & $AddCheck "skills-channel" "warning" "$($Skills.Count) skill(s) exist but no detected Agent is connected." "Connect an Agent target or run a full sync."
+    } else {
+        & $AddCheck "skills-channel" "info" "The central skill library is empty." "Import a skill when you are ready."
+    }
+
+    if ($Rules.Count -gt 0 -and $ManagedInstructionAgents.Count -gt 0) {
+        & $AddCheck "rules-channel" "ok" "$($Rules.Count) rule(s) are written to $($ManagedInstructionAgents.Count) detected Agent target(s)."
+    } elseif ($Rules.Count -gt 0) {
+        & $AddCheck "rules-channel" "warning" "$($Rules.Count) rule(s) exist but none are written to a detected Agent target." "Select rules and Agent targets, then write the managed blocks."
+    } else {
+        & $AddCheck "rules-channel" "info" "The modular Agent rules library is empty."
+    }
+
+    if (-not $MCPData.success) {
+        & $AddCheck "mcp-config" "error" "The MCP configuration is invalid or unreadable." "Open the MCP page and correct the configuration error."
+    } elseif ($Gateway.installed -and $Gateway.version_matches -eq $false) {
+        & $AddCheck "mcp-channel" "warning" "Gateway version $($Gateway.version_number) does not match EasySkills $($Gateway.expected_version)." "Reinstall the Gateway from this EasySkills version before using MCP tools."
+    } elseif ($MCPServerProperties.Count -gt 0 -and $Gateway.installed) {
+        & $AddCheck "mcp-channel" "ok" "Gateway installed with $($EnabledMCPServers.Count) enabled server(s)."
+    } elseif ($MCPServerProperties.Count -gt 0) {
+        & $AddCheck "mcp-channel" "warning" "$($MCPServerProperties.Count) MCP server(s) are configured but the Gateway binary is missing." "Retry the Gateway installation from EasySkills."
+    } elseif ($Gateway.installed) {
+        & $AddCheck "mcp-channel" "info" "Gateway is installed; no downstream MCP server is configured yet."
+    } else {
+        & $AddCheck "mcp-channel" "info" "MCP Gateway is not installed and no downstream server is configured."
+    }
+
+    if ([int]$CredentialPosture.literal_values -gt 0) {
+        & $AddCheck "credential-posture" "warning" "$($CredentialPosture.literal_values) MCP credential value(s) are stored literally." 'Replace literal secrets with ${env:VARIABLE} references where possible.'
+    } elseif ([int]$CredentialPosture.environment_references -gt 0) {
+        & $AddCheck "credential-posture" "ok" "$($CredentialPosture.environment_references) MCP credential value(s) use environment references."
+    } else {
+        & $AddCheck "credential-posture" "info" "No MCP environment or header credentials are configured."
+    }
+
+    $Summary = @{
+        ok = @($Checks | Where-Object { $_.status -eq "ok" }).Count
+        info = @($Checks | Where-Object { $_.status -eq "info" }).Count
+        warnings = @($Checks | Where-Object { $_.status -eq "warning" }).Count
+        errors = @($Checks | Where-Object { $_.status -eq "error" }).Count
+    }
+    return @{
+        schema_version = 1
+        success = ($Summary.errors -eq 0)
+        generated_at = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        version = Get-EasySkillsVersion
+        platform = "Windows"
+        runtime = @{ powershell = $PSVersionTable.PSVersion.ToString() }
+        paths = @{ central = Get-SupportSafePath $CentralDir; engine = Get-SupportSafePath $ScriptDir }
+        summary = $Summary
+        metrics = @{
+            skills = $Skills.Count
+            agents_detected = $DetectedAgents.Count
+            agents_mapped = $MappedAgents.Count
+            rules = $Rules.Count
+            rule_targets_detected = $DetectedInstructionAgents.Count
+            rule_targets_managed = $ManagedInstructionAgents.Count
+            mcp_servers = $MCPServerProperties.Count
+            mcp_servers_enabled = $EnabledMCPServers.Count
+            credential_posture = $CredentialPosture
+            dangling_links = $Dangling
+            external_links = $External
+        }
+        checks = @($Checks)
+    }
+}
+
+function Write-Utf8Atomic-Core([string]$Path, [string]$Content) {
     $Parent = Split-Path -Path $Path -Parent
     if (-not (Test-Path $Parent)) { New-Item -ItemType Directory -Path $Parent -Force | Out-Null }
     $Leaf = Split-Path -Path $Path -Leaf
@@ -1703,6 +2528,14 @@ function Write-Utf8Atomic([string]$Path, [string]$Content) {
     } finally {
         if (Test-Path $TempPath) { Remove-Item -LiteralPath $TempPath -Force -ErrorAction SilentlyContinue }
     }
+}
+
+function Write-Utf8Atomic([string]$Path, [string]$Content) {
+    # All persistent WebUI state (MCP, Agent metadata, instruction library and
+    # sync journal) goes through one atomic-write gate.  The named mutex keeps
+    # deploy.ps1/watch.ps1 from observing a half-updated multi-file operation;
+    # higher-level link mutations use the same gate explicitly.
+    return Invoke-WithDeployLock { Write-Utf8Atomic-Core $Path $Content }
 }
 
 function Get-ManagedBody($Rules, [string]$LegacyText = "") {
@@ -1779,12 +2612,16 @@ function Remove-InstructionState([string]$PathStr) {
     }
 }
 
-function Save-Instruction([string]$Name, [string]$Content) {
+function Save-Instruction-Core([string]$Name, [string]$Content) {
     $Check = Test-InstructionName $Name
     if (-not $Check.ok) { return @{ success = $false; message = $Check.value } }
     $CleanName = $Check.value
     try {
         if (-not (Test-Path $InstructionsDir)) { New-Item -ItemType Directory -Path $InstructionsDir -Force | Out-Null }
+        $Collision = Find-CaseInsensitiveChild $InstructionsDir $CleanName
+        if ($Collision -and $Collision.Name -cne $CleanName) {
+            return @{ success = $false; message = "Rule name conflicts case-insensitively with: $($Collision.Name)" }
+        }
         Write-Utf8Atomic (Join-Path $InstructionsDir $CleanName) $Content
     } catch {
         return @{ success = $false; message = "Save failed: $_" }
@@ -1792,7 +2629,11 @@ function Save-Instruction([string]$Name, [string]$Content) {
     return @{ success = $true; message = "Saved rule: $CleanName"; name = $CleanName }
 }
 
-function Remove-Instruction([string]$Name) {
+function Save-Instruction([string]$Name, [string]$Content) {
+    return Invoke-WithDeployLock { Save-Instruction-Core $Name $Content }
+}
+
+function Remove-Instruction-Core([string]$Name) {
     $Check = Test-InstructionName $Name
     if (-not $Check.ok) { return @{ success = $false; message = $Check.value } }
     $CleanName = $Check.value
@@ -1800,6 +2641,10 @@ function Remove-Instruction([string]$Name) {
     if (-not (Test-Path $Target)) { return @{ success = $false; message = "Rule not found: $CleanName" } }
     try { Remove-Item -LiteralPath $Target -Force } catch { return @{ success = $false; message = "Delete failed: $_" } }
     return @{ success = $true; message = "Deleted rule: $CleanName"; name = $CleanName }
+}
+
+function Remove-Instruction([string]$Name) {
+    return Invoke-WithDeployLock { Remove-Instruction-Core $Name }
 }
 
 function Get-InstructionContent([string]$Name) {
@@ -1996,7 +2841,7 @@ function Write-RulesToOne([string]$PathStr, $Rules, [bool]$Replace = $false) {
     }
 }
 
-function Write-InstructionsToOne([string]$PathStr) {
+function Write-InstructionsToOne-Core([string]$PathStr) {
     $KnownPath = Resolve-KnownInstructionTarget $PathStr
     if (-not $KnownPath) { return @{ success = $false; message = "Unknown agent instruction target" } }
     $Library = Get-RuleMap
@@ -2004,7 +2849,11 @@ function Write-InstructionsToOne([string]$PathStr) {
     return Write-RulesToOne $KnownPath $Library.rules $true
 }
 
-function Remove-InstructionsFromOne([string]$PathStr) {
+function Write-InstructionsToOne([string]$PathStr) {
+    return Invoke-WithDeployLock { Write-InstructionsToOne-Core $PathStr }
+}
+
+function Remove-InstructionsFromOne-Core([string]$PathStr) {
     try {
         $KnownPath = Resolve-KnownInstructionTarget $PathStr
         if (-not $KnownPath) {
@@ -2047,7 +2896,11 @@ function Remove-InstructionsFromOne([string]$PathStr) {
     }
 }
 
-function Remove-RulesFromOne([string]$PathStr, [string[]]$RuleNames) {
+function Remove-InstructionsFromOne([string]$PathStr) {
+    return Invoke-WithDeployLock { Remove-InstructionsFromOne-Core $PathStr }
+}
+
+function Remove-RulesFromOne-Core([string]$PathStr, [string[]]$RuleNames) {
     try {
         $Resolved = [System.IO.Path]::GetFullPath($PathStr)
         if (-not (Test-Path $Resolved)) {
@@ -2108,7 +2961,11 @@ function Remove-RulesFromOne([string]$PathStr, [string[]]$RuleNames) {
     }
 }
 
-function Write-InstructionsToAll {
+function Remove-RulesFromOne([string]$PathStr, [string[]]$RuleNames) {
+    return Invoke-WithDeployLock { Remove-RulesFromOne-Core $PathStr $RuleNames }
+}
+
+function Write-InstructionsToAll-Core {
     $Library = Get-RuleMap
     if (-not $Library.success) { return @{ success = $false; message = $Library.message } }
     
@@ -2174,7 +3031,11 @@ function Write-InstructionsToAll {
     return @{ success = ($Failed.Count -eq 0); message = $Msg; written = $Written.Count; failed = $Failed }
 }
 
-function Remove-InstructionsFromAll {
+function Write-InstructionsToAll {
+    return Invoke-WithDeployLock { Write-InstructionsToAll-Core }
+}
+
+function Remove-InstructionsFromAll-Core {
     $Targets = Get-DetectedInstructionTargets
     $AllTargets = @{}
     foreach ($T in $Targets) {
@@ -2205,7 +3066,11 @@ function Remove-InstructionsFromAll {
     return @{ success = ($Failed.Count -eq 0); message = $Msg; removed = $Removed.Count; failed = $Failed }
 }
 
-function Write-SelectedInstructions {
+function Remove-InstructionsFromAll {
+    return Invoke-WithDeployLock { Remove-InstructionsFromAll-Core }
+}
+
+function Write-SelectedInstructions-Core {
     param([string[]]$Rules, [string[]]$Agents)
     if (-not $Rules -or -not $Agents) { return @{ success = $false; message = "Select at least one rule and one agent." } }
     $Library = Get-RuleMap $Rules -RequireSelection
@@ -2230,7 +3095,12 @@ function Write-SelectedInstructions {
     return @{ success = ($Failed.Count -eq 0); message = $Msg; written = $Written.Count; failed = $Failed }
 }
 
-function Remove-SelectedInstructions {
+function Write-SelectedInstructions {
+    param([string[]]$Rules, [string[]]$Agents)
+    return Invoke-WithDeployLock { Write-SelectedInstructions-Core -Rules $Rules -Agents $Agents }
+}
+
+function Remove-SelectedInstructions-Core {
     param([string[]]$Rules, [string[]]$Agents)
     if (-not $Rules -or -not $Agents) { return @{ success = $false; message = "Select at least one rule and one agent." } }
     $Library = Get-RuleMap $Rules -RequireSelection
@@ -2255,7 +3125,14 @@ function Remove-SelectedInstructions {
     return @{ success = ($Failed.Count -eq 0); message = $Msg; removed = $Removed.Count; failed = $Failed }
 }
 
-function Run-SelfUpdate {
+function Remove-SelectedInstructions {
+    param([string[]]$Rules, [string[]]$Agents)
+    return Invoke-WithDeployLock { Remove-SelectedInstructions-Core -Rules $Rules -Agents $Agents }
+}
+
+function Run-SelfUpdate-Core {
+    $GatewayResult = @{ attempted = $false; success = $true; message = "" }
+    $UpdateWarning = ""
     try {
         $Release = Get-LatestRelease
         if (-not $Release.success) {
@@ -2286,16 +3163,24 @@ function Run-SelfUpdate {
         try {
             $ZipPath = Join-Path $TmpDir "release.zip"
             $Headers = @{ "Accept" = "application/vnd.github+json"; "User-Agent" = "EasySkills-WebUI" }
-            $DownloadResponse = Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath -Headers $Headers -TimeoutSec 60 -UseBasicParsing -PassThru
-            $FinalDownloadUrl = Get-WebResponseFinalUrl $DownloadResponse
+            $FinalDownloadUrl = Save-BoundedWebFile `
+                -Uri $ZipUrl `
+                -Path $ZipPath `
+                -MaxBytes 104857600 `
+                -LimitMessage "Release archive exceeds the 100 MB safety limit." `
+                -Headers $Headers
             if (-not (Test-TrustedGitHubDownloadUrl $FinalDownloadUrl)) {
                 throw "Update rejected: download redirected to an untrusted host ($FinalDownloadUrl)."
             }
 
             # --- Integrity check: re-download and compare SHA-256 ---
             $VerifyPath = Join-Path $TmpDir "release_verify.zip"
-            $VerifyResponse = Invoke-WebRequest -Uri $ZipUrl -OutFile $VerifyPath -Headers $Headers -TimeoutSec 60 -UseBasicParsing -PassThru
-            $FinalVerifyUrl = Get-WebResponseFinalUrl $VerifyResponse
+            $FinalVerifyUrl = Save-BoundedWebFile `
+                -Uri $ZipUrl `
+                -Path $VerifyPath `
+                -MaxBytes 104857600 `
+                -LimitMessage "Integrity archive exceeds the 100 MB safety limit." `
+                -Headers $Headers
             if (-not (Test-TrustedGitHubDownloadUrl $FinalVerifyUrl)) {
                 throw "Integrity download redirected to an untrusted host ($FinalVerifyUrl)."
             }
@@ -2307,35 +3192,26 @@ function Run-SelfUpdate {
             Remove-Item $VerifyPath -Force
 
             $ExtractDir = Join-Path $TmpDir "extracted"
-            # Validate the ZIP central directory before expansion: cap entry
-            # count/expanded bytes and reject traversal or absolute paths.
-            Add-Type -AssemblyName System.IO.Compression.FileSystem
-            $ZipArchive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
-            try {
-                if ($ZipArchive.Entries.Count -gt 10000) {
-                    throw "Release archive contains too many entries."
-                }
-                [long]$ExpandedBytes = 0
-                $ExtractRoot = [System.IO.Path]::GetFullPath($ExtractDir).TrimEnd('\') + '\'
-                foreach ($Entry in $ZipArchive.Entries) {
-                    $ExpandedBytes += [long]$Entry.Length
-                    if ($ExpandedBytes -gt 536870912) {
-                        throw "Release archive exceeds the 512 MB extracted-size safety limit."
-                    }
-                    $EntryPath = [System.IO.Path]::GetFullPath((Join-Path $ExtractDir $Entry.FullName))
-                    if (-not $EntryPath.StartsWith($ExtractRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-                        throw "Release archive contains an unsafe path: $($Entry.FullName)"
-                    }
-                }
-            } finally {
-                $ZipArchive.Dispose()
-            }
+            # Validate the ZIP central directory and virtual link graph before
+            # expansion. This covers traversal, duplicate paths, archive
+            # bombs, and symlink escapes consistently with install.ps1.
+            Assert-SafeZipArchive $ZipPath $ExtractDir
             Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
 
-            $SrcRoot = Get-ChildItem -Path $ExtractDir -Directory | Select-Object -First 1
-            if (-not $SrcRoot) {
-                return @{ success = $false; message = "Empty archive" }
+            # Select by the required engine marker rather than filesystem
+            # enumeration order. Multiple matching roots are ambiguous and are
+            # rejected before any live installation files are touched.
+            $SourceRoots = @(Get-ChildItem -LiteralPath $ExtractDir -Directory -Force -ErrorAction Stop | Where-Object {
+                Test-Path (Join-Path $_.FullName "EasySkills维护工具/.engine") -PathType Container
+            })
+            if ($SourceRoots.Count -eq 0) {
+                return @{ success = $false; message = "Archive does not contain EasySkills维护工具/.engine/" }
             }
+            if ($SourceRoots.Count -ne 1) {
+                $Names = (($SourceRoots | ForEach-Object { $_.Name }) -join ", ")
+                return @{ success = $false; message = "Archive contains multiple EasySkills source roots: $Names" }
+            }
+            $SrcRoot = $SourceRoots[0]
 
             # Preserve user runtime files (not shipped in the release zip)
             $CustomBackup = $null
@@ -2353,8 +3229,29 @@ function Run-SelfUpdate {
             $BackupMaintNew = Join-Path $CentralDir ".maintenance-bak.new"
 
             $SrcMaint = Join-Path $SrcRoot.FullName "EasySkills维护工具/.engine"
-            if (-not (Test-Path $SrcMaint)) {
-                return @{ success = $false; message = "Archive does not contain EasySkills维护工具/.engine/" }
+            $ExpectedVersion = if ($LatestTag.StartsWith("v")) { $LatestTag.Substring(1) } else { $LatestTag }
+            if ($ExpectedVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$') {
+                return @{ success = $false; message = "Release tag has an invalid version: $LatestTag" }
+            }
+            $SourceVersionFile = Join-Path $SrcMaint ".version"
+            if (-not (Test-Path $SourceVersionFile -PathType Leaf)) {
+                return @{ success = $false; message = "Archive version file is missing." }
+            }
+            $SourceVersion = (Get-Content $SourceVersionFile -Raw).Trim()
+            if ($SourceVersion -ne $ExpectedVersion) {
+                return @{ success = $false; message = "Archive version '$SourceVersion' does not match release tag '$LatestTag'." }
+            }
+
+            # Recover an interrupted prior update before starting another one.
+            # If .maintenance-bak is absent, .maintenance-bak.new may be the
+            # user's only rollback snapshot and must not be discarded.
+            if (Test-Path $BackupMaintNew) {
+                if (Test-Path $BackupMaint) {
+                    Remove-Item $BackupMaintNew -Recurse -Force
+                } else {
+                    try { Rename-Item -LiteralPath $BackupMaintNew -NewName ".maintenance-bak" -Force }
+                    catch { return @{ success = $false; message = "Could not reconcile the preserved rollback snapshot: $_" } }
+                }
             }
 
             # Build new engine in a temp dir, then rename atomically
@@ -2363,14 +3260,8 @@ function Run-SelfUpdate {
             Copy-Item $SrcMaint $NewMaintTmp -Recurse -Force
 
             $SrcReadme = Join-Path $SrcRoot.FullName "EasySkills维护工具/README_SYSTEM.md"
-            if (Test-Path $SrcReadme) {
-                Copy-Item $SrcReadme (Join-Path $CentralDir "EasySkills维护工具/README_SYSTEM.md") -Force
-            } else {
-                $SrcOld = Join-Path $SrcRoot.FullName "SKILL.md"
-                if (Test-Path $SrcOld) {
-                    Copy-Item $SrcOld (Join-Path $CentralDir "EasySkills维护工具/README_SYSTEM.md") -Force
-                }
-            }
+            $SrcOld = Join-Path $SrcRoot.FullName "SKILL.md"
+            $ReadmeSource = if (Test-Path $SrcReadme -PathType Leaf) { $SrcReadme } elseif (Test-Path $SrcOld -PathType Leaf) { $SrcOld } else { $null }
 
             if (Test-Path $BackupMaint) {
                 if (Test-Path $BackupMaintNew) { Remove-Item $BackupMaintNew -Recurse -Force }
@@ -2396,12 +3287,17 @@ function Run-SelfUpdate {
 
                 if (Test-Path $DestMaint) {
                     if (Test-Path $BackupMaint) { Remove-Item $BackupMaint -Recurse -Force }
-                    Rename-Item -Path $DestMaint -NewName ".maintenance-bak" -Force
+                    Move-Item -LiteralPath $DestMaint -Destination $BackupMaint -Force
                 }
 
-                Rename-Item -Path $NewMaintTmp -NewName "EasySkills维护工具/.engine" -Force
+                Move-Item -LiteralPath $NewMaintTmp -Destination $DestMaint -Force
 
-                if (Test-Path $BackupMaintNew) { Remove-Item $BackupMaintNew -Recurse -Force }
+                if (Test-Path $BackupMaintNew) {
+                    try { Remove-Item $BackupMaintNew -Recurse -Force -ErrorAction Stop }
+                    catch { $UpdateWarning += " Old backup snapshot cleanup failed: $_." }
+                }
+
+                $GatewayResult = Install-MCPGatewayForEngine $DestMaint (Join-Path $SrcRoot.FullName "gateway")
             } catch {
                 # Rollback. The dangerous case: the FIRST rename (current -> .bak)
                 # succeeded but the SECOND (new -> current) failed — the running
@@ -2412,14 +3308,30 @@ function Run-SelfUpdate {
                 try {
                     # Undo the current->.bak rotation so the live version is restored.
                     if (-not (Test-Path $DestMaint) -and (Test-Path $BackupMaint)) {
-                        Rename-Item -Path $BackupMaint -NewName "EasySkills维护工具/.engine" -Force
+                        Move-Item -LiteralPath $BackupMaint -Destination $DestMaint -Force
                     }
                     # Restore the pre-existing .bak snapshot (we overwrote it).
                     if ((Test-Path $BackupMaintNew) -and -not (Test-Path $BackupMaint)) {
-                        Rename-Item -Path $BackupMaintNew -NewName ".maintenance-bak" -Force
+                        Rename-Item -LiteralPath $BackupMaintNew -NewName ".maintenance-bak" -Force
                     }
                 } catch {}
                 throw
+            }
+
+            if ($ReadmeSource) {
+                $ReadmeDest = Join-Path $CentralDir "EasySkills维护工具/README_SYSTEM.md"
+                $ReadmeStaged = Join-Path (Split-Path -Parent $ReadmeDest) ".README_SYSTEM.md.new"
+                try {
+                    Copy-Item $ReadmeSource $ReadmeStaged -Force -ErrorAction Stop
+                    if (Test-Path $ReadmeDest -PathType Leaf) {
+                        [System.IO.File]::Replace($ReadmeStaged, $ReadmeDest, $null)
+                    } else {
+                        [System.IO.File]::Move($ReadmeStaged, $ReadmeDest)
+                    }
+                } catch {
+                    $UpdateWarning += " Documentation refresh failed: $_."
+                    Remove-Item $ReadmeStaged -Force -ErrorAction SilentlyContinue
+                }
             }
         } finally {
             Remove-Item $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -2431,19 +3343,40 @@ function Run-SelfUpdate {
         $Message = "Updated to $NewVersion."
         if ($SyncResult.success) { $Message += " All agents re-synced." }
         else { $Message += " Update succeeded, but agent re-sync failed: $($SyncResult.message)" }
-        return @{ success = $true; message = $Message; version = $NewVersion; sync_success = [bool]$SyncResult.success }
+        if ($GatewayResult.attempted -and -not $GatewayResult.success) {
+            $Message += " Gateway update failed; the previous binary was preserved. Run Doctor and retry the Gateway installation."
+        }
+        $Message += $UpdateWarning
+        return @{ success = $true; message = $Message; version = $NewVersion; sync_success = [bool]$SyncResult.success; gateway_success = [bool]$GatewayResult.success }
     } catch {
         return @{ success = $false; message = "Update failed: $_" }
     }
 }
 
-function Do-Rollback {
+function Run-SelfUpdate {
+    return Invoke-WithDeployLock { Run-SelfUpdate-Core }
+}
+
+function Do-Rollback-Core {
     $BackupMaint = Join-Path $CentralDir ".maintenance-bak"
     $DestMaint = Join-Path $CentralDir "EasySkills维护工具/.engine"
     if (-not (Test-Path $BackupMaint)) {
         return @{ success = $false; message = "No backup found. Nothing to roll back." }
     }
     try {
+        # Recover a current engine stranded in .engine.prev by an interrupted
+        # prior rollback. Never delete that directory while the live path is
+        # absent because it may be the only runnable copy.
+        $Prev = Join-Path $CentralDir "EasySkills维护工具/.engine.prev"
+        if (Test-Path $Prev) {
+            if (Test-Path $DestMaint) {
+                Remove-Item $Prev -Recurse -Force
+            } else {
+                try { Rename-Item -LiteralPath $Prev -NewName ".engine" -Force }
+                catch { return @{ success = $false; message = "Rollback recovery snapshot is preserved at '$Prev', but could not be restored: $_" } }
+            }
+        }
+
         # Preserve the user's CURRENT runtime files across the rollback
         $CustomBackup = $null
         if (Test-Path $CustomTargetsFile) {
@@ -2473,24 +3406,18 @@ function Do-Rollback {
         # Move our own working directory OUT of the engine dir before renaming it
         try { [System.IO.Directory]::SetCurrentDirectory($CentralDir) } catch {}
 
-        # Pre-clean .engine.prev: a stale .prev from a prior failed
-        # rollback would make the rename below fail, dooming every subsequent
-        # rollback attempt until manual cleanup.
-        $Prev = Join-Path $CentralDir "EasySkills维护工具/.engine.prev"
-        if (Test-Path $Prev) { Remove-Item $Prev -Recurse -Force -ErrorAction SilentlyContinue }
-
         try {
             # Rotate: current -> .prev, rollback-tmp -> current (two renames).
             if (Test-Path $DestMaint) {
-                Rename-Item -Path $DestMaint -NewName "EasySkills维护工具/.engine.prev" -Force
+                Rename-Item -LiteralPath $DestMaint -NewName ".engine.prev" -Force
             }
-            Rename-Item -Path $RollbackTmp -NewName "EasySkills维护工具/.engine" -Force
+            Rename-Item -LiteralPath $RollbackTmp -NewName ".engine" -Force
         } catch {
             # If the second rename failed after the first succeeded, the
             # current version is stranded in .prev — restore it.
             try {
                 if (-not (Test-Path $DestMaint) -and (Test-Path $Prev)) {
-                    Rename-Item -Path $Prev -NewName "EasySkills维护工具/.engine" -Force
+                    Rename-Item -LiteralPath $Prev -NewName ".engine" -Force
                 }
                 if (Test-Path $RollbackTmp) { Remove-Item $RollbackTmp -Recurse -Force -ErrorAction SilentlyContinue }
             } catch {}
@@ -2499,6 +3426,8 @@ function Do-Rollback {
 
         if (Test-Path $Prev) { Remove-Item $Prev -Recurse -Force -ErrorAction SilentlyContinue }
 
+        $GatewayResult = Install-MCPGatewayForEngine $DestMaint
+
         $SyncResult = Run-DeployCommand @("-Sync")
         # Remove backup so a second rollback doesn't restore stale state
         try { Remove-Item $BackupMaint -Recurse -Force -ErrorAction SilentlyContinue } catch {}
@@ -2506,21 +3435,33 @@ function Do-Rollback {
         $Message = "Rolled back to $Version."
         if ($SyncResult.success) { $Message += " All agents re-synced." }
         else { $Message += " Rollback succeeded, but agent re-sync failed: $($SyncResult.message)" }
-        return @{ success = $true; message = $Message; version = $Version; sync_success = [bool]$SyncResult.success }
+        if ($GatewayResult.attempted -and -not $GatewayResult.success) {
+            $Message += " Gateway rollback failed; the existing binary was preserved. Run Doctor and retry the Gateway installation."
+        }
+        return @{ success = $true; message = $Message; version = $Version; sync_success = [bool]$SyncResult.success; gateway_success = [bool]$GatewayResult.success }
     } catch {
         return @{ success = $false; message = "Rollback failed: $_" }
     }
 }
 
-function Do-Unmap([string]$TargetPath) {
-    if (-not $TargetPath -or -not $TargetPath.Trim()) {
+function Do-Rollback {
+    return Invoke-WithDeployLock { Do-Rollback-Core }
+}
+
+function Do-Unmap-Core([string]$TargetPath) {
+    $NormalizedInput = if ($TargetPath) { Normalize-AgentPath $TargetPath } else { "" }
+    if (-not $NormalizedInput) {
         return @{ success = $false; message = "Target path cannot be empty" }
     }
-    $TargetPath = $TargetPath.Trim()
-    Add-DisabledTarget $TargetPath
+    if (-not (Test-Path -LiteralPath $NormalizedInput)) {
+        return @{ success = $false; message = "Path does not exist" }
+    }
+    $Validation = Resolve-MappingTarget $TargetPath
+    if (-not $Validation.success) { return $Validation }
+    $TargetPath = $Validation.path
     try {
-        if (-not (Test-Path $TargetPath)) {
-            return @{ success = $false; message = "Path does not exist" }
+        if (-not (Add-DisabledTarget $TargetPath)) {
+            return @{ success = $false; message = "Could not persist the disabled-target state; no links were removed" }
         }
         $Removed = @()
         $Items = Get-ChildItem -Path $TargetPath -Force
@@ -2537,6 +3478,10 @@ function Do-Unmap([string]$TargetPath) {
     } catch {
         return @{ success = $false; message = $_.Exception.Message }
     }
+}
+
+function Do-Unmap([string]$TargetPath) {
+    return Invoke-WithDeployLock { Do-Unmap-Core $TargetPath }
 }
 
 # --------------------------------------------------------------
@@ -2598,7 +3543,7 @@ function Send-JsonResponse($Context, $Data, $StatusCode = 200) {
     $Response.Headers.Add("X-Frame-Options", "DENY")
     $Response.ContentType = "application/json; charset=utf-8"
 
-    $JsonStr = $Data | ConvertTo-Json -Depth 10 -Compress
+    $JsonStr = ConvertTo-EasySkillsJson $Data
     $Buffer = [System.Text.Encoding]::UTF8.GetBytes($JsonStr)
     $Response.ContentLength64 = $Buffer.Length
     $Response.OutputStream.Write($Buffer, 0, $Buffer.Length)
@@ -2630,12 +3575,26 @@ function Send-FileResponse($Context, $FilePath, $ContentType) {
 
 function Send-IndexResponse($Context, $FilePath) {
     $Response = $Context.Response
+    $Response.Headers.Add("X-Content-Type-Options", "nosniff")
+    $Response.Headers.Add("X-Frame-Options", "DENY")
+    $Response.Headers.Add("Referrer-Policy", "no-referrer")
+    $Response.Headers.Add("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    $Response.Headers.Add("Cross-Origin-Resource-Policy", "same-origin")
     if (Test-Path $FilePath) {
+        $NonceBytes = New-Object byte[] 18
+        $NonceRng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $NonceRng.GetBytes($NonceBytes) } finally { $NonceRng.Dispose() }
+        $Nonce = [Convert]::ToBase64String($NonceBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+        $EscapedToken = [System.Security.SecurityElement]::Escape([string]$WebUIToken)
         $Html = [System.IO.File]::ReadAllText($FilePath, [System.Text.Encoding]::UTF8)
-        $Html = $Html.Replace("__EASYSKILLS_TOKEN__", $WebUIToken)
+        # Replace the nonce before the escaped token so a token containing the
+        # placeholder can never acquire the active script nonce.
+        $Html = $Html.Replace("__EASYSKILLS_NONCE__", $Nonce)
+        $Html = $Html.Replace("__EASYSKILLS_TOKEN__", $EscapedToken)
         $Bytes = [System.Text.Encoding]::UTF8.GetBytes($Html)
         $Response.StatusCode = 200
         $Response.ContentType = "text/html; charset=utf-8"
+        $Response.Headers.Add("Content-Security-Policy", "default-src 'none'; script-src 'nonce-$Nonce'; script-src-attr 'none'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
         $Response.Headers.Add("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         $Response.Headers.Add("Pragma", "no-cache")
         $Response.Headers.Add("Expires", "0")
@@ -2739,18 +3698,27 @@ function Invoke-WebUIRequest($Context) {
                 external_link_count = $LinkWarnings.external_link_count
             }
             Send-JsonResponse $Context $Data
+        } elseif ($UrlPath -eq "/api/doctor") {
+            if (-not (Test-TokenValid $Request)) {
+                Send-ForbiddenResponse $Context
+                return
+            }
+            Send-JsonResponse $Context (Get-DoctorReport)
         } elseif ($UrlPath -eq "/api/skills") {
             if (-not (Test-TokenValid $Request)) {
                 Send-ForbiddenResponse $Context
                 return
             }
-            Send-JsonResponse $Context (Get-SkillsData)
+            # @(… ) re-collects the function's emitted objects into a real array
+            # even for 0 / 1 element, so the serializer renders [] / [{…}] and
+            # never null / a bare object (PowerShell return-unrolling guard).
+            Send-JsonResponse $Context @(Get-SkillsData)
         } elseif ($UrlPath -eq "/api/agents") {
             if (-not (Test-TokenValid $Request)) {
                 Send-ForbiddenResponse $Context
                 return
             }
-            Send-JsonResponse $Context (Get-VisibleAgentsData)
+            Send-JsonResponse $Context @(Get-VisibleAgentsData)
         } elseif ($UrlPath -eq "/api/latest-release") {
             if (-not (Test-TokenValid $Request)) {
                 Send-ForbiddenResponse $Context
@@ -2786,36 +3754,85 @@ function Invoke-WebUIRequest($Context) {
             return
         }
         $BodyData = @{}
-        if ($Request.HasEntityBody) {
-            if ($Request.ContentLength64 -gt 10485760) {  # 10 MB limit
-                Send-JsonResponse $Context @{ success = $false; message = "Request Entity Too Large" } 413
+        # Match the Python backend's strict request framing: every POST must
+        # carry an explicit Content-Length, and the stream must yield exactly
+        # that many bytes. ReadToEnd() alone accepts a truncated body when the
+        # peer closes early, which can turn a short/ambiguous request into a
+        # valid mutation.
+        $RawContentLength = $Request.Headers["Content-Length"]
+        if ($null -eq $RawContentLength) {
+            $Context.Response.KeepAlive = $false
+            Send-JsonResponse $Context @{ success = $false; message = "Content-Length is required" } 411
+            return
+        }
+        [long]$ContentLength = 0
+        if (-not [long]::TryParse([string]$RawContentLength, [System.Globalization.NumberStyles]::Integer, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$ContentLength) -or $ContentLength -lt 0) {
+            $Context.Response.KeepAlive = $false
+            Send-JsonResponse $Context @{ success = $false; message = "Invalid Content-Length" } 400
+            return
+        }
+        if ($ContentLength -gt 10485760) {  # 10 MB limit
+            $Context.Response.KeepAlive = $false
+            Send-JsonResponse $Context @{ success = $false; message = "Request Entity Too Large" } 413
+            return
+        }
+        if ($ContentLength -gt 0) {
+            $Bytes = New-Object byte[] ([int]$ContentLength)
+            $Offset = 0
+            while ($Offset -lt $Bytes.Length) {
+                # HttpListener is single-threaded here. Use a bounded async
+                # read so a client that advertises a valid Content-Length but
+                # drips bytes forever cannot stall every other local WebUI
+                # request indefinitely.
+                try {
+                    $ReadTask = $Request.InputStream.ReadAsync($Bytes, $Offset, $Bytes.Length - $Offset)
+                    if (-not $ReadTask.Wait(30000)) {
+                        $Context.Response.KeepAlive = $false
+                        Send-JsonResponse $Context @{ success = $false; message = "Request body read timed out" } 408
+                        return
+                    }
+                    $Read = $ReadTask.Result
+                } catch {
+                    $Context.Response.KeepAlive = $false
+                    Send-JsonResponse $Context @{ success = $false; message = "Request body could not be read" } 400
+                    return
+                }
+                if ($Read -le 0) {
+                    $Context.Response.KeepAlive = $false
+                    Send-JsonResponse $Context @{ success = $false; message = "Request body ended before Content-Length" } 400
+                    return
+                }
+                $Offset += $Read
+            }
+            $Encoding = if ($Request.ContentEncoding) { $Request.ContentEncoding } else { [System.Text.Encoding]::UTF8 }
+            $Json = $Encoding.GetString($Bytes)
+            if ($Json.Length -gt 0 -and $Json[0] -eq [char]0xFEFF) { $Json = $Json.Substring(1) }
+            try {
+                # Keep nested JSON objects as PSCustomObject on every supported
+                # PowerShell version. Test-MCPConfig intentionally validates that
+                # shape, and the PowerShell 7 Hashtable parsing mode turns
+                # nested servers/env/headers/profiles objects into hashtables,
+                # making valid MCP writes fail validation only on PowerShell 7+.
+                $PsObj = $Json | ConvertFrom-Json
+            } catch {
+                Send-JsonResponse $Context @{ success = $false; message = "Invalid JSON request body" } 400
                 return
             }
-            $Reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
-            try {
-                $Json = $Reader.ReadToEnd()
-            } finally {
-                $Reader.Close()
-                $Reader.Dispose()
+            if ($PsObj -isnot [PSCustomObject]) {
+                Send-JsonResponse $Context @{ success = $false; message = "JSON request body must be an object" } 400
+                return
             }
-            if ($Json) {
-                try {
-                    # PowerShell 7+ supports -AsHashtable; fallback for 5.1
-                    $BodyData = $Json | ConvertFrom-Json -AsHashtable
-                } catch {
-                    # PowerShell 5.1 fallback: convert PSObject to hashtable
-                    $PsObj = $Json | ConvertFrom-Json
-                    $BodyData = @{}
-                    if ($PsObj) {
-                        $PsObj.PSObject.Properties | ForEach-Object {
-                            $BodyData[$_.Name] = $_.Value
-                        }
-                    }
-                }
+            # The HTTP dispatcher uses dictionary-style lookup for top-level
+            # fields, while nested objects must remain PSCustomObject for the
+            # MCP schema validator and Add-Member/PSObject.Properties APIs.
+            $BodyData = @{}
+            $PsObj.PSObject.Properties | ForEach-Object {
+                $BodyData[$_.Name] = $_.Value
             }
-            if (-not ($BodyData -is [System.Collections.IDictionary])) {
-                $BodyData = @{}
-            }
+        }
+        if (-not ($BodyData -is [System.Collections.IDictionary])) {
+            Send-JsonResponse $Context @{ success = $false; message = "JSON request body must be an object" } 400
+            return
         }
 
         if ($UrlPath -eq "/api/sync") {
@@ -2893,6 +3910,12 @@ function Start-WebUIListener {
     $L.Prefixes.Add("http://127.0.0.1:$Port/")
     $L.Start()
     return $L
+}
+
+if ($Doctor) {
+    $Report = Get-DoctorReport
+    ConvertTo-EasySkillsJson $Report
+    if ($Report.success) { exit 0 } else { exit 1 }
 }
 
 if ($SyncRules) {

@@ -13,6 +13,7 @@ Param(
   [Parameter(Mandatory=$false)][switch]$Unwatch,
   [Parameter(Mandatory=$false)][switch]$Cleanup,
   [Parameter(Mandatory=$false)][switch]$Status,
+  [Parameter(Mandatory=$false)][switch]$Doctor,
   [Parameter(Mandatory=$false)][switch]$WebUI,
   [Parameter(Mandatory=$false)][switch]$KeepWebUI,
   [Parameter(Mandatory=$false)][string[]]$CustomPath = @()
@@ -33,25 +34,24 @@ function Write-Utf8NoBom([string]$Path, [string]$Content) {
   # over the target. A direct WriteAllText truncates-then-writes the target, so
   # an interruption (power loss, hard kill during --add/--remove) can leave
   # custom-targets.txt / disabled-targets.txt truncated and silently drop every
-  # persisted custom agent path. This mirrors the temp+mv pattern deploy.sh
-  # uses for the same files. [System.IO.File]::Move throws if the destination
-  # exists on older runtimes, so delete the stale target first.
+  # persisted custom agent path. File.Replace keeps the destination present
+  # atomically on Windows; deleting it before Move would recreate the loss
+  # window this helper exists to prevent.
   $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
   $Dir = [System.IO.Path]::GetDirectoryName($Path)
+  if (-not [System.IO.Directory]::Exists($Dir)) { [System.IO.Directory]::CreateDirectory($Dir) | Out-Null }
   $Tmp = [System.IO.Path]::Combine($Dir, "." + [System.IO.Path]::GetFileName($Path) + "." + [System.IO.Path]::GetRandomFileName() + ".tmp")
   [System.IO.File]::WriteAllText($Tmp, $Content, $Utf8NoBom)
   try {
-    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
-    [System.IO.File]::Move($Tmp, $Path)
+    if ([System.IO.File]::Exists($Path)) {
+      [System.IO.File]::Replace($Tmp, $Path, $null)
+    } else {
+      [System.IO.File]::Move($Tmp, $Path)
+    }
   } catch {
     if (Test-Path -LiteralPath $Tmp) { Remove-Item -LiteralPath $Tmp -Force }
     throw
   }
-}
-
-function Append-Utf8NoBom([string]$Path, [string]$Content) {
-  $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-  [System.IO.File]::AppendAllText($Path, $Content, $Utf8NoBom)
 }
 
 function Start-BackgroundPowerShell([string]$ScriptPath, [string]$WorkingDirectory) {
@@ -72,26 +72,91 @@ function Start-BackgroundPowerShell([string]$ScriptPath, [string]$WorkingDirecto
     -WorkingDirectory $WorkingDirectory -WindowStyle Hidden | Out-Null
 }
 
-# --- One-time migration: move custom-targets.txt from legacy root location ---
+# --- One-time migration and cleanup helpers -----------------------------------
+# These operations mutate the installation and therefore must run only after the
+# deploy mutex is held. Keeping them at top level used to let two concurrent
+# deploy.ps1 processes migrate/delete the same files before either one acquired
+# the mutex.
 $LegacyRootTargets = Join-Path -Path $CentralDir -ChildPath "custom-targets.txt"
-if (Test-Path $LegacyRootTargets) {
-  $LegacyLines = Get-Content $LegacyRootTargets | Where-Object { $_ -and !$_.TrimStart().StartsWith("#") }
-  if ($LegacyLines) {
-    if (!(Test-Path $CustomTargetsFile)) { New-Item -ItemType File -Path $CustomTargetsFile -Force | Out-Null }
-    $Existing = @(Get-Content $CustomTargetsFile -ErrorAction SilentlyContinue)
-    foreach ($Line in $LegacyLines) {
-      if ($Existing -notcontains $Line) {
-        Append-Utf8NoBom $CustomTargetsFile "$Line`r`n"
-      }
+
+function Get-TargetLinePath([string]$Line) {
+  $Stripped = if ($null -eq $Line) { "" } else { $Line.Trim() }
+  if (-not $Stripped -or $Stripped.StartsWith("#")) { return "" }
+  if ($Stripped.Contains("=")) {
+    $Parts = $Stripped.Split("=", 2)
+    $Prefix = $Parts[0].Trim()
+    $Candidate = $Parts[1].Trim()
+    $CandidateLooksLikePath = $Candidate.StartsWith("/") -or $Candidate.StartsWith("\") -or
+      $Candidate.StartsWith("~") -or $Candidate.StartsWith(".") -or $Candidate.Contains("/") -or
+      $Candidate.Contains("\") -or $Candidate -match '^[A-Za-z]:[\\/]'
+    $PrefixLooksLikePath = $Prefix.StartsWith("/") -or $Prefix.StartsWith("\") -or
+      $Prefix.StartsWith("~") -or $Prefix.StartsWith(".") -or $Prefix.Contains("/") -or
+      $Prefix.Contains("\") -or $Prefix -match '^[A-Za-z]:[\\/]'
+    if ($Prefix -and $CandidateLooksLikePath -and -not $PrefixLooksLikePath) {
+      $Stripped = $Candidate
     }
   }
-  Remove-Item $LegacyRootTargets -Force
+  if ($Stripped.StartsWith("~")) { $Stripped = Join-Path $Home $Stripped.Substring(1) }
+  return $Stripped
 }
 
-# --- One-time cleanup: remove stale files from root (older-install leftovers) ---
-# Only run in installed location, skip if inside a git repo
-$GitDir = Join-Path $CentralDir ".git"
-if (-not (Test-Path $GitDir)) {
+function Get-TargetLineKey([string]$Line) {
+  $Path = Get-TargetLinePath $Line
+  if (-not $Path) { return "" }
+  try {
+    if (Test-Path -LiteralPath $Path -PathType Container) {
+      return (Get-Item -LiteralPath $Path -Force).FullName
+    }
+    return [System.IO.Path]::GetFullPath($Path)
+  } catch {
+    return $Path
+  }
+}
+
+function Test-IsCentralDescendant([string]$Path) {
+  if (-not $Path) { return $false }
+  try {
+    $Candidate = if (Test-Path -LiteralPath $Path) {
+      (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
+    } else {
+      [System.IO.Path]::GetFullPath($Path)
+    }
+    $Central = (Resolve-Path -LiteralPath $CentralDir -ErrorAction Stop).ProviderPath
+    return $Candidate.Equals($Central, [System.StringComparison]::OrdinalIgnoreCase) -or
+      $Candidate.StartsWith("$Central\", [System.StringComparison]::OrdinalIgnoreCase)
+  } catch {
+    return $false
+  }
+}
+
+function Invoke-LegacyTargetMigration {
+  if ($Doctor -or -not (Test-Path $LegacyRootTargets -PathType Leaf)) { return $true }
+  $LegacyLines = Get-Content $LegacyRootTargets | Where-Object { $_ -and !$_.TrimStart().StartsWith("#") }
+  try {
+    $Existing = if (Test-Path $CustomTargetsFile) { @(Get-Content $CustomTargetsFile -ErrorAction Stop) } else { @() }
+    $Merged = @()
+    $Seen = @{}
+    foreach ($Line in @($Existing) + @($LegacyLines)) {
+      $Key = Get-TargetLineKey $Line
+      if ($Key -and $Seen.ContainsKey($Key)) { continue }
+      if ($Key) { $Seen[$Key] = $true }
+      $Merged += $Line
+    }
+    if ($Merged.Count -gt 0) {
+      Write-Utf8NoBom $CustomTargetsFile (($Merged -join "`r`n") + "`r`n")
+    }
+    Remove-Item $LegacyRootTargets -Force -ErrorAction Stop
+    return $true
+  } catch {
+    Write-Error "Legacy custom-target migration failed; original file was preserved. $_"
+    return $false
+  }
+}
+
+function Remove-StaleRootFiles {
+  if ($Doctor) { return }
+  $GitDir = Join-Path $CentralDir ".git"
+  if (Test-Path $GitDir) { return }
   foreach ($Stale in @("README.md","README_EN.md","README_CN.md","LICENSE","install.sh","install.ps1",
                        "install_mac.command","install_windows.bat",
                        "uninstall_mac.command","uninstall_windows.bat")) {
@@ -195,6 +260,19 @@ Load-Agents
 # ---- Concurrency lock (named mutex, system-wide) ----
 $script:DeployMutex = $null
 
+function Test-InheritedDeployLock {
+  if ($env:EASYSKILLS_DEPLOY_LOCK_HELD -ne "1") { return $false }
+  $OwnerPid = 0
+  if (-not [int]::TryParse([string]$env:EASYSKILLS_DEPLOY_LOCK_PID, [ref]$OwnerPid)) { return $false }
+  if ($OwnerPid -le 0 -or $OwnerPid -eq $PID) { return $false }
+  try {
+    [void](Get-Process -Id $OwnerPid -ErrorAction Stop)
+    return $true
+  } catch {
+    return $false
+  }
+}
+
 function Acquire-Lock {
   $script:DeployMutex = New-Object System.Threading.Mutex($false, "Global\EasySkillsDeploy")
   try {
@@ -217,6 +295,12 @@ function Acquire-Lock {
     # while now owning the mutex, re-abandoning it, and bricking every
     # subsequent deploy until a reboot.
   }
+  # Mark a lock acquired by this standalone deploy process so the nested
+  # webui.ps1 -SyncRules child participates in the same critical section
+  # instead of waiting on our own mutex until its timeout. An inherited marker
+  # is left untouched because the original WebUI process owns the mutex.
+  $env:EASYSKILLS_DEPLOY_LOCK_HELD = "1"
+  $env:EASYSKILLS_DEPLOY_LOCK_PID = [string]$PID
 }
 
 function Release-Lock {
@@ -253,18 +337,12 @@ function Add-TargetOnce([string]$Path) {
 }
 
 function Load-CustomTargets {
-  if (Test-Path $CustomTargetsFile) {
+  if (Test-Path $CustomTargetsFile -PathType Leaf) {
     $Lines = Get-Content $CustomTargetsFile
     foreach ($Line in $Lines) {
-      if ($Line -and !(($Line.Trim()).StartsWith("#"))) {
-        $Target = $Line.Trim()
-        if ($Line.Contains("=")) {
-          $Parts = $Line.Split("=", 2)
-          $Target = $Parts[1].Trim()
-        }
-        if (Test-Path $Target) {
+      $Target = Get-TargetLinePath $Line
+      if ($Target -and (Test-Path -LiteralPath $Target -PathType Container) -and -not (Test-IsCentralDescendant $Target)) {
           Add-TargetOnce $Target
-        }
       }
     }
   }
@@ -288,11 +366,7 @@ function Load-DisabledTargets {
     $Lines = Get-Content $DisabledTargetsFile
     foreach ($Line in $Lines) {
       if ($Line -and !(($Line.Trim()).StartsWith("#"))) {
-        $Target = $Line.Trim()
-        if ($Line.Contains("=")) {
-          $Parts = $Line.Split("=", 2)
-          $Target = $Parts[1].Trim()
-        }
+        $Target = Get-TargetLinePath $Line
         if ($Target) {
           if ($Target.StartsWith("~")) {
             $Target = $Target.Replace("~", $Home)
@@ -318,8 +392,7 @@ function Remove-DisabledTarget([string]$Path) {
   if (Test-Path $DisabledTargetsFile) {
     $Content = Get-Content $DisabledTargetsFile
     $NewContent = $Content | Where-Object {
-      $LinePath = $_.Trim()
-      if ($_.Contains("=")) { $LinePath = $_.Split("=", 2)[1].Trim() }
+      $LinePath = Get-TargetLinePath $_
       try {
         $LineAbs = $LinePath
         if (Test-Path $LinePath) { $LineAbs = (Get-Item $LinePath).FullName }
@@ -441,7 +514,7 @@ function Run-Sync {
   }
 
   foreach ($Path in $CustomPath) {
-    if (Test-Path $Path) { $script:Targets += $Path }
+    if ((Test-Path -LiteralPath $Path -PathType Container) -and -not (Test-IsCentralDescendant $Path)) { $script:Targets += $Path }
   }
 
   Write-Host "==========================================================" -ForegroundColor Cyan
@@ -451,6 +524,10 @@ function Run-Sync {
   # PART A: Legacy cleanup (Remove EasySkills self-mapping from previous versions)
   $CentralResolved = (Resolve-Path -LiteralPath $CentralDir).ProviderPath
   foreach ($Target in $script:Targets) {
+    if (Test-IsCentralDescendant $Target) {
+      Write-Warning "Skipped unsafe target inside the EasySkills library: $Target"
+      continue
+    }
     $DestPath = Join-Path -Path $Target -ChildPath "EasySkills"
     # Use Get-Item -Force (not Test-Path) so a DANGLING reparse point — whose
     # target no longer exists and which Test-Path follows and reports as False —
@@ -631,19 +708,27 @@ function List-Links {
 }
 
 function Add-Target ([string]$Path) {
-  if (!$Path -or !(Test-Path $Path)) {
+  if (!$Path -or !(Test-Path $Path -PathType Container)) {
     Write-Error "Error: Please specify a valid directory."
     return $false
   }
-  $AbsPath = (Get-Item $Path).FullName
-  if (!(Test-Path $CustomTargetsFile)) {
-    New-Item -ItemType File -Path $CustomTargetsFile -Force | Out-Null
+  if (Test-IsCentralDescendant $Path) {
+    Write-Error "Error: The EasySkills library cannot be registered as an Agent skills directory."
+    return $false
   }
-  $Content = Get-Content $CustomTargetsFile -ErrorAction SilentlyContinue
-  if ($Content -contains $AbsPath) {
+  $AbsPath = (Get-Item $Path).FullName
+  $Content = if (Test-Path $CustomTargetsFile) { @(Get-Content $CustomTargetsFile -ErrorAction SilentlyContinue) } else { @() }
+  $AlreadyPersisted = @($Content | Where-Object {
+    $Line = Get-TargetLinePath $_
+    $Line -eq $AbsPath
+  }).Count -gt 0
+  if ($AlreadyPersisted) {
     Write-Host "Path is already persisted: $AbsPath" -ForegroundColor Gray
   } else {
-    Append-Utf8NoBom $CustomTargetsFile "$AbsPath`r`n"
+    $NewContent = @($Content) + $AbsPath
+    # Read-modify-write through the atomic replacement helper. A direct append
+    # can leave a truncated final path after a hard kill or power loss.
+    Write-Utf8NoBom $CustomTargetsFile (($NewContent -join "`r`n") + "`r`n")
     Write-Host "Successfully persisted custom target: $AbsPath" -ForegroundColor Green
   }
   Remove-DisabledTarget $Path
@@ -664,8 +749,7 @@ function Remove-Target ([string]$Path) {
   if (Test-Path $CustomTargetsFile) {
     $Content = Get-Content $CustomTargetsFile
     $NewContent = $Content | Where-Object {
-      $LinePath = $_.Trim()
-      if ($_.Contains("=")) { $LinePath = $_.Split("=", 2)[1].Trim() }
+      $LinePath = Get-TargetLinePath $_
       $LinePath -ne $AbsPath
     }
     Write-Utf8NoBom $CustomTargetsFile ($NewContent -join "`r`n")
@@ -772,12 +856,20 @@ function Run-Status {
 }
 
 # ---- Main dispatch with mutex protection ----
-$NeedsLock = -not ($List -or $Watch -or $Unwatch -or $Status -or $WebUI)
+$NeedsLock = -not ($List -or $Watch -or $Unwatch -or $Status -or $Doctor -or $WebUI)
 
-if ($NeedsLock) { Acquire-Lock }
+if ($NeedsLock -and -not (Test-InheritedDeployLock)) { Acquire-Lock }
+
+if ($NeedsLock) {
+  if (-not (Invoke-LegacyTargetMigration)) { Release-Lock; exit 1 }
+  Remove-StaleRootFiles
+}
 
 try {
-  if ($Status) {
+  if ($Doctor) {
+    & "$ScriptDir\webui.ps1" -Doctor
+    exit $LASTEXITCODE
+  } elseif ($Status) {
     Run-Status
   } elseif ($WebUI) {
     $Started = $false

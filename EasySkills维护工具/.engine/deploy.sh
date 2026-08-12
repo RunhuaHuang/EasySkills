@@ -11,6 +11,16 @@ CENTRAL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CUSTOM_TARGETS_FILE="$SCRIPT_DIR/custom-targets.txt"
 LOCK_FILE="$SCRIPT_DIR/.deploy.lock"
 
+# Doctor is a read-only support path. Detect it before the legacy migration and
+# stale-file cleanup blocks so requesting diagnostics never changes user data.
+DOCTOR_MODE=false
+for _arg in "$@"; do
+  if [ "$_arg" = "--doctor" ]; then
+    DOCTOR_MODE=true
+    break
+  fi
+done
+
 # When invoked under launchd/systemd the PATH is minimal and /usr/bin/python3
 # may be a stale system Python that can't run webui.py (uses `X | None` syntax,
 # needs 3.10+). Prepend common modern-interpreter locations so Homebrew's et al.
@@ -25,29 +35,125 @@ PATH="${_PATH_PREFIX}${_PATH_PREFIX:+:}${PATH:-}"
 unset _PATH_PREFIX
 export PATH
 
-# --- One-time migration: move custom-targets.txt from legacy root location ---
+# --- One-time migration and cleanup helpers -----------------------------------
+# These operations mutate the installation and therefore must run only after the
+# deploy lock is held.  Keeping them at top level used to let two concurrent
+# deploy.sh processes migrate/delete the same files before either one acquired
+# the lock.
 LEGACY_ROOT_TARGETS="$CENTRAL_DIR/custom-targets.txt"
-if [ -f "$LEGACY_ROOT_TARGETS" ]; then
-  if grep -q -v -E '^\s*(#|$)' "$LEGACY_ROOT_TARGETS" 2>/dev/null; then
-    touch "$CUSTOM_TARGETS_FILE"
-    grep -v -E '^\s*(#|$)' "$LEGACY_ROOT_TARGETS" | while IFS= read -r line; do
-      if ! grep -Fxq "$line" "$CUSTOM_TARGETS_FILE" 2>/dev/null; then
-        echo "$line" >> "$CUSTOM_TARGETS_FILE"
-      fi
-    done
-  fi
-  rm -f "$LEGACY_ROOT_TARGETS"
-fi
 
-# --- One-time cleanup: remove stale files from root (older-install leftovers) ---
-# Only run in installed location (~/EasySkills), skip if inside a git repo
-if [ ! -d "$CENTRAL_DIR/.git" ]; then
-  for _stale in README.md README_EN.md README_CN.md LICENSE install.sh install.ps1 \
-                install_mac.command install_windows.bat \
-                uninstall_mac.command uninstall_windows.bat; do
-    rm -f "$CENTRAL_DIR/$_stale" 2>/dev/null
+target_line_path() {
+  local line="$1" prefix candidate
+  line="${line#"${line%%[![:space:]]*}"}"
+  line="${line%"${line##*[![:space:]]}"}"
+  [[ -z "$line" || "$line" == \#* ]] && return 0
+  if [[ "$line" == *"="* ]]; then
+    prefix="${line%%=*}"
+    candidate="${line#*=}"
+    prefix="${prefix#"${prefix%%[![:space:]]*}"}"
+    prefix="${prefix%"${prefix##*[![:space:]]}"}"
+    candidate="${candidate#"${candidate%%[![:space:]]*}"}"
+    candidate="${candidate%"${candidate##*[![:space:]]}"}"
+    # Named entries use `label=/path`. A plain path may itself contain `=`;
+    # only split when the right-hand side has an unambiguous path shape and
+    # the left-hand side is not already path-like.
+    if [ -n "$prefix" ] && [[ "$candidate" == /* || "$candidate" == ~* || "$candidate" == .* || "$candidate" == */* || "$candidate" == *\\* || "$candidate" =~ ^[A-Za-z]:[\\/] ]] &&
+       [[ "$prefix" != /* && "$prefix" != ~* && "$prefix" != .* && "$prefix" != */* && "$prefix" != *\\* && ! "$prefix" =~ ^[A-Za-z]:[\\/] ]]; then
+      line="$candidate"
+    fi
+  fi
+  if [[ "$line" == "~"* ]]; then
+    line="$HOME${line#\~}"
+  fi
+  printf '%s' "$line"
+}
+
+target_line_key() {
+  local path key
+  path=$(target_line_path "$1")
+  [ -n "$path" ] || return 0
+  if [ -d "$path" ]; then
+    key=$(cd "$path" 2>/dev/null && pwd -P) || key="$path"
+  else
+    key="$path"
+  fi
+  printf '%s' "$key"
+}
+
+is_central_descendant() {
+  local path="$1" candidate central
+  [ -n "$path" ] || return 1
+  candidate=$(cd "$path" 2>/dev/null && pwd -P) || candidate="$path"
+  central=$(cd "$CENTRAL_DIR" 2>/dev/null && pwd -P) || return 1
+  [ "$candidate" = "$central" ] || [[ "$candidate" == "$central/"* ]]
+}
+
+migrate_legacy_targets() {
+  [ "$DOCTOR_MODE" != true ] || return 0
+  [ -f "$LEGACY_ROOT_TARGETS" ] || return 0
+
+  local migration_tmp migration_changed line key existing_key existing_line
+  migration_tmp=$(mktemp "$SCRIPT_DIR/.custom-targets.migrate.XXXXXX") || {
+    echo "Error: could not stage legacy custom-target migration; original file preserved." >&2
+    return 1
+  }
+  if [ -f "$CUSTOM_TARGETS_FILE" ] && ! cp "$CUSTOM_TARGETS_FILE" "$migration_tmp"; then
+    rm -f "$migration_tmp"
+    echo "Error: could not preserve current custom targets; legacy file preserved." >&2
+    return 1
+  fi
+  migration_changed=false
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    key=$(target_line_key "$line")
+    if [ -n "$key" ]; then
+      while IFS= read -r existing_line || [ -n "$existing_line" ]; do
+        existing_key=$(target_line_key "$existing_line")
+        if [ -n "$existing_key" ] && [ "$existing_key" = "$key" ]; then
+          key=""
+          break
+        fi
+      done < "$migration_tmp"
+      [ -n "$key" ] || continue
+    fi
+    if [ -s "$migration_tmp" ] && [ -n "$(tail -c 1 "$migration_tmp" 2>/dev/null)" ]; then
+      printf '\n' >> "$migration_tmp" || {
+        rm -f "$migration_tmp"
+        echo "Error: could not stage legacy custom targets; original file preserved." >&2
+        return 1
+      }
+    fi
+    printf '%s\n' "$line" >> "$migration_tmp" || {
+      rm -f "$migration_tmp"
+      echo "Error: could not stage legacy custom targets; original file preserved." >&2
+      return 1
+    }
+    migration_changed=true
+  done < "$LEGACY_ROOT_TARGETS"
+  if [ "$migration_changed" = true ] || [ -f "$CUSTOM_TARGETS_FILE" ]; then
+    if ! mv -f "$migration_tmp" "$CUSTOM_TARGETS_FILE"; then
+      rm -f "$migration_tmp"
+      echo "Error: could not commit legacy custom-target migration; original file preserved." >&2
+      return 1
+    fi
+  else
+    rm -f "$migration_tmp"
+  fi
+  if ! rm -f "$LEGACY_ROOT_TARGETS"; then
+    echo "Warning: legacy custom-target file was migrated but could not be removed: $LEGACY_ROOT_TARGETS" >&2
+  fi
+}
+
+cleanup_stale_root_files() {
+  [ "$DOCTOR_MODE" != true ] || return 0
+  [ ! -d "$CENTRAL_DIR/.git" ] || return 0
+  local stale
+  for stale in README.md README_EN.md README_CN.md LICENSE install.sh install.ps1 \
+               install_mac.command install_windows.bat \
+               uninstall_mac.command uninstall_windows.bat; do
+    rm -f "$CENTRAL_DIR/$stale" 2>/dev/null
   done
-fi
+}
 
 # ---- Load agent targets from agents.json (single source of truth) ----
 AGENTS_JSON="$SCRIPT_DIR/agents.json"
@@ -243,15 +349,30 @@ acquire_lock() {
   exit 1
 }
 
+# A WebUI mutation may invoke deploy.sh while the parent process already owns
+# the shared lock.  Accept that inherited critical section only when the lock
+# stamp still points at the advertised live parent PID; otherwise acquire the
+# lock normally and never trust a stale environment marker.
+lock_inherited_from_parent() {
+  [ "${EASYSKILLS_DEPLOY_LOCK_HELD:-0}" = "1" ] || return 1
+  local parent recorded
+  parent="${EASYSKILLS_DEPLOY_LOCK_PID:-}"
+  [[ "$parent" =~ ^[0-9]+$ ]] || return 1
+  [ "$parent" != "$$" ] || return 1
+  recorded=$(cat "${LOCK_FILE}.d/pid" 2>/dev/null || true)
+  [ "$recorded" = "$parent" ] || return 1
+  kill -0 "$parent" 2>/dev/null
+}
+
 # Derive the agent's root config directory from a target skills path.
 get_agent_root() {
   local target="$1"
   if [[ "$target" == "$HOME/Library/Application Support/"* ]]; then
-    local after="${target#$HOME/Library/Application Support/}"
+    local after="${target#"$HOME"/Library/Application Support/}"
     local app_name="${after%%/*}"
     echo "$HOME/Library/Application Support/$app_name"
   elif [[ "$target" == "$HOME/"* ]]; then
-    local rel="${target#$HOME/}"
+    local rel="${target#"$HOME"/}"
     local first="${rel%%/*}"
     if [ "$first" = ".config" ]; then
       local second
@@ -282,12 +403,9 @@ load_custom_targets() {
   if [ -f "$CUSTOM_TARGETS_FILE" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
       [[ -z "$line" || "$line" =~ ^# ]] && continue
-      local target_path="$line"
-      if [[ "$line" == *"="* ]]; then
-        target_path="${line#*=}"
-        target_path="${target_path## }"
-      fi
-      if [ -d "$target_path" ]; then
+      local target_path
+      target_path=$(target_line_path "$line")
+      if [ -d "$target_path" ] && ! is_central_descendant "$target_path"; then
         append_target_once "$target_path"
       fi
     done < "$CUSTOM_TARGETS_FILE"
@@ -310,15 +428,9 @@ load_disabled_targets() {
   if [ -f "$DISABLED_TARGETS_FILE" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
       [[ -z "$line" || "$line" =~ ^# ]] && continue
-      local target_path="$line"
-      if [[ "$line" == *"="* ]]; then
-        target_path="${line#*=}"
-        target_path="${target_path## }"
-      fi
+      local target_path
+      target_path=$(target_line_path "$line")
       if [ -n "$target_path" ]; then
-        if [[ "$target_path" == "~"* ]]; then
-          target_path="${HOME}${target_path#\~}"
-        fi
         local abs_path
         abs_path=$(cd "$target_path" 2>/dev/null && pwd -P) || abs_path="$target_path"
         DISABLED_TARGETS_LIST+=("$abs_path")
@@ -352,7 +464,7 @@ get_agent_name() {
     return
   fi
   # Fallback: prefix-based matching (precise, avoids substring false positives)
-  local rel="${path#$HOME/}"
+  local rel="${path#"$HOME"/}"
   case "$rel" in
     .gemini/antigravity/*) echo "Antigravity IDE" ;;
     .gemini/*)             echo "Antigravity CLI" ;;
@@ -521,6 +633,10 @@ run_sync() {
     echo "   Found skill: $skill_name"
 
     for target in "${TARGETS[@]}"; do
+      if is_central_descendant "$target"; then
+        echo "      Warning: skipped unsafe target inside the EasySkills library: $target" >&2
+        continue
+      fi
       local norm_target
       norm_target=$(cd "$target" 2>/dev/null && pwd -P) || norm_target="$target"
       if is_disabled_target "$norm_target"; then
@@ -612,21 +728,51 @@ add_target() {
   fi
   local abs_path
   abs_path=$(cd "$path" && pwd -P)
-  touch "$CUSTOM_TARGETS_FILE"
-  if grep -qFx "$abs_path" "$CUSTOM_TARGETS_FILE" 2>/dev/null; then
+  if is_central_descendant "$abs_path"; then
+    echo "Error: The EasySkills library cannot be registered as an Agent skills directory." >&2
+    return 1
+  fi
+  if awk -v p="$abs_path" '
+      $0 == p { found = 1; exit }
+      { idx = index($0, "="); if (idx > 0 && substr($0, idx + 1) == p) { found = 1; exit } }
+      END { exit(found ? 0 : 1) }
+    ' "$CUSTOM_TARGETS_FILE" 2>/dev/null; then
     echo "Path is already persisted: $abs_path"
   else
-    echo "$abs_path" >> "$CUSTOM_TARGETS_FILE"
+    local tmp_file
+    tmp_file=$(mktemp "${CUSTOM_TARGETS_FILE}.tmp.XXXXXX") || {
+      echo "Error: could not stage custom target file." >&2
+      return 1
+    }
+    if [ -f "$CUSTOM_TARGETS_FILE" ] && ! cat "$CUSTOM_TARGETS_FILE" > "$tmp_file"; then
+      rm -f "$tmp_file"
+      echo "Error: could not read current custom targets." >&2
+      return 1
+    fi
+    if [ -s "$tmp_file" ] && [ -n "$(tail -c 1 "$tmp_file" 2>/dev/null)" ]; then
+      printf '\n' >> "$tmp_file" || { rm -f "$tmp_file"; return 1; }
+    fi
+    if ! printf '%s\n' "$abs_path" >> "$tmp_file" || ! mv -f "$tmp_file" "$CUSTOM_TARGETS_FILE"; then
+      rm -f "$tmp_file"
+      echo "Error: could not persist custom target." >&2
+      return 1
+    fi
     echo "Successfully persisted custom target: $abs_path"
   fi
   if [ -f "$DISABLED_TARGETS_FILE" ]; then
     local tmp_file="${DISABLED_TARGETS_FILE}.tmp"
-    awk -v p="$abs_path" '
+    if ! awk -v p="$abs_path" '
       $0 == p { next }
       { idx = index($0, "="); if (idx > 0 && substr($0, idx+1) == p) next }
       { print }
-    ' "$DISABLED_TARGETS_FILE" > "$tmp_file"
-    mv "$tmp_file" "$DISABLED_TARGETS_FILE"
+    ' "$DISABLED_TARGETS_FILE" > "$tmp_file"; then
+      rm -f "$tmp_file"
+      return 1
+    fi
+    if ! mv -f "$tmp_file" "$DISABLED_TARGETS_FILE"; then
+      rm -f "$tmp_file"
+      return 1
+    fi
   fi
   run_sync
 }
@@ -640,20 +786,35 @@ remove_target() {
   if [ -f "$CUSTOM_TARGETS_FILE" ]; then
     local abs_path
     abs_path=$(cd "$path" 2>/dev/null && pwd -P) || abs_path="$path"
-    awk -v p="$abs_path" '
+    local tmp_file="${CUSTOM_TARGETS_FILE}.tmp"
+    if ! awk -v p="$abs_path" '
       $0 == p { next }
       { idx = index($0, "="); if (idx > 0 && substr($0, idx+1) == p) next }
       { print }
-    ' "$CUSTOM_TARGETS_FILE" > "${CUSTOM_TARGETS_FILE}.tmp"
-    mv "${CUSTOM_TARGETS_FILE}.tmp" "$CUSTOM_TARGETS_FILE"
+    ' "$CUSTOM_TARGETS_FILE" > "$tmp_file"; then
+      rm -f "$tmp_file"
+      echo "Error: could not stage custom target removal." >&2
+      return 1
+    fi
+    if ! mv -f "$tmp_file" "$CUSTOM_TARGETS_FILE"; then
+      rm -f "$tmp_file"
+      echo "Error: could not persist custom target removal." >&2
+      return 1
+    fi
     if [ -f "$DISABLED_TARGETS_FILE" ]; then
       local tmp_file="${DISABLED_TARGETS_FILE}.tmp"
-      awk -v p="$abs_path" '
+      if ! awk -v p="$abs_path" '
         $0 == p { next }
         { idx = index($0, "="); if (idx > 0 && substr($0, idx+1) == p) next }
         { print }
-      ' "$DISABLED_TARGETS_FILE" > "$tmp_file"
-      mv "$tmp_file" "$DISABLED_TARGETS_FILE"
+      ' "$DISABLED_TARGETS_FILE" > "$tmp_file"; then
+        rm -f "$tmp_file"
+        return 1
+      fi
+      if ! mv -f "$tmp_file" "$DISABLED_TARGETS_FILE"; then
+        rm -f "$tmp_file"
+        return 1
+      fi
     fi
     echo "Successfully removed path: $abs_path"
     run_sync
@@ -704,7 +865,6 @@ run_status() {
   echo "=========================================================="
 
   # Watcher status
-  local watcher_running=false
   local watcher_pid
   local watcher_detail=""
   if [ "$(uname -s)" = "Darwin" ]; then
@@ -729,7 +889,6 @@ run_status() {
     else
       echo "   Watcher: ✅ Running (PID $watcher_pid)"
     fi
-    watcher_running=true
   else
     echo "   Watcher: ❌ Not running"
   fi
@@ -796,18 +955,36 @@ show_help() {
   echo "  -u, --unwatch       Uninstall/Stop the background watcher daemon"
   echo "  -c, --cleanup       Remove all EasySkills symlinks from agent directories"
   echo "  --status            Show watcher and mapping health status"
+  echo "  --doctor            Print a redacted JSON health report (read-only)"
   echo "  --webui             Start the local WebUI Manager on port 6633"
   echo "  -h, --help          Show this help documentation"
 }
 
-start_webui() {
+resolve_webui_python() {
   if ! command -v python3 &>/dev/null; then
-    echo "Note: python3 not found — WebUI skipped. Install Python 3 to use the WebUI."
+    echo "Error: EasySkills diagnostics and WebUI require Python 3.10+. python3 was not found." >&2
     return 1
   fi
 
-  local python_bin
+  local python_bin python_version
   python_bin="$(command -v python3)"
+  if ! "$python_bin" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+    python_version="$($python_bin -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null || echo unknown)"
+    echo "Error: EasySkills diagnostics and WebUI require Python 3.10+ (found $python_version at $python_bin)." >&2
+    return 1
+  fi
+  printf '%s\n' "$python_bin"
+}
+
+run_doctor() {
+  local python_bin
+  python_bin="$(resolve_webui_python)" || return 1
+  "$python_bin" "$SCRIPT_DIR/webui.py" --doctor
+}
+
+start_webui() {
+  local python_bin
+  python_bin="$(resolve_webui_python)" || return 1
 
   webui_ready() {
     [ -n "$(own_webui_pid)" ] || return 1
@@ -991,6 +1168,7 @@ while [[ $# -gt 0 ]]; do
     -u|--unwatch) ACTION="unwatch"; shift ;;
     -c|--cleanup) ACTION="cleanup"; shift ;;
     --status) ACTION="status"; shift ;;
+    --doctor) ACTION="doctor"; shift ;;
     --webui) ACTION="webui"; shift ;;
     -h|--help) ACTION="help"; shift ;;
     *)
@@ -1003,7 +1181,19 @@ done
 
 # Acquire lock for actions that modify symlinks
 case "$ACTION" in
-  sync|add|remove|cleanup) acquire_lock ;;
+  sync|add|remove|cleanup)
+    if ! lock_inherited_from_parent; then
+      acquire_lock
+      # Mark a lock acquired by this standalone deploy process so the nested
+      # webui.py --sync-rules child participates in the same critical section
+      # instead of waiting on our own lock until its timeout.
+      export EASYSKILLS_DEPLOY_LOCK_HELD=1
+      export EASYSKILLS_DEPLOY_LOCK_PID="$$"
+    fi
+    if ! migrate_legacy_targets || ! cleanup_stale_root_files; then
+      exit 1
+    fi
+    ;;
 esac
 
 case "$ACTION" in
@@ -1015,6 +1205,7 @@ case "$ACTION" in
   unwatch) bash "$SCRIPT_DIR/unwatch.sh" ;;
   cleanup) run_cleanup ;;
   status) run_status ;;
+  doctor) run_doctor ;;
   webui) start_webui ;;
   help) show_help ;;
 esac

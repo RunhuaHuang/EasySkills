@@ -8,6 +8,8 @@ Param(
     [Parameter(Mandatory=$false)][switch]$KeepWebUI
 )
 
+$HadErrors = $false
+
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "[*] Uninstalling Windows EasySkills services..." -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
@@ -26,6 +28,7 @@ if (Get-Command Unregister-ScheduledTask -ErrorAction SilentlyContinue) {
                 Write-Host "[OK] Removed scheduled task: $Name" -ForegroundColor Green
             } catch {
                 Write-Warning "Could not remove scheduled task ${Name}: $_"
+                $HadErrors = $true
             }
         }
     }
@@ -39,8 +42,13 @@ if (-not $KeepWebUI) {
 }
 foreach ($ShortcutPath in $ShortcutPaths) {
     if (Test-Path $ShortcutPath) {
-        Remove-Item $ShortcutPath -Force
-        Write-Host "[OK] Removed startup shortcut: $([System.IO.Path]::GetFileName($ShortcutPath))" -ForegroundColor Green
+        try {
+            Remove-Item $ShortcutPath -Force -ErrorAction Stop
+            Write-Host "[OK] Removed startup shortcut: $([System.IO.Path]::GetFileName($ShortcutPath))" -ForegroundColor Green
+        } catch {
+            Write-Warning "Could not remove startup shortcut '$ShortcutPath': $_"
+            $HadErrors = $true
+        }
     }
 }
 
@@ -73,7 +81,10 @@ try {
                 $Proc | Invoke-CimMethod -MethodName Terminate | Out-Null
                 $KilledPids += $Proc.ProcessId
                 Write-Host "[OK] Terminated process (PID: $($Proc.ProcessId))." -ForegroundColor Green
-            } catch {}
+            } catch {
+                Write-Warning "Could not terminate process $($Proc.ProcessId): $_"
+                $HadErrors = $true
+            }
         }
     } else {
         Write-Host "[--] No active background process found." -ForegroundColor Gray
@@ -91,12 +102,25 @@ try {
             if (-not $StillAlive) { break }
             Start-Sleep -Milliseconds 200
         }
+        $StillAlive = @($KilledPids | Where-Object {
+            try { Get-Process -Id $_ -ErrorAction Stop | Out-Null; $true } catch { $false }
+        })
+        if ($StillAlive.Count -gt 0) {
+            Write-Warning "Background processes are still running: $($StillAlive -join ', ')"
+            $HadErrors = $true
+        }
     }
 }
 catch {
     Write-Warning "Failed to query or terminate processes: $_"
+    $HadErrors = $true
 }
 
 Write-Host "=============================================" -ForegroundColor Cyan
+if ($HadErrors) {
+    Write-Error "Uninstallation incomplete; one or more EasySkills services could not be removed."
+    Write-Host "=============================================" -ForegroundColor Red
+    exit 1
+}
 Write-Host "Uninstallation complete." -ForegroundColor Green
 Write-Host "=============================================" -ForegroundColor Green

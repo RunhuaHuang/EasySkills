@@ -1,6 +1,6 @@
 # EasySkills — System & Operations Reference
 
-> **Version:** 4.0.0 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
+> **Version:** 4.1.0 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
 
 EasySkills is a cross-platform skills, rules, and MCP manager for macOS, Linux, and Windows. It establishes a centralized folder (`~/EasySkills`) and delivers capabilities through three channels:
 - **Channel 01 / Skills (Symlinks)**: Dynamically maps top-level folders inside `~/EasySkills` into every installed agent's skills directory using native symlinks (macOS/Linux) or directory junctions (Windows).
@@ -10,6 +10,11 @@ EasySkills is a cross-platform skills, rules, and MCP manager for macOS, Linux, 
 This document is operational reference material for the installed system. It is **not** an agent skill and is not mapped into any agent's skills directory.
 
 > 🌐 **WebUI Dashboard:** EasySkills ships with a visual manager running locally on port **6633** — [http://127.0.0.1:6633](http://127.0.0.1:6633). Import/delete skills, manage modular Agent rules and MCP modules, test each downstream MCP, check connected agent status, synchronize manually, prune invalid links, and trigger updates.
+
+Runtime requirements: macOS/Linux use Bash and require Python 3.10+ for the
+WebUI and Agent Rules channel. Windows uses Windows PowerShell 5.1+ and does
+not require elevation for directory junctions. The prebuilt Gateway does not
+require a local Go installation.
 
 ---
 
@@ -32,13 +37,12 @@ The installer creates `~/EasySkills`, detects supported agents, maps shared skil
 
 ### Windows Defender note
 
-If Windows Defender flags `~/EasySkills`, add an exclusion (a standard UAC prompt appears — click "Yes"):
-
-```powershell
-Start-Process powershell -Verb RunAs -Wait -ArgumentList "-NoProfile -Command `"Add-MpPreference -ExclusionPath '$env:USERPROFILE\EasySkills'; Write-Host 'Windows Defender exclusion added successfully.'; Start-Sleep -Seconds 2`""
-```
-
-You can also add the exclusion manually later via Windows Security settings.
+The installer does not change Defender exclusions or request elevation for
+that purpose. If a file is flagged, verify its release source and inspect the
+specific alert before taking action. Do not exclude the whole EasySkills
+directory by default: it can contain third-party skill scripts and plaintext
+MCP credentials. If the alert is confirmed as a false positive, prefer the
+narrowest file-level exception possible.
 
 ---
 
@@ -58,12 +62,16 @@ Run these from the `~/EasySkills` root directory:
 ```bash
 bash ./EasySkills维护工具/.engine/deploy.sh --webui              # Launch WebUI
 bash ./EasySkills维护工具/.engine/deploy.sh --watch              # Enable watcher
+bash ./EasySkills维护工具/.engine/deploy.sh --doctor             # Redacted JSON diagnostics (read-only)
 ```
 **Windows (PowerShell):**
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\EasySkills维护工具/.engine\deploy.ps1 -WebUI
 powershell -ExecutionPolicy Bypass -File .\EasySkills维护工具/.engine\deploy.ps1 -Watch
+powershell -ExecutionPolicy Bypass -File .\EasySkills维护工具/.engine\deploy.ps1 -Doctor
 ```
+
+The doctor report summarizes the Skills, Agent rules, MCP, watcher, and link-health channels. It reports credential posture by count only, replaces paths under the user profile with `~`, and never includes token or MCP secret values.
 
 ### 2. Stopping & Restarting
 If you only close the browser tab, the background watcher keeps running. To restart or fully stop the service:
@@ -123,7 +131,7 @@ Core JSON fields:
 | server/profile | `enabled_tools`, `disabled_tools` | Glob allow/deny lists; profile patterns use `server.tool` |
 | profile | `servers` | Server names or `"*"` |
 
-Secrets are deliberately not encrypted: `env`, `headers`, API keys, and tokens round-trip as plain JSON strings so the WebUI remains simple and portable. On Unix, EasySkills enforces `0700` on the MCP directory and `0600` on the config/backup; saves are atomic. Never commit or share `servers.json`.
+Literal secrets are not encrypted: `env`, `headers`, API keys, and tokens round-trip as plain JSON strings. Prefer runtime references such as `${env:GITHUB_TOKEN}` or `Bearer ${env:GITHUB_TOKEN}` so the credential stays outside `servers.json`; the Gateway resolves these values only when connecting. On Unix, EasySkills enforces `0700` on the MCP directory and `0600` on the config/backup; saves are atomic. Never commit or share a config containing literal secrets.
 
 Agent configuration snippets are generated in the WebUI. Conceptually, all supported Agents launch the same command with `connect --config <servers.json> --profile default`; no Agent configuration changes are required when downstream servers change.
 

@@ -51,6 +51,10 @@ manually in that terminal stops when the terminal is closed.
 - The v1 Gateway exposes tools only. It does not proxy Resources, Prompts,
   Sampling, or Elicitation.
 
-Environment variables and HTTP headers may contain plaintext credentials. The
-Gateway never prints their values; EasySkills stores the JSON with owner-only
-permissions on Unix.
+Literal environment variables and HTTP headers are stored as plaintext. To keep
+credentials out of `servers.json`, use runtime references such as
+`${env:GITHUB_TOKEN}` or `Bearer ${env:GITHUB_TOKEN}`. The Gateway resolves
+them from its process environment when connecting and fails clearly if a
+required variable is missing. Use `$${env:NAME}` when the text must remain
+literal. The Gateway never prints resolved values; EasySkills stores the JSON
+with owner-only permissions on Unix.

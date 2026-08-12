@@ -50,6 +50,11 @@ if [ -z "$PYTHON_BIN" ]; then
   log "python3 not found; supervisor cannot start. Exiting."
   exit 1
 fi
+if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+  _python_version="$($PYTHON_BIN -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null || echo unknown)"
+  log "Python 3.10+ required; found $_python_version at $PYTHON_BIN. Exiting."
+  exit 1
+fi
 if [ ! -f "$WEBUI_SCRIPT" ]; then
   log "webui.py not found at $WEBUI_SCRIPT. Exiting."
   exit 1
@@ -61,7 +66,15 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   # A stale lock from a crashed supervisor: reclaim if the holder is dead.
   old_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
   if [ -z "$old_pid" ] || ! kill -0 "$old_pid" 2>/dev/null; then
-    rm -rf "$LOCK_DIR"
+    # Claim the stale directory with an atomic same-filesystem rename before
+    # deleting it. A plain rm followed by mkdir has a TOCTOU window in which
+    # two supervisors can both observe the dead PID and both start.
+    stale_lock="${LOCK_DIR}.stale.$$"
+    if ! mv "$LOCK_DIR" "$stale_lock" 2>/dev/null; then
+      log "Could not claim stale supervisor lock; another supervisor may have won the race."
+      exit 1
+    fi
+    rm -rf "$stale_lock"
     mkdir "$LOCK_DIR" 2>/dev/null || { log "Could not acquire supervisor lock."; exit 1; }
   else
     log "Another supervisor is already running (PID $old_pid); exiting."
@@ -95,29 +108,25 @@ PY
 }
 
 own_webui_pid() {
-  # Find a webui.py process launched from our SCRIPT_DIR. We anchor on the
-  # literal webui.py PATH (unique enough), NOT on the interpreter prefix —
-  # because PYTHON_BIN may be an absolute path (e.g. /opt/homebrew/bin/python3
-  # or /usr/bin/python3), so requiring the literal "python3" prefix would fail
-  # to match and cause the supervisor to restart a healthy backend in a loop.
-  local pattern
-  pattern="${SCRIPT_DIR}/webui.py"
-  local match
-  # Match any process whose command line contains our webui.py path.
-  match=$(pgrep -f "${pattern}" 2>/dev/null | head -1)
-  # Defense in depth: confirm the candidate is a PYTHON interpreter running our
-  # script. A bare substring check would match editors/greps that happen to have
-  # the path on their command line (VS Code, vim, grep, ripgrep, a language
-  # server...) — and we would then SIGKILL them, destroying unsaved work.
-  # ps -o comm= gives the executable basename (e.g. "python3", "python3.11").
-  if [ -n "$match" ]; then
-    local comm base
-    comm=$(ps -p "$match" -o comm= 2>/dev/null || true)
+  # Find a webui.py process launched from our SCRIPT_DIR. Do not use pgrep -f
+  # here: its pattern is a regular expression, so dots or other metacharacters
+  # in a user's installation path can match an unrelated Python process. Read
+  # the process table once, then compare the command line with shell's literal
+  # substring matching. The interpreter basename check prevents terminating an
+  # editor, grep, or language server that merely mentions webui.py.
+  local pid comm cmdline base
+  while read -r pid comm cmdline; do
+    [ -n "$pid" ] || continue
     base="${comm##*/}"
     case "$base" in
-      [Pp]ython|[Pp]ython[0-9]*) echo "$match" ;;
+      [Pp]ython|[Pp]ython[0-9]*) ;;
+      *) continue ;;
     esac
-  fi
+    case "$cmdline" in
+      *"$WEBUI_SCRIPT"*) echo "$pid"; return 0 ;;
+    esac
+  done < <(ps -axo pid=,comm=,command= 2>/dev/null)
+  return 1
 }
 
 kill_stale_webui() {
@@ -155,11 +164,10 @@ RESTART_TIMES=()
 THROTTLE_WINDOW=300   # 5 minutes
 THROTTLE_MAX=12       # >=12 restarts in the window -> cool down
 
-# Quick-fail detection: if webui.py dies within QUICK_FAIL_SECS of launch this
-# many times in a row, the backend is fundamentally broken (wrong Python
-# version, missing file, etc.) — stop hammering and surface the problem rather
-# than restart-looping forever.
-QUICK_FAIL_SECS=5
+# Quick-fail detection: if webui.py dies during the startup probe this many
+# times in a row, the backend is fundamentally broken (wrong Python version,
+# missing file, etc.) — stop hammering and surface the problem rather than
+# restart-looping forever.
 QUICK_FAIL_MAX=3
 QUICK_FAIL_COUNT=0
 

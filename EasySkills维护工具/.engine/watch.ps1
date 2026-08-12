@@ -5,6 +5,7 @@
 #              alive past terminal close, system events, and crashes).
 # ==============================================================================
 
+$ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 # The engine lives at EasySkills维护工具/.engine (two levels under the install
 # root), so CentralDir (the skill-folder root, shown to the user below) is TWO
@@ -30,7 +31,12 @@ function Start-BackgroundPowerShell([string]$ScriptPath, [string]$WorkingDirecto
 }
 
 # 1. Run the first-time deploy synchronously.
-& "$ScriptDir\deploy.ps1"
+$DeployPowerShell = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
+if (-not $DeployPowerShell) { throw "powershell.exe was not found." }
+& $DeployPowerShell -NoProfile -ExecutionPolicy Bypass -File "$ScriptDir\deploy.ps1"
+if ($LASTEXITCODE -ne 0) {
+    throw "Initial EasySkills synchronization failed with exit code $LASTEXITCODE."
+}
 
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "Installing Windows EasySkills services..." -ForegroundColor Cyan
@@ -89,4 +95,5 @@ try {
 }
 catch {
     Write-Error "Failed to install services: $_"
+    exit 1
 }

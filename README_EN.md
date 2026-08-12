@@ -3,7 +3,7 @@
 # EasySkills
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)](#quick-start)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-brightgreen.svg)](#quick-start)
 [![Agents](https://img.shields.io/badge/Supported%20Agents-43+-orange.svg)](#supported-agents)
 [![Version](https://img.shields.io/badge/Version-4.1.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
@@ -16,6 +16,14 @@ Local-first &bull; Zero idle CPU &bull; WebUI included
 [**中文文档**](README.md)
 
 </div>
+
+---
+
+## System Requirements
+
+* **macOS / Linux**: Skill mapping uses Bash and native symlinks. The WebUI and Agent Rules sync require **Python 3.10+**. If a compatible Python is unavailable, the installer keeps the Skills channel usable and clearly reports that the WebUI was not started.
+* **Windows**: Windows PowerShell 5.1+ is required; directory junctions do not require administrator privileges. The Gateway is distributed as a prebuilt single-file binary, so a local Go toolchain is normally unnecessary.
+* **Network**: Initial installation, online updates, and Gateway release downloads require GitHub or a mirror explicitly selected by the user. Routine local synchronization is offline.
 
 ---
 
@@ -37,19 +45,37 @@ irm `
   https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
 ```
 
-> 🇨🇳 **Users in mainland China**: If the commands above fail to reach GitHub, prefix them with a mirror proxy. The installer also has built-in multi-source fallback internally, so no extra setup is needed:
+The installer deploys the current stable release, `v4.1.0`, by default instead of an unpublished `main` snapshot. Pin another version or opt into the development branch explicitly:
+
+```bash
+# macOS / Linux: pin a release
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_VERSION=4.1.0 bash
+
+# macOS / Linux: explicitly use main
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_CHANNEL=edge bash
+```
+
+```powershell
+# Windows: explicitly use main
+$env:EASYSKILLS_CHANNEL = "edge"
+irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+```
+
+> 🇨🇳 **Users in mainland China**: If the commands above cannot reach GitHub, explicitly select and trust an HTTPS mirror. Installers never switch to a third-party source silently:
 >
 > **macOS / Linux**
 > ```bash
 > curl -fsSL \
->   https://ghfast.top/https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash
+>   https://ghfast.top/https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh \
+>   | EASYSKILLS_MIRROR=https://ghfast.top bash
 > ```
 > **Windows (PowerShell)**
 > ```powershell
+> $env:EASYSKILLS_MIRROR = "https://ghfast.top"
 > irm `
 >   https://ghfast.top/https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
 > ```
-> If `ghfast.top` is unavailable, substitute `gh-proxy.com`, `github.moeyy.xyz`, or pin one via `EASYSKILLS_MIRROR=https://gh-proxy.com bash install.sh`.
+> To use another mirror, replace both the download prefix and `EASYSKILLS_MIRROR`. Setting this variable explicitly trusts that mirror's installer source and Gateway binary; only HTTPS prefixes are accepted.
 
 > 💡 **Alternative Installation**: You can also clone this repository locally and double-click `install_mac.command` (macOS) or `install_windows.bat` (Windows).
 
@@ -190,6 +216,7 @@ Eliminate the need to repeatedly configure the same downstream MCP services (lik
 #### Key Features
 * **Tool Filtering**: Apply a custom whitelist or blacklist to restrict which tools are exposed per MCP service.
 * **Connection Testing**: Execute one-click connectivity checks for downstream MCPs directly from the WebUI.
+* **Environment-backed credentials**: Values in `env` and HTTP `headers` support `${env:VARIABLE}`, including forms such as `Bearer ${env:VARIABLE}`. The Gateway resolves them only when connecting, keeping the credential itself out of `servers.json`; a missing variable produces an explicit connection error.
 
 ---
 
@@ -216,12 +243,14 @@ The local-only WebUI running at `http://127.0.0.1:6633` is the central interface
 * **Agent Status**: View install status and directory path maps for 43+ built-in agents, and register custom agent paths.
 
 <p align="center">
-  <img src="docs/assets/webui-dashboard-macos.jpg" alt="EasySkills WebUI dashboard on macOS" width="100%">
+  <img src="easyskills-final.png" alt="EasySkills WebUI dashboard (current three-channel UI concept)" width="100%">
 </p>
 
 <p align="center">
-  <img src="docs/assets/webui-agents-macos.jpg" alt="EasySkills WebUI linked agents on macOS" width="100%">
+  <img src="easyskills-guide-final.png" alt="EasySkills WebUI linked agents and guide view" width="100%">
 </p>
+
+> These screenshots are live UI examples from the 4.0.x line. The 4.1.0 release keeps the same information architecture and adds MCP, rules-sync, and rollback diagnostics.
 
 ---
 
@@ -243,6 +272,8 @@ The local-only WebUI running at `http://127.0.0.1:6633` is the central interface
 
 ## CLI Reference
 
+The v5 evolution follows an incremental “single Go core plus thin bootstrap scripts” plan. See [`docs/ARCHITECTURE_V5.md`](docs/ARCHITECTURE_V5.md) for the compatibility and rollback design. The current 4.1.x line does not automatically migrate or delete user directories.
+
 You can also run management scripts directly via terminal commands:
 
 **macOS / Linux**
@@ -263,9 +294,21 @@ powershell -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\dep
 | `--remove <path>` | Remove a registered custom agent path |
 | `--watch` | Install and start the background file watcher service |
 | `--unwatch` | Stop and uninstall the background file watcher service |
+| `--status` / `-Status` | Show a concise watcher and skill-mapping status summary |
+| `--doctor` / `-Doctor` | Print a read-only, redacted JSON diagnostic report without creating auth files or migrating user configuration |
 | `--webui` | Start the local WebUI manager service on port 6633 |
 | `--cleanup` | Delete all symlinks and junctions created by EasySkills (safe, keeps source directories) |
 | `--help` | Show command line usage help |
+
+When reporting an issue, run doctor first and copy its redacted output:
+
+```bash
+bash ~/EasySkills/EasySkills维护工具/.engine/deploy.sh --doctor
+```
+
+```powershell
+powershell -File "$env:USERPROFILE\EasySkills\EasySkills维护工具/.engine\deploy.ps1" -Doctor
+```
 
 ---
 
@@ -305,7 +348,7 @@ EasySkills pre-configures mappings for 43+ agent target directories. Custom path
 | 25 | **Goose (Block/AAIF)** | `~/.config/goose/skills` | `%USERPROFILE%\.config\goose\skills` |
 | 26 | **Agents (Standard)** | `~/.agents/skills` | `%USERPROFILE%\.agents\skills` |
 | 27 | **Run** | `~/.run/global-skills/skills` | `%USERPROFILE%\.run\global-skills\skills` |
-| 28 | **Qoder** | `~/.qoder/skills` | `%USERPROFILE%\.qoder/skills` |
+| 28 | **Qoder** | `~/.qoder/skills` | `%USERPROFILE%\.qoder\skills` |
 | 29 | **Qwen Code** | `~/.qwen/skills` | `%USERPROFILE%\.qwen\skills` |
 | 30 | **CodeBuddy** | `~/.codebuddy/skills` | `%USERPROFILE%\.codebuddy\skills` |
 | 31 | **Amp** | `~/.config/agents/skills` | `%USERPROFILE%\.config\agents\skills` |
@@ -330,7 +373,7 @@ EasySkills pre-configures mappings for 43+ agent target directories. Custom path
 
 ## Notes & Troubleshooting
 
-* **Windows Defender**: On Windows, the installer tries to append a Defender exclusion for `~/EasySkills` via UAC shell execution. Agree to the prompts. Alternatively, you can add `%USERPROFILE%\EasySkills` to exclusions manually in Windows Security settings.
+* **Windows Defender**: The installer does not modify Defender exclusions or request administrator privileges for that purpose. If security software raises an alert, verify the download source and inspect the specific file first. Avoid excluding the entire `%USERPROFILE%\EasySkills` directory because it may contain third-party skill scripts and MCP credentials; after confirming a false positive, use the narrowest file-level exception possible.
 * **Watcher Operations**: The background watcher service only monitors the **top-level** of the `~/EasySkills/` directory for additions and removals of folders. Subfolders within skills do not require file monitoring, as symlinks/junctions propagate internal edits instantly. If `~/.proma` exists, EasySkills checks the Proma workspace skills directories every 5 minutes to auto-mount.
 
 ---

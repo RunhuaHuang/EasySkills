@@ -2,7 +2,7 @@
 # EasySkills WebUI Launcher / 启动 EasySkills 控制面板
 # Resolve the physical script location even when invoked through a symlink
 # (EasySkills维护工具/macOS/启动.command -> ../.engine/launchers/macOS-启动.command).
-cd "$(cd "$(dirname "$0")" && pwd -P)/.."
+cd "$(cd "$(dirname "$0")" && pwd -P)/.." || exit 1
 
 # Under launchd the PATH is minimal and /usr/bin/python3 may be a stale system
 # Python too old to run webui.py (needs 3.10+ for `X | None` syntax). Prepend

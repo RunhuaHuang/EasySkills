@@ -15,15 +15,19 @@ while [ -L "$SOURCE" ]; do
 done
 SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 CENTRAL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR" || exit 1
 OS="$(uname -s)"
 
 echo "============================================="
 echo "Installing EasySkills Watcher..."
 echo "============================================="
 
-# 1. Run the first-time manual deploy
-bash "./deploy.sh" "$@"
+# 1. Run the first-time manual deploy. Never register a watcher for a sync that
+# already failed; doing so hides the real error behind a misleading success.
+if ! bash "./deploy.sh" "$@"; then
+  echo "Error: initial EasySkills synchronization failed; watcher was not installed." >&2
+  exit 1
+fi
 
 # 2. Platform-specific watcher installation
 if [ "$OS" = "Darwin" ]; then
@@ -81,10 +85,19 @@ PY
     fi
   fi
 
+  if [ ! -s "$PLIST_PATH" ] || ! plutil -lint "$PLIST_PATH" >/dev/null 2>&1; then
+    echo "Error: generated launchd plist is missing or invalid: $PLIST_PATH" >&2
+    exit 1
+  fi
+
   launchctl bootout "$SERVICE_TARGET" 2>/dev/null || launchctl unload -w "$PLIST_PATH" 2>/dev/null
   launchctl enable "$SERVICE_TARGET" 2>/dev/null
   launchctl bootstrap "$DOMAIN_TARGET" "$PLIST_PATH" 2>/dev/null || launchctl load -w "$PLIST_PATH" 2>/dev/null
   launchctl kickstart -k "$SERVICE_TARGET" 2>/dev/null || launchctl start "$LABEL" 2>/dev/null
+  if ! launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then
+    echo "Error: launchd did not load $SERVICE_TARGET." >&2
+    exit 1
+  fi
 
   echo "============================================="
   echo "macOS EasySkills Watcher installed successfully!"
@@ -113,7 +126,7 @@ After=default.target
 [Service]
 Type=oneshot
 ExecStart=/bin/bash "$SCRIPT_DIR/deploy.sh" $EXTRA_ARGS
-WorkingDirectory=$CENTRAL_DIR
+WorkingDirectory="$CENTRAL_DIR"
 
 [Install]
 WantedBy=default.target
@@ -129,8 +142,8 @@ EOF
 Description=EasySkills Watcher path trigger — monitors ~/EasySkills for changes
 
 [Path]
-PathModified=$CENTRAL_DIR
-PathModified=$CENTRAL_DIR/instructions
+PathModified="$CENTRAL_DIR"
+PathModified="$CENTRAL_DIR/instructions"
 
 [Install]
 WantedBy=default.target
@@ -149,14 +162,20 @@ OnUnitActiveSec=2min
 WantedBy=timers.target
 EOF
 
-  systemctl --user daemon-reload
-  systemctl --user enable easyskills-watcher.path
-  systemctl --user start easyskills-watcher.path
-  systemctl --user enable easyskills-watcher.timer
-  systemctl --user start easyskills-watcher.timer
+  if ! systemctl --user daemon-reload ||
+     ! systemctl --user enable --now easyskills-watcher.path ||
+     ! systemctl --user enable --now easyskills-watcher.timer; then
+    echo "Error: systemd failed to enable the EasySkills watcher units." >&2
+    exit 1
+  fi
 
   # Also run an initial sync via the service
   systemctl --user start easyskills-watcher.service 2>/dev/null || true
+  if ! systemctl --user is-active --quiet easyskills-watcher.path ||
+     ! systemctl --user is-active --quiet easyskills-watcher.timer; then
+    echo "Error: EasySkills watcher units were installed but are not active." >&2
+    exit 1
+  fi
 
   echo "============================================="
   echo "Linux EasySkills Watcher installed successfully!"

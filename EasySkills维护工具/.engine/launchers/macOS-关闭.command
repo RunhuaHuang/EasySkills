@@ -2,7 +2,7 @@
 # EasySkills Shutdown (macOS) / 关闭 EasySkills 后台服务
 # Stops the WebUI backend on port 6633 and unloads the background watcher.
 # Resolve the physical script location even when invoked through a symlink.
-cd "$(cd "$(dirname "$0")" && pwd -P)/.."
+cd "$(cd "$(dirname "$0")" && pwd -P)/.." || exit 1
 
 # --- Stop the WebUI backend (port 6633) --------------------------------
 # Match precisely on this installation's webui.py so editors/greps that merely
@@ -29,4 +29,4 @@ bash "$(pwd)/deploy.sh" --unwatch >/dev/null 2>&1 || true
 echo "EasySkills 后台服务已关闭 / EasySkills services stopped."
 echo "WebUI: http://127.0.0.1:6633 (已停止 / stopped)"
 echo "按任意键关闭此窗口 / Press any key to close this window..."
-read -n 1 -s
+read -r -n 1 -s

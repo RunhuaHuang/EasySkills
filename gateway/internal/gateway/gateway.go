@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -29,7 +30,12 @@ type Router struct {
 	sessions map[string]*downstream
 	tools    map[string]toolRoute
 	status   []ServerStatus
-	mu       sync.RWMutex
+	// lifecycleMu serializes operations that can replace or invalidate the
+	// router's complete visible state. r.mu protects individual maps, but it
+	// cannot prevent a long pre-flight Reload from committing a stale snapshot
+	// after Close (or another Reload) has completed.
+	lifecycleMu sync.Mutex
+	mu          sync.RWMutex
 }
 
 type downstream struct {
@@ -117,6 +123,11 @@ func Open(ctx context.Context, cfg *config.Config, profileName string, logger *s
 }
 
 func connect(parent context.Context, name string, cfg config.ServerConfig, _ *slog.Logger) (*mcp.ClientSession, error) {
+	resolvedCfg, err := cfg.ResolveRuntime()
+	if err != nil {
+		return nil, fmt.Errorf("resolve runtime values: %w", err)
+	}
+	cfg = resolvedCfg
 	ctx, cancel := context.WithTimeout(parent, time.Duration(cfg.StartupTimeout())*time.Second)
 	defer cancel()
 	client := mcp.NewClient(
@@ -151,14 +162,90 @@ func connect(parent context.Context, name string, cfg config.ServerConfig, _ *sl
 	}
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		return nil, fmt.Errorf("connect: %w", err)
+		return nil, fmt.Errorf("connect: %w", redactConnectionError(err, cfg))
 	}
 	return session, nil
 }
 
+// redactConnectionError keeps useful transport context while ensuring that a
+// downstream error cannot echo credentials from a configured URL, header, or
+// environment value into Gateway logs, status JSON, or WebUI test output.
+func redactConnectionError(err error, cfg config.ServerConfig) error {
+	if err == nil {
+		return nil
+	}
+	message := err.Error()
+	if cfg.URL != "" {
+		redactedURL := "<redacted endpoint>"
+		if parsed, parseErr := url.Parse(cfg.URL); parseErr == nil && parsed.Host != "" {
+			originalQuery := parsed.RawQuery
+			originalFragment := parsed.Fragment
+			queryValues := parsed.Query()
+			parsed.User = nil
+			parsed.RawQuery = ""
+			parsed.Fragment = ""
+			redactedURL = parsed.String()
+			message = strings.ReplaceAll(message, cfg.URL, redactedURL)
+			if originalQuery != "" {
+				message = strings.ReplaceAll(message, originalQuery, "<redacted query>")
+				for _, values := range queryValues {
+					for _, value := range values {
+						if value != "" {
+							message = strings.ReplaceAll(message, value, "<redacted>")
+						}
+					}
+				}
+			}
+			if originalFragment != "" {
+				message = strings.ReplaceAll(message, originalFragment, "<redacted>")
+			}
+		} else {
+			message = strings.ReplaceAll(message, cfg.URL, redactedURL)
+		}
+	}
+	secrets := make([]string, 0, 2+len(cfg.Args)+len(cfg.Env)+len(cfg.Headers))
+	secrets = append(secrets, cfg.Command)
+	secrets = append(secrets, cfg.Args...)
+	for _, values := range []map[string]string{cfg.Env, cfg.Headers} {
+		for _, value := range values {
+			secrets = append(secrets, value)
+		}
+	}
+	sort.Slice(secrets, func(left, right int) bool {
+		return len(secrets[left]) > len(secrets[right])
+	})
+	seen := make(map[string]struct{}, len(secrets))
+	for _, value := range secrets {
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		message = strings.ReplaceAll(message, value, "<redacted>")
+	}
+	return errors.New(message)
+}
+
 func newHTTPClient(headers map[string]string) *http.Client {
 	base := http.DefaultTransport
-	return &http.Client{Transport: &headerTransport{base: base, headers: headers}}
+	return &http.Client{
+		Transport: &headerTransport{base: base, headers: headers},
+		CheckRedirect: func(request *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			if len(via) > 0 && !sameOrigin(via[0].URL.Scheme, via[0].URL.Host, request.URL.Scheme, request.URL.Host) {
+				return errors.New("refusing cross-origin MCP redirect")
+			}
+			return nil
+		},
+	}
+}
+
+func sameOrigin(leftScheme, leftHost, rightScheme, rightHost string) bool {
+	return strings.EqualFold(leftScheme, rightScheme) && strings.EqualFold(leftHost, rightHost)
 }
 
 type headerTransport struct {
@@ -228,6 +315,8 @@ func (r *Router) discover(ctx context.Context, serverName string, cfg config.Ser
 }
 
 func (r *Router) Register(server *mcp.Server) {
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	names := make([]string, 0, len(r.tools))
@@ -280,6 +369,12 @@ func registerTool(server *mcp.Server, gatewayName string, route toolRoute) {
 }
 
 func (r *Router) Reload(ctx context.Context, cfg *config.Config, profileName string, server *mcp.Server) (err error) {
+	// Connect/discovery can take seconds and happen outside r.mu. Keep the
+	// whole lifecycle operation serialized so a concurrent Close or Reload
+	// cannot invalidate the snapshot that this call is preparing to commit.
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+
 	selected, profile, errVal := cfg.SelectedServers(profileName)
 	if errVal != nil {
 		return errVal
@@ -336,6 +431,9 @@ func (r *Router) Reload(ctx context.Context, cfg *config.Config, profileName str
 			toConnect = append(toConnect, name)
 		}
 	}
+	sort.Strings(toClose)
+	sort.Strings(toReevaluate)
+	sort.Strings(toConnect)
 	r.mu.Unlock()
 
 	// Pre-flight Phase 1: Connect to new/modified servers
@@ -418,18 +516,38 @@ func (r *Router) Reload(ctx context.Context, cfg *config.Config, profileName str
 		discovered[name] = toolsList
 	}
 
-	// Commit Phase: Commit connections and register tools
+	// Commit Phase: swap connections and routes while holding the router lock.
+	// Closing a downstream can block on process/network shutdown, so retain the
+	// old sessions here and close them only after the new state is visible.
+	var oldSessions []*downstream
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
-	// 1. Remove tools for all re-evaluated servers
+	// 1. Remove tools for all servers whose route set is no longer valid.
+	//
+	// A deleted server appears in toClose but not in toReevaluate because it is
+	// absent from the new profile.  Removing only re-evaluated servers therefore
+	// left stale tool routes behind: sessions disappeared while the old tools
+	// remained published and still pointed at a closed downstream session.
+	toolsToRemoveFor := make(map[string]struct{}, len(toClose)+len(toReevaluate))
+	for _, name := range toClose {
+		toolsToRemoveFor[name] = struct{}{}
+	}
 	for _, name := range toReevaluate {
+		toolsToRemoveFor[name] = struct{}{}
+	}
+	toolServerNames := make([]string, 0, len(toolsToRemoveFor))
+	for name := range toolsToRemoveFor {
+		toolServerNames = append(toolServerNames, name)
+	}
+	sort.Strings(toolServerNames)
+	for _, name := range toolServerNames {
 		var toolNamesToRemove []string
 		for gName, route := range r.tools {
 			if route.serverName == name {
 				toolNamesToRemove = append(toolNamesToRemove, gName)
 			}
 		}
+		sort.Strings(toolNamesToRemove)
 		for _, gName := range toolNamesToRemove {
 			delete(r.tools, gName)
 		}
@@ -443,7 +561,7 @@ func (r *Router) Reload(ctx context.Context, cfg *config.Config, profileName str
 		oldDS, exists := r.sessions[name]
 		if exists {
 			delete(r.sessions, name)
-			oldDS.session.Close()
+			oldSessions = append(oldSessions, oldDS)
 		}
 	}
 
@@ -519,6 +637,13 @@ func (r *Router) Reload(ctx context.Context, cfg *config.Config, profileName str
 		newStatus = append(newStatus, status)
 	}
 	r.status = newStatus
+	r.mu.Unlock()
+
+	for _, oldDS := range oldSessions {
+		if closeErr := oldDS.session.Close(); closeErr != nil {
+			r.logger.Warn("MCP server reload close failed", "error", closeErr)
+		}
+	}
 
 	return nil
 }
@@ -536,15 +661,22 @@ func (r *Router) Summary(profileName string) Summary {
 }
 
 func (r *Router) Close() error {
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	sessions := r.sessions
+	r.sessions = make(map[string]*downstream)
+	r.tools = make(map[string]toolRoute)
+	r.status = []ServerStatus{}
+	r.mu.Unlock()
+
 	var errs []error
-	for name, downstream := range r.sessions {
+	for name, downstream := range sessions {
 		if err := downstream.session.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close %s: %w", name, err))
 		}
 	}
-	r.sessions = make(map[string]*downstream)
 	return errors.Join(errs...)
 }
 
@@ -638,11 +770,10 @@ func (r *Router) discoverToolsLocal(ctx context.Context, serverName string, cfg 
 }
 
 func validateToolDefinition(tool *mcp.Tool) error {
-	if tool.InputSchema == nil {
-		return nil
-	}
-	if err := validateObjectSchema(tool.InputSchema, "input"); err != nil {
-		return err
+	if tool.InputSchema != nil {
+		if err := validateObjectSchema(tool.InputSchema, "input"); err != nil {
+			return err
+		}
 	}
 	if tool.OutputSchema != nil {
 		if err := validateObjectSchema(tool.OutputSchema, "output"); err != nil {
@@ -676,6 +807,9 @@ func DecodeArguments(raw json.RawMessage) (map[string]any, error) {
 	var value map[string]any
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, err
+	}
+	if value == nil {
+		return nil, errors.New("tool arguments must be a JSON object")
 	}
 	return value, nil
 }

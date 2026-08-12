@@ -73,5 +73,5 @@ else
   echo "Uninstallation incomplete; no user data was destroyed. / 卸载未完成，未破坏用户数据。"
 fi
 echo "Press any key to close / 按任意键关闭..."
-read -n 1 -s
+read -r -n 1 -s
 [ "$uninstall_ok" = true ] || exit 1

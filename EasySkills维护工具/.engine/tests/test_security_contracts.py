@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 import base64
+import io
 import json
 import os
 import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tarfile
 import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
-from pathlib import Path
 
 
 # Test file lives at EasySkills维护工具/.engine/tests/, so parents[0]=tests,
@@ -20,12 +26,17 @@ def read(rel: str) -> str:
 
 
 def load_python_webui_module():
+    if os.name == "nt":
+        raise unittest.SkipTest("The Python WebUI backend is Unix-only; Windows uses webui.ps1.")
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("easyskills_webui_test", ROOT / "EasySkills维护工具/.engine/webui.py")
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
-    spec.loader.exec_module(module)
+    # Import in doctor mode so the test suite remains read-only: normal module
+    # initialization creates a persistent browser token and a Qoder directory.
+    with mock.patch.object(sys, "argv", [str(ROOT / "EasySkills维护工具/.engine/webui.py"), "--doctor"]):
+        spec.loader.exec_module(module)
     return module
 
 
@@ -43,7 +54,7 @@ class SecurityContractsTest(unittest.TestCase):
         ps_src = read("EasySkills维护工具/.engine/webui.ps1")
         html_src = read("EasySkills维护工具/.engine/webui/index.html")
 
-        for endpoint in ("/api/status", "/api/skills", "/api/agents", "/api/latest-release"):
+        for endpoint in ("/api/status", "/api/doctor", "/api/skills", "/api/agents", "/api/latest-release"):
             with self.subTest(endpoint=endpoint):
                 self.assertIn(f'path == "{endpoint}"', py_src)
                 self.assertIn(f'$UrlPath -eq "{endpoint}"', ps_src)
@@ -84,6 +95,24 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("$Listener.IsListening", body)
         self.assertIn("$Listener.GetContext()", body)
         self.assertIn("Invoke-WebUIRequest $Context", body)
+
+    def test_windows_webui_bounds_posts_and_protects_tokenized_index(self):
+        src = read("EasySkills维护工具/.engine/webui.ps1")
+        index_fn = src.split("function Send-IndexResponse", 1)[1].split("\n}", 1)[0]
+        self.assertIn('X-Content-Type-Options", "nosniff', index_fn)
+        self.assertIn('X-Frame-Options", "DENY', index_fn)
+        self.assertIn('Content-Security-Policy', index_fn)
+        self.assertIn("script-src 'nonce-$Nonce'", index_fn)
+        self.assertIn("script-src-attr 'none'", index_fn)
+        self.assertIn("SecurityElement]::Escape", index_fn)
+        self.assertIn('Referrer-Policy", "no-referrer', index_fn)
+        self.assertIn('Cross-Origin-Resource-Policy", "same-origin', index_fn)
+        self.assertIn('$RawContentLength = $Request.Headers["Content-Length"]', src)
+        self.assertIn("Request body ended before Content-Length", src)
+        self.assertIn("$Offset += $Read", src)
+        self.assertIn("Content-Length is required", src)
+        self.assertIn("$Context.Response.KeepAlive = $false", src)
+        self.assertIn("Invalid JSON request body", src)
 
     def test_webui_hides_proma_workspace_targets_from_agent_list(self):
         py_src = read("EasySkills维护工具/.engine/webui.py")
@@ -135,9 +164,41 @@ class SecurityContractsTest(unittest.TestCase):
     def test_dynamic_agent_buttons_do_not_use_inline_handlers(self):
         src = read("EasySkills维护工具/.engine/webui/index.html")
         self.assertNotIn("function escapeJsString", src)
-        self.assertNotIn("onclick=\"startEditAgentPrompt", src)
-        self.assertNotIn("onclick=\"apiCall('/api/agents/", src)
+        self.assertNotRegex(src, r"\son[a-z]+=")
+        self.assertIn("data-es-action", src)
+        self.assertIn("document.addEventListener('click'", src)
         self.assertIn("addEventListener('click'", src)
+
+    def test_tokenized_index_is_local_only_and_uses_nonce_csp(self):
+        py_src = read("EasySkills维护工具/.engine/webui.py")
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        html_src = read("EasySkills维护工具/.engine/webui/index.html")
+        self.assertNotIn("fonts.googleapis.com", html_src)
+        self.assertNotIn("fonts.gstatic.com", html_src)
+        self.assertNotIn("cdnjs.cloudflare.com", html_src)
+        self.assertIn('<script nonce="__EASYSKILLS_NONCE__">', html_src)
+        self.assertIn("es-icon-sprite", html_src)
+        self.assertIn("renderEasySkillsIcons", html_src)
+        self.assertIn("html_lib.escape(token, quote=True)", py_src)
+        self.assertIn("script-src 'nonce-{nonce}'", py_src)
+        self.assertIn("script-src-attr 'none'", py_src)
+        self.assertIn("frame-ancestors 'none'", py_src)
+        self.assertIn("frame-ancestors 'none'", ps_src)
+        self.assertIn('rel="noopener noreferrer"', html_src)
+        self.assertIn('self.send_header("Referrer-Policy", "no-referrer")', py_src)
+        self.assertIn('self.send_header("Cross-Origin-Resource-Policy", "same-origin")', py_src)
+
+        webui = load_python_webui_module()
+        malicious_token = '\"><script nonce="__EASYSKILLS_NONCE__">bad()</script>'
+        rendered, nonce = webui._render_index_template(
+            '<meta content="__EASYSKILLS_TOKEN__"><script nonce="__EASYSKILLS_NONCE__"></script>',
+            malicious_token,
+            nonce="fixed-nonce",
+        )
+        self.assertEqual(nonce, "fixed-nonce")
+        self.assertEqual(rendered.count('nonce="fixed-nonce"'), 1)
+        self.assertNotIn('<script nonce="fixed-nonce">bad()', rendered)
+        self.assertIn("&lt;script nonce=&quot;__EASYSKILLS_NONCE__&quot;&gt;", rendered)
 
     def test_skills_tab_supports_folder_import_and_confirmed_delete(self):
         py_src = read("EasySkills维护工具/.engine/webui.py")
@@ -171,6 +232,22 @@ class SecurityContractsTest(unittest.TestCase):
         overlay_css = html_src.split(".skill-delete-overlay {", 1)[1].split("}", 1)[0]
         self.assertIn("left: 0;", overlay_css)
         self.assertNotIn("left: 280px;", overlay_css)
+
+    def test_skill_and_rule_names_are_portable_across_windows_and_unix(self):
+        webui = load_python_webui_module()
+        for invalid in ("CON", "nul.md", "COM1.skill", "bad:name", "bad*name", "trailing.", "trailing ", "line\nfeed"):
+            with self.subTest(kind="skill", name=invalid):
+                self.assertFalse(webui._validate_skill_name(invalid)[0])
+            with self.subTest(kind="rule", name=invalid):
+                self.assertFalse(webui._validate_instruction_name(invalid)[0])
+        self.assertTrue(webui._validate_skill_name("portable-skill")[0])
+        self.assertEqual(webui._validate_instruction_name("portable-rule"), (True, "portable-rule.md"))
+
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        self.assertIn("$WindowsReservedFileNames", ps_src)
+        self.assertGreaterEqual(ps_src.count("$WindowsReservedFileNames -contains $BaseName"), 2)
+        self.assertGreaterEqual(ps_src.count("$Clean.EndsWith(\".\")"), 2)
+        self.assertGreaterEqual(ps_src.count("$Clean.EndsWith(\" \")"), 2)
 
     def test_mcp_gateway_module_management_is_cross_platform_and_token_protected(self):
         py_src = read("EasySkills维护工具/.engine/webui.py")
@@ -239,6 +316,125 @@ class SecurityContractsTest(unittest.TestCase):
                 self.assertTrue(removed["success"], removed)
                 self.assertNotIn("private-api", json.loads(config_file.read_text(encoding="utf-8"))["servers"])
 
+    def test_mcp_backup_replaces_a_symlink_without_following_it(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mcp_dir = root / "mcp"
+            config_file = mcp_dir / "servers.json"
+            backup_file = mcp_dir / "servers.json.bak"
+            outside = root / "outside.txt"
+            outside.write_text("must remain unchanged", encoding="utf-8")
+            config_file.parent.mkdir()
+            config_file.write_text('{"version":1,"servers":{}}\n', encoding="utf-8")
+            backup_file.symlink_to(outside)
+            config = {"version": 1, "servers": {"local": {"transport": "stdio", "command": "x"}}}
+            with mock.patch.object(webui, "MCP_DIR", mcp_dir), \
+                 mock.patch.object(webui, "MCP_CONFIG_FILE", config_file), \
+                 mock.patch.object(webui, "MCP_CONFIG_BACKUP_FILE", backup_file):
+                result = webui.save_mcp_config(config)
+            self.assertTrue(result["success"], result)
+            self.assertEqual(outside.read_text(encoding="utf-8"), "must remain unchanged")
+            self.assertFalse(backup_file.is_symlink())
+            self.assertEqual(json.loads(backup_file.read_text(encoding="utf-8"))["servers"], {})
+
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        self.assertIn("Write-Utf8Atomic-Core $MCPConfigBackupFile", ps_src)
+        self.assertNotIn("Copy-Item $MCPConfigFile $MCPConfigBackupFile", ps_src)
+
+    def test_mcp_config_reads_enforce_the_same_one_megabyte_limit(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "servers.json"
+            config_file.write_bytes(b" " * (1024 * 1024 + 1))
+            with mock.patch.object(webui, "MCP_CONFIG_FILE", config_file):
+                config, error = webui._read_mcp_config()
+        self.assertIsNone(config)
+        self.assertIn("1 MB", error)
+
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        config_reader = ps_src.split("function Get-MCPConfigObject", 1)[1].split("\n}", 1)[0]
+        self.assertIn("$ConfigInfo.Length -gt 1048576", config_reader)
+
+    def test_mcp_environment_reference_syntax_is_validated_before_save(self):
+        webui = load_python_webui_module()
+
+        def config_with(value):
+            return {
+                "version": 1,
+                "servers": {
+                    "example": {
+                        "transport": "http",
+                        "url": "https://example.invalid/mcp",
+                        "headers": {"Authorization": value},
+                    }
+                },
+                "profiles": {"default": {"servers": ["*"]}},
+            }
+
+        valid, message = webui._validate_mcp_config(config_with("Bearer ${env:API_TOKEN}"))
+        self.assertTrue(valid, message)
+        valid, message = webui._validate_mcp_config(config_with("$${env:LITERAL-NAME}"))
+        self.assertTrue(valid, message)
+        for malformed in ("${env:}", "${env:9TOKEN}", "${env:BAD-NAME}", "${env:UNCLOSED"):
+            with self.subTest(value=malformed):
+                valid, message = webui._validate_mcp_config(config_with(malformed))
+                self.assertFalse(valid)
+                self.assertIn("expected ${env:NAME}", message)
+
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        self.assertIn("function Test-MCPRuntimeValueSyntax", ps_src)
+        self.assertIn("Test-MCPRuntimeValueSyntax ([string]$Prop.Value)", ps_src)
+
+    def test_mcp_typed_fields_reject_explicit_json_null(self):
+        webui = load_python_webui_module()
+        for field in ("enabled", "required", "cwd", "command", "url", "startup_timeout_seconds", "tool_timeout_seconds"):
+            with self.subTest(field=field):
+                server = {"transport": "stdio", "command": "x"}
+                server[field] = None
+                valid, message = webui._validate_mcp_config({
+                    "version": 1,
+                    "servers": {"remote": server},
+                })
+                self.assertFalse(valid)
+                self.assertIn(field, message)
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        self.assertIn('$Server.PSObject.Properties["enabled"]', ps_src)
+        self.assertIn('$Server.PSObject.Properties["startup_timeout_seconds"]', ps_src)
+
+    def test_mcp_map_keys_control_characters_and_globs_are_validated(self):
+        webui = load_python_webui_module()
+
+        for valid_pattern in ("*", "read_?", "[a-z]*", r"\[literal", "[^a]"):
+            with self.subTest(valid_pattern=valid_pattern):
+                self.assertTrue(webui._valid_mcp_tool_pattern_syntax(valid_pattern))
+        for invalid_pattern in ("[", "[]", "[a-]", "[-a]", "trailing\\"):
+            with self.subTest(invalid_pattern=invalid_pattern):
+                self.assertFalse(webui._valid_mcp_tool_pattern_syntax(invalid_pattern))
+
+        config = {
+            "version": 1,
+            "servers": {
+                "unsafe": {
+                    "transport": "stdio",
+                    "command": "example",
+                    "env": {"BAD=NAME": "value"},
+                    "headers": {"Bad Header": "line1\nline2"},
+                    "disabled_tools": ["secret["],
+                }
+            },
+            "profiles": {"default": {"servers": ["*"], "enabled_tools": ["unsafe.["]}},
+        }
+        valid, message = webui._validate_mcp_config(config)
+        self.assertFalse(valid)
+        for expected in ("invalid variable name", "invalid HTTP field name", "invalid control characters", "invalid pattern"):
+            self.assertIn(expected, message)
+
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        self.assertIn("function Test-MCPToolPatternSyntax", ps_src)
+        self.assertIn("has an invalid HTTP field name", ps_src)
+        self.assertIn("contains invalid control characters", ps_src)
+
     def test_python_mcp_single_server_test_passes_server_selector(self):
         webui = load_python_webui_module()
         with tempfile.TemporaryDirectory() as tmp:
@@ -257,6 +453,35 @@ class SecurityContractsTest(unittest.TestCase):
             self.assertTrue(result["success"], result)
             command = run_mock.call_args.args[0]
             self.assertEqual(command[-2:], ["--server", "github"])
+
+    def test_gateway_installers_pin_and_verify_the_engine_version(self):
+        sh_src = read("EasySkills维护工具/.engine/install-gateway.sh")
+        ps_src = read("EasySkills维护工具/.engine/install-gateway.ps1")
+        self.assertNotIn("releases/latest/download", sh_src)
+        self.assertNotIn("releases/latest/download", ps_src)
+        self.assertIn('releases/download/v${VERSION}', sh_src)
+        self.assertIn('releases/download/v$Version', ps_src)
+        self.assertIn("candidate_version", sh_src)
+        self.assertIn("Gateway version mismatch", ps_src)
+
+    def test_gateway_info_reports_engine_version_mismatch(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "easyskills-mcp"
+            binary.write_bytes(b"placeholder")
+            completed = SimpleNamespace(
+                returncode=0,
+                stdout="easyskills-mcp 4.0.0 (test)\n",
+                stderr="",
+            )
+            with mock.patch.object(webui, "MCP_GATEWAY_BINARY", binary), \
+                 mock.patch.object(webui, "get_version", return_value="4.1.0"), \
+                 mock.patch.object(webui.subprocess, "run", return_value=completed):
+                info = webui._gateway_info()
+
+        self.assertEqual(info["version_number"], "4.0.0")
+        self.assertEqual(info["expected_version"], "4.1.0")
+        self.assertFalse(info["version_matches"])
 
     def test_agents_and_guide_are_webui_first(self):
         html_src = read("EasySkills维护工具/.engine/webui/index.html")
@@ -350,7 +575,8 @@ class SecurityContractsTest(unittest.TestCase):
         agents_markup = html_src.split('<section id="agents"', 1)[1].split('<section id="instructions"', 1)[0]
         self.assertIn("t-agent-config-title", agents_markup)
         self.assertIn("t-agent-config-list", agents_markup)
-        self.assertIn("addCustomAgent", agents_markup)
+        self.assertIn('data-es-action="add-agent"', agents_markup)
+        self.assertIn("case 'add-agent': addCustomAgent(trigger)", html_src)
         self.assertIn('id="custom-agent-skills-path"', agents_markup)
         self.assertIn('id="custom-agent-instructions-path"', agents_markup)
 
@@ -385,6 +611,19 @@ class SecurityContractsTest(unittest.TestCase):
 
     def test_python_skill_import_and_delete_are_confined_to_central_dir(self):
         webui = load_python_webui_module()
+        for unsafe_path in ("nested/CON", "nested/guide. ", "nested/name:txt", "nested/aux.txt"):
+            with self.subTest(unsafe_path=unsafe_path):
+                self.assertIsNone(webui._safe_relative_path(unsafe_path))
+        self.assertEqual(webui._safe_relative_path("nested/guide.txt").as_posix(), "nested/guide.txt")
+
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        safe_path_fn = ps_src.split("function ConvertTo-SafeRelativePath", 1)[1].split(
+            "function Import-SkillFolder", 1
+        )[0]
+        self.assertIn("$WindowsReservedFileNames -contains $BaseName", safe_path_fn)
+        self.assertIn('$Part.EndsWith(".")', safe_path_fn)
+        self.assertIn('$Part.EndsWith(" ")', safe_path_fn)
+
         with tempfile.TemporaryDirectory() as tmp:
             central = Path(tmp)
             files = [
@@ -420,6 +659,110 @@ class SecurityContractsTest(unittest.TestCase):
                 self.assertTrue(deleted["success"], deleted)
                 self.assertFalse((central / "ImportedSkill").exists())
 
+    def test_skill_import_keeps_cross_process_lock_through_sync(self):
+        webui = load_python_webui_module()
+        files = [{
+            "path": "SKILL.md",
+            "data": base64.b64encode(b"---\nname: imported\n---\n").decode("ascii"),
+        }]
+        with tempfile.TemporaryDirectory() as tmp:
+            central = Path(tmp)
+            lock_active = False
+
+            @webui.contextlib.contextmanager
+            def tracked_lock():
+                nonlocal lock_active
+                self.assertFalse(lock_active)
+                lock_active = True
+                try:
+                    yield True
+                finally:
+                    lock_active = False
+
+            def sync_after_unlock(*_args):
+                self.assertTrue(lock_active, "import must keep the shared lock through its follow-up sync")
+                return {"success": True, "message": "synced"}
+
+            with mock.patch.object(webui, "CENTRAL_DIR", central), \
+                 mock.patch.object(webui, "_cross_process_deploy_lock", tracked_lock), \
+                 mock.patch.object(webui, "run_deploy", side_effect=sync_after_unlock):
+                result = webui.import_skill_folder("ImportedSkill", files)
+
+            self.assertTrue(result["success"], result)
+            self.assertTrue(result["sync_success"])
+
+    def test_cross_process_lock_timeout_refuses_mutation(self):
+        webui = load_python_webui_module()
+
+        @webui.contextlib.contextmanager
+        def unavailable_lock():
+            yield False
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "agent-skills"
+            disabled = Path(tmp) / "disabled-targets.txt"
+            with mock.patch.object(webui, "_cross_process_deploy_lock", unavailable_lock), \
+                 mock.patch.object(webui, "DISABLED_TARGETS_FILE", disabled):
+                result = webui.do_map(str(target))
+
+            self.assertFalse(result["success"])
+            self.assertIn("still running", result["message"])
+            self.assertFalse(target.exists())
+            self.assertFalse(disabled.exists())
+
+    def test_mapping_validates_target_and_disabled_state_before_mutation(self):
+        webui = load_python_webui_module()
+
+        @webui.contextlib.contextmanager
+        def available_lock():
+            yield True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            central = root / "central"
+            central.mkdir()
+            (central / "example-skill").mkdir()
+            (central / "example-skill" / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+            target_file = root / "not-a-directory"
+            target_file.write_text("keep", encoding="utf-8")
+            missing = root / "missing-agent"
+            disabled = root / "disabled-targets.txt"
+
+            with mock.patch.object(webui, "CENTRAL_DIR", central), \
+                 mock.patch.object(webui, "DISABLED_TARGETS_FILE", disabled), \
+                 mock.patch.object(webui, "_cross_process_deploy_lock", available_lock):
+                webui._atomic_write_text(disabled, f"Agent={target_file}\n")
+
+                mapped = webui.do_map(str(target_file))
+                self.assertFalse(mapped["success"])
+                self.assertIn("must be a directory", mapped["message"])
+                self.assertIn(f"Agent={target_file}", disabled.read_text(encoding="utf-8"))
+
+                unmapped = webui.do_unmap(str(missing))
+                self.assertFalse(unmapped["success"])
+                self.assertIn("does not exist", unmapped["message"])
+                self.assertNotIn(str(missing), disabled.read_text(encoding="utf-8"))
+
+                unsafe = webui.do_map(str(central / "nested-agent"))
+                self.assertFalse(unsafe["success"])
+                self.assertIn("EasySkills library", unsafe["message"])
+                self.assertFalse((central / "nested-agent").exists())
+
+                self.assertIn(str(target_file.resolve()), webui._get_disabled_targets())
+                self.assertTrue(webui._remove_from_disabled_targets(str(target_file)))
+                self.assertNotIn("Agent=", disabled.read_text(encoding="utf-8"))
+
+    def test_mapping_contract_is_shared_across_shell_backends(self):
+        deploy_sh = read("EasySkills维护工具/.engine/deploy.sh")
+        deploy_ps = read("EasySkills维护工具/.engine/deploy.ps1")
+        webui_ps = read("EasySkills维护工具/.engine/webui.ps1")
+
+        self.assertIn("is_central_descendant", deploy_sh)
+        self.assertIn("Test-IsCentralDescendant", deploy_ps)
+        self.assertIn("Resolve-MappingTarget", webui_ps)
+        self.assertIn("-PathType Container", deploy_ps)
+        self.assertIn("Get-TargetPathFromLine", webui_ps)
+
     def test_readme_version_and_agent_count_match_release(self):
         # agents.json is the single source of truth for the agent count, and
         # EasySkills维护工具/.engine/.version is the single source of truth for the version.
@@ -431,8 +774,666 @@ class SecurityContractsTest(unittest.TestCase):
 
         self.assertIn(f"Version-{version}", read("README_EN.md"))
         self.assertIn(f"版本-{version}", read("README.md"))
+        self.assertIn(f"**Version:** {version}", read("EasySkills维护工具/README_SYSTEM.md"))
+        self.assertIn(f"## EasySkills {version}", read("release_notes.md"))
         self.assertIn(f"EasySkills pre-configures mappings for {agent_count}+ agent", read("README_EN.md"))
         self.assertIn(f"EasySkills 开箱即用支持以下 {agent_count}+ 个 Agent", read("README.md"))
+
+        # The published tables must preserve the platform paths from the
+        # catalog, including Windows separators. A single slash typo can make
+        # a documented target unusable even though the runtime catalog is right.
+        aliases = {
+            "Codex": "Codex (OpenAI)",
+            "Kimi Code": "Kimi Code (Moonshot)",
+            "Kiro Agent": "Kiro Agent (AWS)",
+            "Goose": "Goose (Block/AAIF)",
+        }
+        for doc in ("README.md", "README_EN.md"):
+            rows = {}
+            for line in read(doc).splitlines():
+                match = re.match(r"^\|\s*\d+\s*\|\s*\*\*(.*?)\*\*\s*\|\s*`([^`]*)`\s*\|\s*`([^`]*)`\s*\|$", line)
+                if match:
+                    rows[match.group(1)] = (match.group(2), match.group(3))
+            for agent in json.loads(read("EasySkills维护工具/.engine/agents.json"))["agents"]:
+                published_name = aliases.get(agent["name"], agent["name"])
+                self.assertEqual(
+                    rows.get(published_name),
+                    (agent["mac_path"], agent["win_path"]),
+                    f"{doc} path table drifted for {agent['name']}",
+                )
+
+    def test_docs_do_not_claim_automatic_defender_exclusion(self):
+        docs = "\n".join([
+            read("README.md"),
+            read("README_EN.md"),
+            read("EasySkills维护工具/README_SYSTEM.md"),
+        ])
+        self.assertNotIn("Add-MpPreference", docs)
+        self.assertNotIn("installer tries to append a Defender exclusion", docs)
+        self.assertNotIn("安装器会自动尝试通过 UAC", docs)
+        self.assertIn("does not modify Defender exclusions", docs)
+        self.assertIn("安装器不会修改 Defender 排除项", docs)
+
+    def test_python_runtime_requirement_is_documented_and_enforced(self):
+        docs = "\n".join([
+            read("README.md"),
+            read("README_EN.md"),
+            read("EasySkills维护工具/README_SYSTEM.md"),
+        ])
+        self.assertIn("Python 3.10+", docs)
+        for script in (
+            "EasySkills维护工具/.engine/deploy.sh",
+            "EasySkills维护工具/.engine/webui-service.sh",
+        ):
+            with self.subTest(script=script):
+                source = read(script)
+                self.assertIn("sys.version_info >= (3, 10)", source)
+                self.assertIn("Python 3.10+", source)
+
+    def test_unix_installers_preserve_previous_backup_when_restore_fails(self):
+        unsafe_restore = (
+            '[ ! -d "$BACKUP_MAINT" ] && mv "$PREV_BACKUP" '
+            '"$BACKUP_MAINT" || rm -rf "$PREV_BACKUP"'
+        )
+        warning = "previous backup could not be restored; preserved at $PREV_BACKUP"
+        for installer in ("install.sh", "install_mac.command"):
+            source = read(installer)
+            with self.subTest(installer=installer):
+                self.assertNotIn(unsafe_restore, source)
+                self.assertIn(warning, source)
+                self.assertIn("restore_previous_backup", source)
+
+    @unittest.skipIf(os.name == "nt", "Bash fault injection runs on Unix CI jobs.")
+    def test_unix_installer_restore_function_survives_mv_failure(self):
+        """Fault-inject a failed backup rename and prove the prior snapshot remains."""
+        for installer in ("install.sh", "install_mac.command"):
+            source = read(installer)
+            match = re.search(
+                r"restore_previous_backup\(\) \{\n.*?^\s*\}",
+                source,
+                re.DOTALL | re.MULTILINE,
+            )
+            self.assertIsNotNone(match, installer)
+            with self.subTest(installer=installer), tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                previous = tmp_path / ".maintenance-bak.prev"
+                backup = tmp_path / ".maintenance-bak"
+                previous.mkdir()
+                (previous / "recoverable.txt").write_text("keep me", encoding="utf-8")
+                fake_bin = tmp_path / "bin"
+                fake_bin.mkdir()
+                fake_mv = fake_bin / "mv"
+                fake_mv.write_text("#!/usr/bin/env bash\nexit 73\n", encoding="utf-8")
+                fake_mv.chmod(0o755)
+                harness = tmp_path / "restore-test.sh"
+                harness.write_text(
+                    "set -u\n"
+                    f"BACKUP_MAINT={shlex.quote(str(backup))}\n"
+                    f"PREV_BACKUP={shlex.quote(str(previous))}\n"
+                    + match.group(0)
+                    + "\nrestore_previous_backup || true\n",
+                    encoding="utf-8",
+                )
+                result = subprocess.run(
+                    ["/bin/bash", str(harness)],
+                    text=True,
+                    capture_output=True,
+                    env={**os.environ, "PATH": f"{fake_bin}:/usr/bin:/bin"},
+                    check=False,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertTrue(previous.is_dir(), "failed restore deleted the recoverable backup")
+                self.assertTrue((previous / "recoverable.txt").is_file())
+                self.assertFalse(backup.exists())
+                self.assertIn("preserved at", result.stderr)
+
+    def test_doctor_cli_api_and_frontend_contracts_exist(self):
+        py_src = read("EasySkills维护工具/.engine/webui.py")
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        sh_src = read("EasySkills维护工具/.engine/deploy.sh")
+        deploy_ps_src = read("EasySkills维护工具/.engine/deploy.ps1")
+        html_src = read("EasySkills维护工具/.engine/webui/index.html")
+
+        self.assertIn("def get_doctor_report", py_src)
+        self.assertIn('path == "/api/doctor"', py_src)
+        self.assertIn('"--doctor" in _sys.argv', py_src)
+        self.assertIn("function Get-DoctorReport", ps_src)
+        self.assertIn('$UrlPath -eq "/api/doctor"', ps_src)
+        self.assertIn("[switch]$Doctor", ps_src)
+        self.assertIn('--doctor) ACTION="doctor"', sh_src)
+        self.assertIn("run_doctor", sh_src)
+        self.assertIn("[switch]$Doctor", deploy_ps_src)
+        self.assertIn("/api/doctor", html_src)
+        self.assertIn("copyDoctorDiagnostics", html_src)
+        self.assertIn("dashboard-doctor-panel", html_src)
+
+    def test_mcp_credential_posture_ignores_nonsecret_values_and_escaped_refs(self):
+        webui = load_python_webui_module()
+        config = {
+            "servers": {
+                "example": {
+                    "headers": {
+                        "Authorization": "Bearer ${env:AUTH_TOKEN}",
+                        "X-API-Key": "literal-api-key",
+                        "Accept": "application/json",
+                    },
+                    "env": {
+                        "OPENAI_API_KEY": "$${env:LITERAL_TEXT}",
+                        "ACCESS_TOKEN": "${env:ACCESS_TOKEN}",
+                        "NODE_ENV": "production",
+                    },
+                }
+            }
+        }
+        self.assertEqual(
+            {"environment_references": 2, "literal_values": 2},
+            webui._mcp_credential_posture(config),
+        )
+
+    def test_mcp_url_validation_rejects_embedded_credentials(self):
+        webui = load_python_webui_module()
+        config = {
+            "version": 1,
+            "servers": {
+                "remote": {
+                    "transport": "http",
+                    "url": "https://user:secret@example.com/mcp",
+                }
+            },
+        }
+        ok, message = webui._validate_mcp_config(config)
+        self.assertFalse(ok)
+        self.assertIn("valid http(s) URL", message)
+        self.assertIn("$Uri.UserInfo", read("EasySkills维护工具/.engine/webui.ps1"))
+
+    def test_mcp_url_validation_rejects_invalid_ports(self):
+        webui = load_python_webui_module()
+        for url in (
+            "https://example.com:/mcp",
+            "https://example.com:0/mcp",
+            "https://example.com:65536/mcp",
+            "https://example.com:bad/mcp",
+            "https://exa mple.com/mcp",
+            "https://example.com\\mcp",
+            " https://example.com/mcp",
+            "https://example.com/mcp ",
+        ):
+            with self.subTest(url=url):
+                ok, message = webui._validate_mcp_config({
+                    "version": 1,
+                    "servers": {"remote": {"transport": "http", "url": url}},
+                })
+                self.assertFalse(ok)
+                self.assertIn("valid http(s) URL", message)
+        ok, message = webui._validate_mcp_config({
+            "version": 1,
+            "servers": {"remote": {"transport": "http", "url": "HTTPS://EXAMPLE.COM/mcp"}},
+        })
+        self.assertTrue(ok, message)
+        ps_source = read("EasySkills维护工具/.engine/webui.ps1")
+        self.assertIn("$RawUrl -match '\\s'", ps_source)
+        self.assertIn("$RawUrl.Contains('\\')", ps_source)
+        self.assertIn("$RawUrl -match '^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*:$'", ps_source)
+
+    def test_target_lines_preserve_equals_inside_plain_paths(self):
+        webui = load_python_webui_module()
+        self.assertEqual(("Agent", "/tmp/agent-skills"), webui._target_line_parts("Agent=/tmp/agent-skills"))
+        self.assertEqual(("", "/tmp/agent=skills"), webui._target_line_parts("/tmp/agent=skills"))
+        self.assertEqual(("", r"C:\\Agent=skills"), webui._target_line_parts(r"C:\\Agent=skills"))
+        self.assertEqual(("Agent", "~/.agent/skills"), webui._target_line_parts("Agent=~/.agent/skills"))
+
+        py_src = read("EasySkills维护工具/.engine/webui.py")
+        sh_src = read("EasySkills维护工具/.engine/deploy.sh")
+        ps_src = read("EasySkills维护工具/.engine/deploy.ps1")
+        self.assertIn("def _target_line_parts", py_src)
+        self.assertIn("candidate_looks_like_path", py_src)
+        self.assertIn("candidate=\"${line#*=}\"", sh_src)
+        self.assertIn("$CandidateLooksLikePath", ps_src)
+
+    def test_python_doctor_report_is_redacted_and_actionable(self):
+        webui = load_python_webui_module()
+        secret = "super-secret-token-value"
+        fake_central = Path.home() / ".private-doctor-fixture" / "EasySkills"
+        fake_engine = fake_central / "EasySkills维护工具" / ".engine"
+        mcp_data = {
+            "success": True,
+            "config": {
+                "servers": {
+                    "private": {
+                        "enabled": True,
+                        "transport": "http",
+                        "url": "https://example.invalid/mcp",
+                        "headers": {"Authorization": f"Bearer {secret}"},
+                    }
+                }
+            },
+            "gateway": {"installed": False, "path": str(fake_central / ".runtime" / "gateway")},
+        }
+        with mock.patch.object(webui, "CENTRAL_DIR", fake_central), \
+             mock.patch.object(webui, "SCRIPT_DIR", fake_engine), \
+             mock.patch.object(webui, "get_skills", return_value=[{"name": "one"}]), \
+             mock.patch.object(webui, "get_visible_agents", return_value=[{"active": True, "mapped": False}]), \
+             mock.patch.object(webui, "get_instructions", return_value={
+                 "rules": [{"name": "rule.md"}],
+                 "agents": [{"active": True, "managed_rule_count": 0}],
+             }), \
+             mock.patch.object(webui, "get_central_dir_warnings", return_value={
+                 "dangling_count": 0, "external_link_count": 1,
+             }), \
+             mock.patch.object(webui, "get_watcher_status", return_value={"running": False, "pid": None}), \
+             mock.patch.object(webui, "get_mcp_config", return_value=mcp_data), \
+             mock.patch.object(webui, "get_version", return_value="test"):
+            report = webui.get_doctor_report()
+
+        serialized = json.dumps(report)
+        self.assertEqual(1, report["schema_version"])
+        self.assertFalse(report["success"])
+        self.assertEqual(1, report["summary"]["errors"])
+        self.assertGreaterEqual(report["summary"]["warnings"], 5)
+        self.assertNotIn(secret, serialized)
+        self.assertNotIn(str(Path.home()), serialized)
+        self.assertTrue(report["paths"]["central"].startswith("~"))
+        self.assertEqual(1, report["metrics"]["credential_posture"]["literal_values"])
+        self.assertTrue(any(check["action"] for check in report["checks"] if check["status"] in {"warning", "error"}))
+
+    def test_skills_and_agents_responses_are_always_json_arrays(self):
+        # Contract: /api/skills and /api/agents must serialize to JSON *arrays*
+        # for 0, 1, or N elements on every backend. The Python side returns a
+        # list (json.dumps renders [] / [{...}]); the PowerShell side must
+        # preserve array-ness at the call site, because PowerShell function-
+        # return unrolling + the PS5.1 ConvertTo-Json quirk would otherwise turn
+        # [] / [{...}] into null / a bare object and blank the Windows WebUI.
+        py_src = read("EasySkills维护工具/.engine/webui.py")
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        self.assertIn("def get_skills():", py_src)
+        # get_visible_agents is a list comprehension -> always a list, even empty.
+        self.assertIn("return [agent for agent in get_agents()", py_src)
+        # The PowerShell call sites must wrap the data getters in @(...) so a
+        # 0/1 element result reaches the serializer as a real array.
+        self.assertIn("@(Get-SkillsData)", ps_src)
+        self.assertIn("@(Get-VisibleAgentsData)", ps_src)
+
+    def test_python_get_skills_returns_list_even_when_empty(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            empty_central = Path(tmp) / "central"
+            empty_central.mkdir()
+            with mock.patch.object(webui, "CENTRAL_DIR", empty_central):
+                # Empty library -> [] (a list), never None.
+                self.assertEqual([], webui.get_skills())
+            # A single skill must stay a single-element list, not a bare dict.
+            one = empty_central / "demo"
+            one.mkdir()
+            (one / "SKILL.md").write_text("demo skill\n", encoding="utf-8")
+            with mock.patch.object(webui, "CENTRAL_DIR", empty_central):
+                skills_one = webui.get_skills()
+                self.assertIsInstance(skills_one, list)
+                self.assertEqual(["demo"], [s["name"] for s in skills_one])
+        # No detected agents -> [] (a list), never None.
+        with mock.patch.object(webui, "get_agents", return_value=[]):
+            self.assertEqual([], webui.get_visible_agents())
+
+    @unittest.skipIf(os.name == "nt", "The Python doctor CLI is the Unix backend.")
+    def test_python_doctor_cli_does_not_create_auth_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_home = Path(tmp) / "home"
+            fake_home.mkdir()
+            root = fake_home / "EasySkills"
+            engine = root / "EasySkills维护工具" / ".engine"
+            engine.mkdir(parents=True)
+            shutil.copy2(ROOT / "EasySkills维护工具/.engine/webui.py", engine / "webui.py")
+            (engine / ".version").write_text("test\n", encoding="utf-8")
+            env = {**os.environ, "HOME": str(fake_home), "EASYSKILLS_CENTRAL_DIR": str(root)}
+            result = subprocess.run(
+                [os.sys.executable, str(engine / "webui.py"), "--doctor"],
+                text=True,
+                capture_output=True,
+                env=env,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual("test", report["version"])
+            self.assertFalse((engine / ".easyskills-token").exists())
+            self.assertFalse((engine / ".easyskills-token.lock").exists())
+            self.assertFalse((fake_home / ".qoder-cn").exists())
+
+    @unittest.skipIf(os.name == "nt", "The Bash doctor entry point is Unix-only.")
+    def test_deploy_doctor_skips_legacy_migrations_and_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "EasySkills"
+            engine = root / "EasySkills维护工具" / ".engine"
+            engine.mkdir(parents=True)
+            for name in ("deploy.sh", "webui.py"):
+                shutil.copy2(ROOT / "EasySkills维护工具/.engine" / name, engine / name)
+            (engine / ".version").write_text("test\n", encoding="utf-8")
+            legacy_targets = root / "custom-targets.txt"
+            stale_readme = root / "README.md"
+            legacy_targets.write_text("/keep/legacy/path\n", encoding="utf-8")
+            stale_readme.write_text("keep stale marker for read-only test\n", encoding="utf-8")
+            env = {**os.environ, "EASYSKILLS_CENTRAL_DIR": str(root)}
+            result = subprocess.run(
+                ["/bin/bash", str(engine / "deploy.sh"), "--doctor"],
+                text=True,
+                capture_output=True,
+                env=env,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            json.loads(result.stdout)
+            self.assertEqual("/keep/legacy/path\n", legacy_targets.read_text(encoding="utf-8"))
+            self.assertTrue(stale_readme.is_file())
+            self.assertFalse((engine / ".easyskills-token").exists())
+
+    @unittest.skipIf(os.name == "nt", "Bash fault injection runs on Unix CI jobs.")
+    def test_deploy_legacy_migration_preserves_source_when_atomic_commit_fails(self):
+        source = read("EasySkills维护工具/.engine/deploy.sh")
+        migration = source.split("migrate_legacy_targets() {", 1)[1].split(
+            "\n}\n\ncleanup_stale_root_files() {", 1
+        )[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            engine = root / "EasySkills维护工具" / ".engine"
+            engine.mkdir(parents=True)
+            legacy = root / "custom-targets.txt"
+            current = engine / "custom-targets.txt"
+            legacy.write_text("/legacy/path\n", encoding="utf-8")
+            current.write_text("/current/path\n", encoding="utf-8")
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_mv = fake_bin / "mv"
+            fake_mv.write_text("#!/usr/bin/env bash\nexit 74\n", encoding="utf-8")
+            fake_mv.chmod(0o755)
+            harness = root / "migration.sh"
+            harness.write_text(
+                "DOCTOR_MODE=false\n"
+                f"CENTRAL_DIR={shlex.quote(str(root))}\n"
+                f"SCRIPT_DIR={shlex.quote(str(engine))}\n"
+                f"CUSTOM_TARGETS_FILE={shlex.quote(str(current))}\n"
+                "LEGACY_ROOT_TARGETS=\"$CENTRAL_DIR/custom-targets.txt\"\n"
+                "migrate_legacy_targets() {\n"
+                + migration
+                + "}\n"
+                "migrate_legacy_targets\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["/bin/bash", str(harness)],
+                text=True,
+                capture_output=True,
+                env={**os.environ, "PATH": f"{fake_bin}:/usr/bin:/bin"},
+                check=False,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertEqual("/legacy/path\n", legacy.read_text(encoding="utf-8"))
+            self.assertEqual("/current/path\n", current.read_text(encoding="utf-8"))
+
+    @unittest.skipIf(os.name == "nt", "The Bash deploy entry point is Unix-only.")
+    def test_standalone_deploy_passes_lock_marker_to_nested_rule_sync(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "EasySkills"
+            engine = root / "EasySkills维护工具" / ".engine"
+            engine.mkdir(parents=True)
+            shutil.copy2(ROOT / "EasySkills维护工具/.engine/deploy.sh", engine / "deploy.sh")
+            (engine / "webui.py").write_text(
+                "import os, sys\n"
+                "assert sys.argv[1:] == ['--sync-rules']\n"
+                "print('LOCK=' + os.environ.get('EASYSKILLS_DEPLOY_LOCK_HELD', ''))\n"
+                "print('PID=' + os.environ.get('EASYSKILLS_DEPLOY_LOCK_PID', ''))\n",
+                encoding="utf-8",
+            )
+            fake_home = Path(tmp) / "home"
+            fake_home.mkdir()
+            result = subprocess.run(
+                ["/bin/bash", str(engine / "deploy.sh"), "--sync"],
+                text=True,
+                capture_output=True,
+                env={**os.environ, "HOME": str(fake_home)},
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn("LOCK=1", result.stdout)
+            self.assertRegex(result.stdout, r"PID=[1-9][0-9]*")
+
+    def test_nested_rule_sync_inherits_the_parent_deploy_lock(self):
+        sh_source = read("EasySkills维护工具/.engine/deploy.sh")
+        ps_source = read("EasySkills维护工具/.engine/deploy.ps1")
+        self.assertIn('export EASYSKILLS_DEPLOY_LOCK_HELD=1', sh_source)
+        self.assertIn('export EASYSKILLS_DEPLOY_LOCK_PID="$$"', sh_source)
+        self.assertIn('$env:EASYSKILLS_DEPLOY_LOCK_HELD = "1"', ps_source)
+        self.assertIn('$env:EASYSKILLS_DEPLOY_LOCK_PID = [string]$PID', ps_source)
+        self.assertLess(
+            ps_source.index('$env:EASYSKILLS_DEPLOY_LOCK_HELD = "1"'),
+            ps_source.index('powershell -NoProfile -ExecutionPolicy Bypass -File "$WebUIScript" -SyncRules'),
+        )
+
+    def test_custom_target_add_detects_named_entries_and_directories_only(self):
+        sh_source = read("EasySkills维护工具/.engine/deploy.sh")
+        ps_source = read("EasySkills维护工具/.engine/deploy.ps1")
+        self.assertIn('substr($0, idx + 1) == p', sh_source)
+        self.assertIn('target_path=$(target_line_path "$line")', sh_source)
+        self.assertIn('candidate="${line#*=}"', sh_source)
+        self.assertIn('candidate_looks_like_path', read("EasySkills维护工具/.engine/webui.py"))
+        self.assertIn('Test-Path $Path -PathType Container', ps_source)
+        self.assertIn('$CandidateLooksLikePath', ps_source)
+
+    def test_windows_live_config_writes_use_atomic_replace(self):
+        for rel in (
+            "EasySkills维护工具/.engine/deploy.ps1",
+            "EasySkills维护工具/.engine/webui.ps1",
+        ):
+            source = read(rel)
+            helper = source.split("function Write-Utf8NoBom", 1)[1].split("\nfunction ", 1)[0]
+            with self.subTest(script=rel):
+                self.assertIn("[System.IO.File]::Replace", helper)
+                self.assertNotIn("Remove-Item -LiteralPath $Path", helper)
+
+    def test_remote_installers_default_to_the_current_stable_release(self):
+        version = read("EasySkills维护工具/.engine/.version").strip()
+        sh_source = read("install.sh")
+        ps_source = read("install.ps1")
+        self.assertIn(f'DEFAULT_VERSION="{version}"', sh_source)
+        self.assertIn(f'$DefaultVersion = "{version}"', ps_source)
+        for source in (sh_source, ps_source):
+            self.assertIn("EASYSKILLS_CHANNEL", source)
+            self.assertIn("EASYSKILLS_VERSION", source)
+            self.assertIn("stable", source)
+            self.assertIn("edge", source)
+        self.assertNotIn('BRANCH="main"', sh_source)
+        self.assertNotIn('$Branch = "main"', ps_source)
+
+    def test_installers_validate_source_before_migrating_or_stopping_services(self):
+        sh_source = read("install.sh")
+        ps_source = read("install.ps1")
+        mac_source = read("install_mac.command")
+
+        self.assertLess(
+            sh_source.index("Validate the selected source before touching"),
+            sh_source.index('LEGACY_ROOT_CT="$PERM_DIR/custom-targets.txt"'),
+        )
+        self.assertLess(
+            ps_source.index("Validate the selected source before changing"),
+            ps_source.index("Stop-StaleEasySkillsProcesses\n"),
+        )
+        self.assertLess(
+            mac_source.index("Validate the local bundle before modifying"),
+            mac_source.index("Preserve per-machine runtime files verbatim"),
+        )
+        self.assertIn("does not match requested version", sh_source)
+        self.assertIn("does not match requested version", ps_source)
+        self.assertIn("function Assert-SafeZipArchive", ps_source)
+        self.assertIn("$Name.StartsWith('\\')", ps_source)
+        self.assertIn("$Target.StartsWith('\\')", ps_source)
+        self.assertNotIn("$Name.StartsWith('\\\\')", ps_source)
+        self.assertNotIn("$Target.StartsWith('\\\\')", ps_source)
+        self.assertIn("Downloaded archive exceeds the 512 MB extracted-size safety limit", ps_source)
+        self.assertIn("Downloaded archive contains an unsafe path", ps_source)
+        self.assertIn("Downloaded archive exceeds the 100 MB safety limit", ps_source)
+        self.assertIn("function Save-BoundedWebFile", ps_source)
+        self.assertIn("ResponseHeadersRead", ps_source)
+        self.assertLess(ps_source.index("Assert-SafeZipArchive $ZipPath $TmpDir"), ps_source.index("Expand-Archive -Path $ZipPath"))
+        self.assertIn("$SourceRoots.Count -ne 1", ps_source)
+        self.assertNotIn("Select-Object -First 1 -ExpandProperty FullName", ps_source)
+        self.assertIn("safe_extract_archive", sh_source)
+        self.assertIn("--max-filesize 104857600", sh_source)
+        self.assertIn("release archive contains an unsafe path", sh_source)
+        self.assertIn("release archive contains an unsafe link", sh_source)
+        self.assertNotIn('tar -xzf "$TMP_DIR/repo.tar.gz"', sh_source)
+        self.assertIn('_candidate_count" -eq 1', sh_source)
+        self.assertIn('MIRROR_PREFIXES=("")', sh_source)
+        self.assertNotIn('"https://ghfast.top"                                # ghfast mirror proxy', sh_source)
+        self.assertIn("EASYSKILLS_MIRROR must be an explicit HTTPS URL prefix", sh_source)
+        self.assertIn('$MirrorPrefixes = @("")', ps_source)
+        self.assertNotIn('@("", "https://ghfast.top"', ps_source)
+        self.assertIn("EASYSKILLS_MIRROR must be an explicit HTTPS URL prefix", ps_source)
+
+        for rel in (
+            "EasySkills维护工具/.engine/install-gateway.sh",
+            "EasySkills维护工具/.engine/install-gateway.ps1",
+        ):
+            gateway_installer = read(rel)
+            self.assertNotIn('"https://ghfast.top" "https://gh-proxy.com"', gateway_installer)
+            self.assertIn("EASYSKILLS_MIRROR must be an explicit HTTPS URL prefix", gateway_installer)
+        gateway_sh = read("EasySkills维护工具/.engine/install-gateway.sh")
+        gateway_ps = read("EasySkills维护工具/.engine/install-gateway.ps1")
+        self.assertIn("--max-filesize 52428800", gateway_sh)
+        self.assertIn("--max-filesize 1048576", gateway_sh)
+        self.assertIn('entries="$(tar -tzf', gateway_sh)
+        self.assertIn('tar -xOzf "$TMP_DIR/$ASSET" easyskills-mcp', gateway_sh)
+        self.assertIn("^[0-9A-Fa-f]{64}$", gateway_sh)
+        self.assertIn('$2 == ("*" asset)', gateway_sh)
+        self.assertNotIn('tar -xzf "$TMP_DIR/$ASSET"', gateway_sh)
+        self.assertIn("function Expand-GatewayCandidate", gateway_ps)
+        self.assertIn('FullName -ne "easyskills-mcp.exe"', gateway_ps)
+        self.assertIn("Gateway archive exceeds the 50 MB safety limit", gateway_ps)
+        self.assertIn("Gateway checksum file exceeds the 1 MB safety limit", gateway_ps)
+        self.assertIn("function Save-BoundedWebFile", gateway_ps)
+        self.assertIn("ResponseHeadersRead", gateway_ps)
+        self.assertIn("^[0-9a-f]{64}$", gateway_ps)
+        self.assertNotIn("Expand-Archive -Path $Archive", gateway_ps)
+
+        for rel in ("README.md", "README_EN.md"):
+            readme = read(rel)
+            self.assertNotIn("built-in multi-source fallback", readme)
+            self.assertNotIn("内置多源自动回退", readme)
+            self.assertIn("EASYSKILLS_MIRROR", readme)
+
+    def test_unix_installer_safe_archive_helper_rejects_traversal(self):
+        sh_source = read("install.sh")
+        match = re.search(r"python3 - \"\$archive_path\" \"\$destination\" <<'PY'\n(.*?)\nPY", sh_source, re.DOTALL)
+        self.assertIsNotNone(match, "safe archive Python helper not found")
+        helper = match.group(1)
+        compile(helper, "install.sh:safe_extract_archive", "exec")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            archive = root / "unsafe.tar.gz"
+            destination = root / "extract"
+            destination.mkdir()
+            payload = b"escape"
+            with tarfile.open(archive, "w:gz") as tf:
+                member = tarfile.TarInfo("../escape.txt")
+                member.size = len(payload)
+                tf.addfile(member, io.BytesIO(payload))
+
+            result = subprocess.run(
+                [sys.executable, "-", str(archive), str(destination)],
+                input=helper,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((root / "escape.txt").exists())
+
+    def test_installers_reconcile_stranded_previous_backup_before_rotation(self):
+        sh_source = read("install.sh")
+        mac_source = read("install_mac.command")
+        ps_source = read("install.ps1")
+        bat_source = read("install_windows.bat")
+        for source in (sh_source, mac_source):
+            self.assertIn('elif ! mv "$PREV_BACKUP" "$BACKUP_MAINT"', source)
+            reconcile = source.index('elif ! mv "$PREV_BACKUP" "$BACKUP_MAINT"')
+            rotation = source.index('if [ -d "$OLD_MAINT" ]')
+            self.assertLess(reconcile, rotation)
+        self.assertIn("Previous recoverable backup is preserved", ps_source)
+        pre_rotation = ps_source.split('$PrevBackup = Join-Path $PermDir ".maintenance-bak.prev"', 1)[1].split(
+            "  try {", 1
+        )[0]
+        self.assertNotIn(
+            'if (Test-Path $PrevBackup) { Remove-Item $PrevBackup -Recurse -Force }',
+            pre_rotation,
+        )
+        self.assertIn('move /Y "%PERM_DIR%\\.maintenance-bak.prev" "%PERM_DIR%\\.maintenance-bak"', bat_source)
+        self.assertLess(
+            bat_source.index('move /Y "%PERM_DIR%\\.maintenance-bak.prev" "%PERM_DIR%\\.maintenance-bak"'),
+            bat_source.index('if exist "%MAINT_DIR%" ('),
+        )
+
+    def test_installers_abort_if_existing_backup_cannot_be_preserved(self):
+        for installer in ("install.sh", "install_mac.command"):
+            source = read(installer)
+            with self.subTest(installer=installer):
+                self.assertIn(
+                    'if [ -d "$BACKUP_MAINT" ] && ! mv "$BACKUP_MAINT" "$PREV_BACKUP"; then',
+                    source,
+                )
+                self.assertIn("could not preserve the existing rollback backup", source)
+        bat_source = read("install_windows.bat")
+        rotation = bat_source.split('if exist "%MAINT_DIR%" (', 1)[1].split(")\n  :: Same-parent rename", 1)[0]
+        self.assertIn("could not preserve the existing rollback backup", rotation)
+        self.assertIn("if errorlevel 1", rotation)
+
+    def test_windows_batch_installer_stages_unique_runtime_snapshot_before_swap(self):
+        source = read("install_windows.bat")
+        self.assertIn('set "PRESERVE_DIR=%TEMP%\\easyskills-install-%RANDOM%-%RANDOM%"', source)
+        self.assertNotIn('%TEMP%\\easyskills-disabled.bak', source)
+        self.assertNotIn('%TEMP%\\easyskills-token.bak', source)
+        swap_index = source.index('ren "%NEW_MAINT%" .engine')
+        for runtime_file in ("custom-targets.txt", "disabled-targets.txt", ".easyskills-token"):
+            staged = f'"%NEW_MAINT%\\{runtime_file}"'
+            self.assertIn(staged, source)
+            self.assertLess(source.index(staged), swap_index)
+        self.assertIn('if exist "%PRESERVE_DIR%" rd /S /Q "%PRESERVE_DIR%"', source)
+
+    def test_windows_batch_installer_precomputes_paths_for_fresh_install(self):
+        source = read("install_windows.bat")
+        block_start = source.index('if /i "%CURRENT_DIR_STRIP%" neq "%PERM_DIR%" (')
+        for assignment in (
+            'set "VISIBLE_DIR=%PERM_DIR%\\EasySkills维护工具"',
+            'set "TARGET_MAINT_DIR=%VISIBLE_DIR%\\.engine"',
+            'set "NEW_MAINT=%VISIBLE_DIR%\\.engine.new"',
+        ):
+            self.assertIn(assignment, source)
+            self.assertLess(source.index(assignment), block_start)
+        install_block = source[block_start:source.index(":: Initialize user MCP config")]
+        self.assertNotIn('set "VISIBLE_DIR=', install_block)
+        self.assertNotIn('set "NEW_MAINT=', install_block)
+        self.assertIn('set "MAINT_DIR=%TARGET_MAINT_DIR%"', source)
+        self.assertIn('move /Y "%PERM_DIR%\\.maintenance-bak" "%TARGET_MAINT_DIR%"', source)
+        self.assertIn("if defined MAINT_DIR (", install_block)
+        self.assertIn("if not defined SRC_MAINT_DIR (", install_block)
+        self.assertIn("could not preserve existing runtime configuration", source)
+        self.assertIn("could not stage preserved runtime configuration", source)
+        xcopy = source.index('xcopy /E /I /Y /Q "%SRC_MAINT_DIR%" "%NEW_MAINT%"')
+        self.assertIn("if errorlevel 1", source[xcopy:xcopy + 500])
+        self.assertIn("background service registration failed", source)
+        self.assertIn('if "%INSTALL_OK%"=="0" exit /b 1', source)
+        self.assertIn("if not defined MAINT_DIR (", source)
+        self.assertIn('if not exist "%MAINT_DIR%\\deploy.ps1" (', source)
+        self.assertIn("MAINT_DIR_AMBIGUOUS", source)
+        self.assertIn("SRC_MAINT_DIR_AMBIGUOUS", source)
+        gateway = source.index('if exist "%MAINT_DIR%\\install-gateway.ps1" (')
+        self.assertIn("if errorlevel 1", source[gateway:gateway + 600])
+        self.assertIn("optional MCP Gateway installation failed", source[gateway:gateway + 600])
+
+    def test_windows_batch_uninstaller_aborts_on_ambiguous_install_root(self):
+        source = read("uninstall_windows.bat")
+        self.assertIn("MAINT_DIR_AMBIGUOUS", source)
+        self.assertIn("call :ResolveMaintDir", source)
+        self.assertIn("multiple installed engine directories matched EasySkills*", source)
+        self.assertIn("existing install untouched", source)
 
     def test_default_agent_targets_include_requested_agents_and_corrected_paths(self):
         # Driven by agents.json (the single source of truth): every agent entry
@@ -621,6 +1622,13 @@ class SecurityContractsTest(unittest.TestCase):
             self.assertIn("if errorlevel 1 goto cleanup_failed", src, rel)
             self.assertIn("Uninstallation incomplete", src, rel)
 
+    def test_macos_uninstaller_does_not_trash_a_live_service_install(self):
+        src = read("uninstall_mac.command")
+        self.assertIn('launchctl bootout "$SERVICE_TARGET"', src)
+        self.assertIn('launchctl print "$SERVICE_TARGET"', src)
+        self.assertIn('launchctl print "gui/$UID_VAL/$webui_label"', src)
+        self.assertIn('elif [ "$uninstall_ok" = true ] && ! move_to_trash', src)
+
     def test_windows_launcher_is_silent_vbs_not_visible_bat(self):
         """The user-facing 'Start' launcher must be a .vbs running under
         wscript.exe so it shows ZERO console window. The old .bat is gone."""
@@ -748,7 +1756,8 @@ class SecurityContractsTest(unittest.TestCase):
 
     def test_all_inline_ui_helpers_are_defined(self):
         src = read("EasySkills维护工具/.engine/webui/index.html")
-        self.assertIn('onclick="copyWebUiUrl()"', src)
+        self.assertIn('data-es-action="copy-webui-url"', src)
+        self.assertIn("case 'copy-webui-url': copyWebUiUrl()", src)
         self.assertIn("function copyWebUiUrl()", src)
 
     def test_macos_webui_launches_through_launchctl_with_loopback_url(self):
@@ -866,6 +1875,21 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("$version -isnot [int] -and $version -isnot [long]", validation)
         self.assertNotIn("$version -isnot [double]", validation)
 
+    def test_powershell_mcp_request_parser_preserves_nested_pscustomobjects(self):
+        """PowerShell 7 must not parse MCP payloads as recursive hashtables.
+
+        Test-MCPConfig and the MCP mutation helpers use PSObject.Properties on
+        nested servers/profiles/env/headers objects.  ConvertFrom-Json
+        -AsHashtable changes that contract only on PowerShell 7+, so the HTTP
+        dispatcher must parse a PSCustomObject and convert only the top level
+        to a dictionary for request routing.
+        """
+        src = read("EasySkills维护工具/.engine/webui.ps1")
+        body_parser = src.split("$BodyData = @{}", 1)[1].split("if ($UrlPath -eq \"/api/sync\")", 1)[0]
+        self.assertIn("$PsObj = $Json | ConvertFrom-Json", body_parser)
+        self.assertIn("$PsObj.PSObject.Properties | ForEach-Object", body_parser)
+        self.assertNotIn("ConvertFrom-Json -AsHashtable", body_parser)
+
     def test_hardcoded_fallbacks_match_agents_json(self):
         """Hardcoded fallback arrays must contain the same paths as agents.json."""
         import json
@@ -904,6 +1928,10 @@ class SecurityContractsTest(unittest.TestCase):
         src = read("EasySkills维护工具/.engine/webui.ps1")
         self.assertIn(".easyskills-token", src)
         self.assertIn("Initialize-WebUIToken", src)
+        token_fn = src.split("function Initialize-WebUIToken", 1)[1].split("\n}", 1)[0]
+        self.assertIn("Local\\EasySkillsWebUIToken", token_fn)
+        self.assertIn("Write-Utf8NoBom $TokenFile $New", token_fn)
+        self.assertNotIn("Token file exists but could not be read", token_fn)
 
     # -------------------------------------------------------------------------
     # Rollback support
@@ -920,6 +1948,19 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("dest_maint.rename(backup_maint)", py_src)
         self.assertIn("new_maint_tmp.rename(dest_maint)", py_src)
         self.assertIn(".maintenance-bak/", read(".gitignore"))
+        self.assertGreater(py_src.index("os.replace(readme_staged, readme_dest)"), py_src.index("new_maint_tmp.rename(dest_maint)"))
+        self.assertGreater(ps_src.index("[System.IO.File]::Replace($ReadmeStaged"), ps_src.index("Move-Item -LiteralPath $NewMaintTmp -Destination $DestMaint"))
+        self.assertIn("Move-Item -LiteralPath $DestMaint -Destination $BackupMaint", ps_src)
+        self.assertIn("Move-Item -LiteralPath $BackupMaint -Destination $DestMaint", ps_src)
+        self.assertNotIn('Rename-Item -Path $DestMaint -NewName ".maintenance-bak"', ps_src)
+        self.assertNotIn('Rename-Item -Path $NewMaintTmp -NewName "EasySkills维护工具/.engine"', ps_src)
+        self.assertNotIn('Rename-Item -Path $BackupMaint -NewName "EasySkills维护工具/.engine"', ps_src)
+        self.assertNotIn('Rename-Item -Path $DestMaint -NewName "EasySkills维护工具/.engine.prev"', ps_src)
+        self.assertLess(py_src.index("staged_script.chmod(0o755)"), py_src.index("dest_maint.rename(backup_maint)"))
+        self.assertIn("Old backup snapshot cleanup failed", py_src)
+        self.assertIn("Old backup snapshot cleanup failed", ps_src)
+        self.assertIn("Documentation refresh failed", py_src)
+        self.assertIn("Documentation refresh failed", ps_src)
 
     def test_rollback_endpoint_exists(self):
         """Both backends must expose /api/rollback."""
@@ -948,6 +1989,18 @@ class SecurityContractsTest(unittest.TestCase):
         for src in (read("EasySkills维护工具/.engine/webui.py"), read("EasySkills维护工具/.engine/webui.ps1")):
             self.assertIn("sync_success", src)
             self.assertIn("agent re-sync failed", src)
+
+    def test_update_and_rollback_keep_gateway_version_in_sync(self):
+        py_src = read("EasySkills维护工具/.engine/webui.py")
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        for src in (py_src, ps_src):
+            self.assertIn("gateway_success", src)
+            self.assertIn("does not match release tag", src)
+            self.assertIn("Gateway update failed", src)
+            self.assertIn("Gateway rollback failed", src)
+        self.assertIn("_install_gateway_for_engine(dest_maint, src_root / \"gateway\")", py_src)
+        self.assertIn("_install_gateway_for_engine(dest_maint)", py_src)
+        self.assertIn("Install-MCPGatewayForEngine $DestMaint", ps_src)
 
     def test_successful_update_and_rollback_restart_backend_code(self):
         py_src = read("EasySkills维护工具/.engine/webui.py")
@@ -990,6 +2043,29 @@ class SecurityContractsTest(unittest.TestCase):
                 self.assertFalse(result["success"])
                 self.assertIn("No backup", result["message"])
 
+    def test_rollback_restores_stranded_prev_before_later_failure(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            central = Path(tmp)
+            backup = central / ".maintenance-bak"
+            backup.mkdir()
+            (backup / "backup.txt").write_text("rollback", encoding="utf-8")
+            prev = central / "EasySkills维护工具" / ".engine.prev"
+            prev.mkdir(parents=True)
+            (prev / "current.txt").write_text("keep-current", encoding="utf-8")
+            live = central / "EasySkills维护工具" / ".engine"
+
+            with mock.patch.object(webui, "CENTRAL_DIR", central), \
+                 mock.patch.object(webui, "CUSTOM_TARGETS_FILE", live / "custom-targets.txt"), \
+                 mock.patch.object(webui, "DISABLED_TARGETS_FILE", live / "disabled-targets.txt"), \
+                 mock.patch.object(webui, "TOKEN_FILE", live / ".easyskills-token"), \
+                 mock.patch.object(webui.shutil, "copytree", side_effect=OSError("stop after recovery")):
+                result = webui.do_rollback()
+
+            self.assertFalse(result["success"])
+            self.assertTrue((live / "current.txt").is_file())
+            self.assertFalse(prev.exists())
+
     # -------------------------------------------------------------------------
     # Linux systemd support
     # -------------------------------------------------------------------------
@@ -1004,23 +2080,42 @@ class SecurityContractsTest(unittest.TestCase):
         src = read("EasySkills维护工具/.engine/watch.sh")
         self.assertIn("Linux", src)
         self.assertIn("systemctl", src)
+        self.assertIn("initial EasySkills synchronization failed", src)
+        self.assertIn("systemctl --user is-active --quiet", src)
         self.assertIn("easyskills-watcher.path", src)
+
+    def test_watcher_installers_propagate_registration_failures(self):
+        sh_src = read("EasySkills维护工具/.engine/watch.sh")
+        ps_src = read("EasySkills维护工具/.engine/watch.ps1")
+        self.assertIn("plutil -lint", sh_src)
+        self.assertIn('launchctl print "$SERVICE_TARGET"', sh_src)
+        self.assertIn("$LASTEXITCODE -ne 0", ps_src)
+        self.assertIn('throw "Initial EasySkills synchronization failed', ps_src)
+        self.assertIn("exit 1", ps_src.split("catch {", 1)[1])
 
     def test_unwatch_sh_handles_linux(self):
         """unwatch.sh must handle Linux with systemd."""
         src = read("EasySkills维护工具/.engine/unwatch.sh")
         self.assertIn("Linux", src)
         self.assertIn("systemctl", src)
+        self.assertIn("one or more EasySkills watcher units are still active", src)
+        self.assertIn("systemctl not found. Cannot uninstall watcher", src)
 
     def test_unwatch_sh_uses_installation_path_for_inflight_deploy(self):
         src = read("EasySkills维护工具/.engine/unwatch.sh")
-        # unwatch.sh lives in EasySkills维护工具/.engine/, so CENTRAL_DIR is two
-        # levels up (~/EasySkills). It must resolve the deploy.sh path relative
-        # to itself, never hardcode the user's home directory.
-        self.assertIn('CENTRAL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"', src)
+        # Resolve deploy.sh from unwatch.sh's own installation directory. Do
+        # not hardcode the user's home or retain an unused central-dir value.
+        self.assertIn('local deploy_script="$SCRIPT_DIR/deploy.sh"', src)
         self.assertIn("find_inflight_deploy_pids", src)
         self.assertNotIn("$HOME/EasySkills", src)
         self.assertNotIn("[E]asySkills/EasySkills维护工具/.engine/deploy", src)
+
+    def test_windows_unwatch_propagates_incomplete_cleanup(self):
+        src = read("EasySkills维护工具/.engine/unwatch.ps1")
+        self.assertIn("$HadErrors = $false", src)
+        self.assertIn("Background processes are still running", src)
+        self.assertIn("Uninstallation incomplete", src)
+        self.assertIn("exit 1", src)
 
     # -------------------------------------------------------------------------
     # Code-quality contracts added by code review
@@ -1073,15 +2168,48 @@ class SecurityContractsTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "safety limit"):
                     webui._download_github_file(trusted, destination, max_bytes=4)
 
+    def test_github_download_url_rejects_userinfo_and_non_default_ports(self):
+        webui = load_python_webui_module()
+        self.assertTrue(webui._is_github_download_url("https://github.com/RunhuaHuang/EasySkills/archive/test.tar.gz"))
+        self.assertTrue(webui._is_github_download_url("https://github.com:443/RunhuaHuang/EasySkills/archive/test.tar.gz"))
+        for unsafe in (
+            "https://user@github.com/RunhuaHuang/EasySkills/archive/test.tar.gz",
+            "https://github.com:444/RunhuaHuang/EasySkills/archive/test.tar.gz",
+            "https://github.com.evil.example/RunhuaHuang/EasySkills/archive/test.tar.gz",
+            "http://github.com/RunhuaHuang/EasySkills/archive/test.tar.gz",
+        ):
+            with self.subTest(url=unsafe):
+                self.assertFalse(webui._is_github_download_url(unsafe))
+
     def test_self_update_rejects_archive_bombs_and_unsafe_zip_paths(self):
         py_src = read("EasySkills维护工具/.engine/webui.py")
         ps_src = read("EasySkills维护工具/.engine/webui.ps1")
         self.assertIn("max_members", py_src)
         self.assertIn("max_total_size", py_src)
         self.assertIn("extracted-size safety limit", py_src)
-        self.assertIn("ZipArchive.Entries.Count", ps_src)
+        self.assertIn("$Archive.Entries.Count", ps_src)
         self.assertIn("$ExpandedBytes", ps_src)
         self.assertIn("unsafe path", ps_src)
+        self.assertIn("$Part.Contains(':')", ps_src)
+        self.assertIn("Release archive exceeds the 100 MB safety limit", ps_src)
+        self.assertIn("Integrity archive exceeds the 100 MB safety limit", ps_src)
+        self.assertIn("function Save-BoundedWebFile", ps_src)
+        self.assertGreaterEqual(ps_src.count("ResponseHeadersRead"), 1)
+        self.assertIn("function Normalize-ZipPath", ps_src)
+        self.assertIn("function Resolve-ZipVirtualPath", ps_src)
+        self.assertIn("$Name.StartsWith('\\')", ps_src)
+        self.assertIn("$Name.Replace('\\', '/')", ps_src)
+        self.assertIn("$Target.StartsWith('\\')", ps_src)
+        self.assertNotIn("$Name.StartsWith('\\\\')", ps_src)
+        self.assertNotIn("$Name.Replace('\\\\', '/')", ps_src)
+        self.assertNotIn("$Target.StartsWith('\\\\')", ps_src)
+        self.assertIn("$UnixType", ps_src)
+        self.assertIn("$Links", ps_src)
+        self.assertIn("Assert-SafeZipArchive $ZipPath $ExtractDir", ps_src)
+        self.assertLess(
+            ps_src.index("Assert-SafeZipArchive $ZipPath $ExtractDir"),
+            ps_src.index("Expand-Archive -Path $ZipPath"),
+        )
 
         import tarfile
 
@@ -1093,6 +2221,43 @@ class SecurityContractsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "extracted-size safety limit"):
                 webui._safe_extract_tar(fake_tar, td, max_total_size=4)
         fake_tar.extract.assert_not_called()
+
+    def test_self_update_selects_one_valid_release_root_deterministically(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as td:
+            extracted = Path(td)
+            (extracted / "metadata").mkdir()
+            valid = extracted / "EasySkills-release"
+            (valid / "EasySkills维护工具" / ".engine").mkdir(parents=True)
+            self.assertEqual(webui._find_release_root(extracted), valid)
+
+            second = extracted / "EasySkills-other"
+            (second / "EasySkills维护工具" / ".engine").mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, "multiple EasySkills source roots"):
+                webui._find_release_root(extracted)
+
+        with tempfile.TemporaryDirectory() as td:
+            archive = Path(td) / "symlink-escape.tar.gz"
+            destination = Path(td) / "extract"
+            destination.mkdir()
+            with tarfile.open(archive, "w:gz") as tf:
+                link = tarfile.TarInfo("repo/link")
+                link.type = tarfile.SYMTYPE
+                link.linkname = "../../outside"
+                tf.addfile(link)
+                payload = b"escape"
+                member = tarfile.TarInfo("repo/link/payload.txt")
+                member.size = len(payload)
+                tf.addfile(member, io.BytesIO(payload))
+            with tarfile.open(archive, "r:gz") as tf:
+                with self.assertRaisesRegex(ValueError, "unsafe link"):
+                    webui._safe_extract_tar(tf, str(destination))
+            self.assertFalse((Path(td) / "outside" / "payload.txt").exists())
+
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        self.assertIn("$SourceRoots.Count -eq 0", ps_src)
+        self.assertIn("$SourceRoots.Count -ne 1", ps_src)
+        self.assertNotIn("Get-ChildItem -Path $ExtractDir -Directory | Select-Object -First 1", ps_src)
 
     def test_oversized_body_returns_413(self):
         """_body() must return None and do_POST must send 413 for oversized payloads."""
@@ -1106,6 +2271,34 @@ class SecurityContractsTest(unittest.TestCase):
         )[0]
         self.assertNotIn("self.rfile.read", oversized_branch)
 
+    def test_malformed_or_scalar_request_bodies_are_rejected_before_routing(self):
+        webui = load_python_webui_module()
+
+        for content_length, payload in (("invalid", b"{}"), ("-1", b""), ("1", b"["), ("4", b"null")):
+            request = SimpleNamespace(
+                headers={"Content-Length": content_length},
+                rfile=io.BytesIO(payload),
+                close_connection=False,
+            )
+            with self.subTest(content_length=content_length, payload=payload):
+                self.assertIs(webui.Handler._body(request), webui._INVALID_REQUEST_BODY)
+                self.assertTrue(request.close_connection)
+
+        missing_length = SimpleNamespace(
+            headers={},
+            rfile=io.BytesIO(b"{}"),
+            close_connection=False,
+        )
+        self.assertIs(webui.Handler._body(missing_length), webui._MISSING_CONTENT_LENGTH)
+        self.assertTrue(missing_length.close_connection)
+
+        py_src = read("EasySkills维护工具/.engine/webui.py")
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        self.assertIn("body is _INVALID_REQUEST_BODY", py_src)
+        self.assertIn("body is _MISSING_CONTENT_LENGTH", py_src)
+        self.assertIn("$PsObj -isnot [PSCustomObject]", ps_src)
+        self.assertIn("JSON request body must be an object", ps_src)
+
     def test_agent_prefix_map_is_module_level_constant(self):
         """_AGENT_PREFIX_MAP must be defined at module level, not inside a function."""
         py_src = read("EasySkills维护工具/.engine/webui.py")
@@ -1113,6 +2306,13 @@ class SecurityContractsTest(unittest.TestCase):
         # Must not redefine it inside get_agent_name
         fn_body = py_src.split("def get_agent_name")[1].split("\ndef ")[0]
         self.assertNotIn("_AGENT_PREFIX_MAP = [", fn_body)
+
+    def test_agent_root_does_not_treat_home_prefix_collisions_as_descendants(self):
+        webui = load_python_webui_module()
+        home = Path.home()
+        outside = Path(str(home) + "-other") / "agent" / "skills"
+        self.assertEqual(outside.parent, webui.get_agent_root(outside))
+        self.assertEqual(home, webui.get_agent_root(home))
 
     def test_rollback_uses_atomic_rename(self):
         """do_rollback must use atomic rename not file-by-file copy."""
@@ -1140,9 +2340,12 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn('rm -rf "$PERM_DIR/_runtime"', sh_src)
         self.assertIn('$LegacyMaint = Join-Path $PermDir "_maintenance"', ps_src)
         self.assertIn('Remove-Item $LegacyMaint -Recurse -Force', ps_src)
-        # install.ps1 must re-point $MaintDir at the live tree after the swap so
-        # restored config lands in the NEW install, not the .bak tree.
-        self.assertIn("$MaintDir = $NewMaint", ps_src)
+        # $MaintDir already names the final live path. Re-pointing it to
+        # .engine.new after Move-Item would make every later service path stale.
+        self.assertNotIn("$MaintDir = $NewMaint", ps_src)
+        self.assertIn('$NewCustomFile = Join-Path $NewMaint "custom-targets.txt"', ps_src)
+        self.assertIn('Copy-Item $PreservedDisabled $NewDisabledFile -Force', ps_src)
+        self.assertIn('Copy-Item $PreservedToken $NewTokenFile -Force', ps_src)
 
     def test_deploy_sh_central_resolved_fails_loudly(self):
         """central_resolved must fail loudly (return 1) if cd fails, not produce empty string."""
@@ -1234,6 +2437,40 @@ class SecurityContractsTest(unittest.TestCase):
             self.assertTrue(result["success"])
             self.assertFalse(agent_link.exists())
             self.assertFalse(agent_link.is_symlink())
+
+    def test_unmap_reports_partial_cleanup_without_losing_disabled_state(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            central = root / "central"
+            agent = root / "agent"
+            disabled = root / "disabled.txt"
+            central.mkdir()
+            agent.mkdir()
+            (central / "good").mkdir()
+            (central / "bad").mkdir()
+            good = agent / "good"
+            bad = agent / "bad"
+            good.symlink_to(central / "good", target_is_directory=True)
+            bad.symlink_to(central / "bad", target_is_directory=True)
+
+            original_unlink = Path.unlink
+
+            def fail_one(path, *args, **kwargs):
+                if Path(path).name == "bad":
+                    raise OSError("simulated locked link")
+                return original_unlink(path, *args, **kwargs)
+
+            with mock.patch.object(webui, "CENTRAL_DIR", central), \
+                 mock.patch.object(webui, "DISABLED_TARGETS_FILE", disabled), \
+                 mock.patch.object(webui, "_iter_agent_skill_dirs", return_value=[agent]), \
+                 mock.patch.object(Path, "unlink", fail_one):
+                result = webui.do_unmap(str(agent))
+                self.assertTrue(result["success"])
+                self.assertTrue(result.get("partial"))
+                self.assertFalse(good.exists())
+                self.assertTrue(bad.is_symlink())
+                self.assertIn(str(agent.resolve()), webui._get_disabled_targets())
 
     def test_mapping_preserves_foreign_symlink_conflicts(self):
         webui = load_python_webui_module()
@@ -1455,9 +2692,71 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("old_path = _normalize_local_path(old_skills_path)", py_src)
         self.assertIn("new_path = _normalize_local_path(skills_path)", py_src)
         self.assertIn("$OldPath = Normalize-AgentPath $OldSkillsPath", ps_src)
-        self.assertIn("$NewPath = Normalize-AgentPath $SkillsPath", ps_src)
+        # New targets are validated before being committed so files, the
+        # central EasySkills directory, and its descendants can never become
+        # Agent mapping targets.  The normalized value is taken from the
+        # validation result rather than from the raw input.
+        self.assertIn("$TargetValidation = Resolve-MappingTarget $SkillsPath", ps_src)
+        self.assertIn("$NewPath = $TargetValidation.path", ps_src)
         self.assertIn("line_path_normalized = _normalize_local_path(line_path)", py_src)
         self.assertIn("$LinePathNormalized = Normalize-AgentPath $LinePath", ps_src)
+
+    def test_update_agent_paths_rejects_file_and_central_targets_before_writing(self):
+        """Changing an Agent path must reject unsafe targets atomically.
+
+        A regular file cannot host skill links, while the EasySkills central
+        directory (or one of its descendants) is the source tree and must
+        never be treated as an Agent destination.  Rejection must happen
+        before either custom-targets.txt or the per-Agent JSON is modified.
+        """
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            central = root / "EasySkills"
+            central.mkdir()
+            old_skills = root / "agent" / "skills"
+            instructions = root / "agent" / "AGENTS.md"
+            instructions.parent.mkdir(parents=True)
+            instructions.write_text("# instructions\n", encoding="utf-8")
+            custom_targets = root / "custom-targets.txt"
+            agent_paths = root / ".agent-paths.json"
+            custom_targets.write_text(f"Test Agent={old_skills}\n", encoding="utf-8")
+            agent_paths.write_text(
+                json.dumps({"version": 1, "agents": [{
+                    "name": "Test Agent",
+                    "skills_path": str(old_skills),
+                    "instructions_path": str(instructions),
+                }]}) + "\n",
+                encoding="utf-8",
+            )
+            original_targets = custom_targets.read_text(encoding="utf-8")
+            original_config = agent_paths.read_text(encoding="utf-8")
+            current = {
+                "name": "Test Agent",
+                "path": str(old_skills),
+                "instructions_path": str(instructions),
+                "mapped": False,
+            }
+            file_target = root / "not-a-directory"
+            file_target.write_text("do not replace\n", encoding="utf-8")
+
+            with mock.patch.object(webui, "CENTRAL_DIR", central), \
+                 mock.patch.object(webui, "CUSTOM_TARGETS_FILE", custom_targets), \
+                 mock.patch.object(webui, "AGENT_PATH_CONFIG_FILE", agent_paths), \
+                 mock.patch.object(webui, "get_visible_agents", return_value=[current]), \
+                 mock.patch.object(webui, "_remove_from_disabled_targets"), \
+                 mock.patch.object(webui, "_add_to_disabled_targets"):
+                for unsafe_target in (file_target, central, central / "nested"):
+                    with self.subTest(target=str(unsafe_target)):
+                        result = webui.update_agent_paths(
+                            "Test Agent",
+                            str(old_skills),
+                            str(unsafe_target),
+                            str(instructions),
+                        )
+                        self.assertFalse(result["success"])
+                        self.assertEqual(original_targets, custom_targets.read_text(encoding="utf-8"))
+                        self.assertEqual(original_config, agent_paths.read_text(encoding="utf-8"))
 
     def test_custom_agent_path_update_replaces_normalized_old_entry_without_duplicates(self):
         webui = load_python_webui_module()
@@ -1495,6 +2794,72 @@ class SecurityContractsTest(unittest.TestCase):
                 if line.strip() and not line.lstrip().startswith("#")
             ]
             self.assertEqual(active_lines, [f"Custom Agent={new_skills.resolve()}"])
+
+    def test_update_agent_paths_reports_disabled_state_write_failure(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_skills = root / "old" / "skills"
+            new_skills = root / "new" / "skills"
+            instructions = root / "AGENTS.md"
+            custom_targets = root / "custom-targets.txt"
+            agent_paths = root / ".agent-paths.json"
+            current = {
+                "name": "Test Agent",
+                "path": str(old_skills),
+                "instructions_path": str(instructions),
+                "mapped": False,
+            }
+            with mock.patch.object(webui, "CUSTOM_TARGETS_FILE", custom_targets), \
+                 mock.patch.object(webui, "AGENT_PATH_CONFIG_FILE", agent_paths), \
+                 mock.patch.object(webui, "get_visible_agents", return_value=[current]), \
+                 mock.patch.object(webui, "_add_to_disabled_targets", return_value=False), \
+                 mock.patch.object(webui, "_remove_from_disabled_targets", return_value=True):
+                result = webui.update_agent_paths(
+                    "Test Agent",
+                    str(old_skills),
+                    str(new_skills),
+                    str(instructions),
+                )
+
+            self.assertFalse(result["success"])
+            self.assertTrue(result.get("partial"))
+            self.assertIn("disabled-target state", result["message"])
+
+    def test_update_agent_paths_keeps_old_disabled_state_when_cleanup_fails(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_skills = root / "old" / "skills"
+            new_skills = root / "new" / "skills"
+            instructions = root / "AGENTS.md"
+            custom_targets = root / "custom-targets.txt"
+            agent_paths = root / ".agent-paths.json"
+            current = {
+                "name": "Test Agent",
+                "path": str(old_skills),
+                "instructions_path": str(instructions),
+                "mapped": True,
+            }
+            remove_state = mock.Mock(return_value=True)
+            with mock.patch.object(webui, "CUSTOM_TARGETS_FILE", custom_targets), \
+                 mock.patch.object(webui, "AGENT_PATH_CONFIG_FILE", agent_paths), \
+                 mock.patch.object(webui, "get_visible_agents", return_value=[current]), \
+                 mock.patch.object(webui, "do_map", return_value={"success": True}), \
+                 mock.patch.object(webui, "do_unmap", return_value={"success": False, "message": "state write failed"}), \
+                 mock.patch.object(webui, "_remove_from_disabled_targets", remove_state), \
+                 mock.patch.object(webui, "_add_to_disabled_targets", return_value=True):
+                result = webui.update_agent_paths(
+                    "Test Agent",
+                    str(old_skills),
+                    str(new_skills),
+                    str(instructions),
+                )
+
+            self.assertTrue(result["success"])
+            self.assertTrue(result.get("partial"))
+            self.assertIn("could not be fully removed", result["message"])
+            remove_state.assert_not_called()
 
     def test_moving_a_mapped_agent_cleans_old_skill_links_after_new_map_succeeds(self):
         webui = load_python_webui_module()
@@ -1638,6 +3003,29 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("skills_path: skillsPath", html_src)
         self.assertIn("instructions_path: instructionsPath", html_src)
 
+    def test_custom_agent_registration_rejects_file_and_central_targets(self):
+        webui = load_python_webui_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            central = root / "EasySkills"
+            central.mkdir()
+            file_target = root / "not-a-directory"
+            file_target.write_text("do not map\n", encoding="utf-8")
+            instructions = root / "AGENTS.md"
+            instructions.write_text("# instructions\n", encoding="utf-8")
+            with mock.patch.object(webui, "CENTRAL_DIR", central), \
+                 mock.patch.object(webui, "run_deploy") as run_deploy:
+                for target in (file_target, central, central / "nested"):
+                    with self.subTest(target=str(target)):
+                        result = webui.register_custom_agent(str(target), str(instructions))
+                        self.assertFalse(result["success"])
+                run_deploy.assert_not_called()
+
+        py_src = read("EasySkills维护工具/.engine/webui.py")
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        self.assertIn("validated_skills_path, mapping_error = _validate_mapping_target(skills_path)", py_src)
+        self.assertIn("$SkillsValidation = Resolve-MappingTarget $SkillsPath", ps_src)
+
     def test_custom_agent_registration_failure_does_not_remove_preexisting_target(self):
         webui = load_python_webui_module()
         with tempfile.TemporaryDirectory() as tmp:
@@ -1722,6 +3110,13 @@ class SecurityContractsTest(unittest.TestCase):
                              f"{rel}: webui-service glob must be scoped to $ScriptDir")
             self.assertNotIn("'*watcher-service.ps1*'", ps_src,
                              f"{rel}: watcher-service glob must be scoped to $ScriptDir")
+
+    def test_unix_webui_supervisor_uses_literal_process_path_matching(self):
+        src = read("EasySkills维护工具/.engine/webui-service.sh")
+        self.assertIn("ps -axo pid=,comm=,command=", src)
+        self.assertIn('case "$cmdline" in', src)
+        self.assertIn('*"$WEBUI_SCRIPT"*)', src)
+        self.assertNotIn('pgrep -f "${pattern}"', src)
 
     def test_webui_sets_clickjacking_and_sniffing_security_headers(self):
         """Both WebUI backends must send X-Content-Type-Options and X-Frame-Options.
@@ -2102,6 +3497,17 @@ class SecurityContractsTest(unittest.TestCase):
         # i18n keys in both languages
         self.assertIn("'t-instructions'", html_src)
 
+    def test_frontend_surfaces_degraded_mutation_results(self):
+        html_src = read("EasySkills维护工具/.engine/webui/index.html")
+        py_src = read("EasySkills维护工具/.engine/webui.py")
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        self.assertIn("data.partial", html_src)
+        self.assertIn("data.sync_success === false", html_src)
+        self.assertIn("data.gateway_success === false", html_src)
+        self.assertIn("degraded ? 'warning' : 'success'", html_src)
+        self.assertIn('result["partial"] = True', py_src)
+        self.assertIn("$Result.partial = $true", ps_src)
+
     def test_dashboard_exposes_rule_library_and_agent_coverage(self):
         py_src = read("EasySkills维护工具/.engine/webui.py")
         ps_src = read("EasySkills维护工具/.engine/webui.ps1")
@@ -2121,7 +3527,8 @@ class SecurityContractsTest(unittest.TestCase):
             self.assertIn(field, html_src)
         self.assertIn('id="stat-rules"', html_src)
         self.assertIn('id="dashboard-rule-progress-fill"', html_src)
-        self.assertIn("navigateToSection('instructions')", html_src)
+        self.assertIn('data-es-action="navigate" data-section="instructions"', html_src)
+        self.assertIn("case 'navigate': navigateToSection(trigger.dataset.section)", html_src)
 
     # -------------------------------------------------------------------------
     # Self-update / rollback: host allowlist + rename-recovery (Fix C/D/E)
@@ -2135,9 +3542,11 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("$TrustedDownloadHosts", ps_src)
         self.assertIn("objects.githubusercontent.com", ps_src)
         self.assertIn("Update rejected: download host is not a trusted GitHub host", ps_src)
-        self.assertIn("Get-WebResponseFinalUrl", ps_src)
         self.assertIn("download redirected to an untrusted host", ps_src)
-        self.assertGreaterEqual(ps_src.count("-PassThru"), 2)
+        self.assertIn("UserInfo", ps_src)
+        self.assertIn("IsDefaultPort", ps_src)
+        self.assertGreaterEqual(ps_src.count("Save-BoundedWebFile"), 3)
+        self.assertIn("$Response.RequestMessage.RequestUri", ps_src)
 
     def test_webui_py_self_update_rollback_undoes_first_rename(self):
         """do_self_update rollback must UNDO the current->.bak rotation
@@ -2155,30 +3564,22 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertNotIn("shutil.rmtree(backup_maint)", rollback_block,
                          "rollback must not destroy the current version in .bak")
 
-    def test_webui_py_rollback_precleans_prev_and_recovers(self):
-        """do_rollback must pre-clean EasySkills维护工具/.engine.prev (a stale .prev would
-        make every subsequent rollback fail) and must restore the current
-        version from .prev if the second rename fails."""
+    def test_webui_py_rollback_reconciles_prev_without_destroying_recovery(self):
+        """A stranded .engine.prev must be restored when the live path is absent,
+        not unconditionally deleted before the next rollback."""
         py_src = read("EasySkills维护工具/.engine/webui.py")
         rollback_fn = py_src.split("def do_rollback")[1].split("\ndef ")[0]
-        # Pre-clean of .prev must happen BEFORE the rename.
-        rename_idx = rollback_fn.index("dest_maint.rename")
-        preclean_idx = rollback_fn.index("shutil.rmtree(prev)")
-        self.assertLess(preclean_idx, rename_idx,
-                        "EasySkills维护工具/.engine.prev must be cleaned before the rename rotation")
-        # Recovery: restore from .prev on failure.
+        self.assertIn("if dest_maint.exists():", rollback_fn)
         self.assertIn("prev.rename(dest_maint)", rollback_fn,
                       "rollback must restore current version from .prev on failure")
 
-    def test_webui_ps1_rollback_precleans_prev_and_recovers(self):
-        """PowerShell Do-Rollback must pre-clean EasySkills维护工具/.engine.prev and recover
-        from a failed second rename — same contract as the Python side."""
+    def test_webui_ps1_rollback_reconciles_prev_and_recovers(self):
+        """PowerShell Do-Rollback must preserve the same recovery invariant."""
         ps_src = read("EasySkills维护工具/.engine/webui.ps1")
         rollback_fn = ps_src.split("function Do-Rollback")[1].split("\nfunction ")[0]
-        # Pre-clean before rename.
-        self.assertIn("Rename-Item -Path $Prev", rollback_fn)
-        # Recovery from .prev.
-        self.assertRegex(rollback_fn, r"Rename-Item -Path \$Prev -NewName .*维护工具",
+        self.assertIn("if (Test-Path $DestMaint)", rollback_fn)
+        self.assertIn("Rename-Item -LiteralPath $Prev", rollback_fn)
+        self.assertRegex(rollback_fn, r'Rename-Item -LiteralPath \$Prev -NewName "\.engine"',
                          "Do-Rollback must restore from .prev on failure")
 
     # -------------------------------------------------------------------------

@@ -8,7 +8,6 @@
 
 OS="$(uname -s)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CENTRAL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 find_inflight_deploy_pids() {
   local deploy_script="$SCRIPT_DIR/deploy.sh"
@@ -54,7 +53,7 @@ if [ "$OS" = "Darwin" ]; then
     # the install directory without a half-written sync.
     pids=$(find_inflight_deploy_pids)
     if [ -n "$pids" ]; then
-      echo "Terminating in-flight EasySkills sync (PID: $(echo $pids | tr '\n' ' '))..."
+      echo "Terminating in-flight EasySkills sync (PID: $(echo "$pids" | tr '\n' ' '))..."
       echo "$pids" | while read -r p; do kill "$p" 2>/dev/null || true; done
       sleep 0.5
     fi
@@ -81,10 +80,20 @@ elif [ "$OS" = "Linux" ]; then
     rm -f "$HOME/.config/systemd/user/easyskills-watcher.service"
     rm -f "$HOME/.config/systemd/user/easyskills-watcher.path"
     rm -f "$HOME/.config/systemd/user/easyskills-watcher.timer"
-    systemctl --user daemon-reload 2>/dev/null || true
+    if ! systemctl --user daemon-reload 2>/dev/null; then
+      echo "Error: systemd daemon-reload failed." >&2
+      exit 1
+    fi
+    if systemctl --user is-active --quiet easyskills-watcher.path 2>/dev/null ||
+       systemctl --user is-active --quiet easyskills-watcher.timer 2>/dev/null ||
+       systemctl --user is-active --quiet easyskills-watcher.service 2>/dev/null; then
+      echo "Error: one or more EasySkills watcher units are still active." >&2
+      exit 1
+    fi
     echo "Unloaded and removed systemd watcher units."
   else
-    echo "systemctl not found. Cannot uninstall watcher."
+    echo "Error: systemctl not found. Cannot uninstall watcher." >&2
+    exit 1
   fi
 
 else

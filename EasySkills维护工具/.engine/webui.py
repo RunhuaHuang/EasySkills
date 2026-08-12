@@ -12,6 +12,7 @@
 # a clear, actionable error instead of a confusing parse-time TypeError that
 # would make the supervisor restart-loop the backend forever.
 import sys as _sys
+
 if _sys.version_info < (3, 10):
     _sys.stderr.write(
         "EasySkills WebUI requires Python 3.10 or newer, but "
@@ -22,7 +23,10 @@ if _sys.version_info < (3, 10):
     )
     _sys.exit(1)
 
+_DOCTOR_MODE = "--doctor" in _sys.argv
+
 import hashlib
+import html as html_lib
 import http.server
 import logging
 import signal
@@ -37,6 +41,7 @@ import hmac
 import json
 import os
 import platform
+import posixpath
 import re
 import secrets
 import shutil
@@ -76,9 +81,45 @@ CUSTOM_TARGETS_FILE = SCRIPT_DIR / "custom-targets.txt"
 DISABLED_TARGETS_FILE = SCRIPT_DIR / "disabled-targets.txt"
 AGENT_PATH_CONFIG_FILE = CENTRAL_DIR / ".easyskills-agent-paths.json"
 
-def _add_to_disabled_targets(path_str: str):
+def _target_line_parts(line: str) -> tuple[str, str]:
+    """Split a persisted target line without truncating paths that contain '='.
+
+    Named entries use ``Agent name=/absolute/path``.  Plain paths are also
+    supported, and ``=`` is a legal filename character on both Unix and
+    Windows.  Treat an equals sign as a delimiter only when the right-hand
+    side has an unambiguous path shape; otherwise preserve the entire line as
+    a plain path.
+    """
+    stripped = str(line or "").strip()
+    if not stripped or stripped.startswith("#"):
+        return "", ""
+    if "=" in stripped:
+        prefix, candidate = (part.strip() for part in stripped.split("=", 1))
+        candidate_looks_like_path = (
+            candidate.startswith(("/", "\\", "~", "."))
+            or "/" in candidate
+            or "\\" in candidate
+            or re.match(r"^[A-Za-z]:[\\/]", candidate) is not None
+        )
+        prefix_looks_like_path = (
+            prefix.startswith(("/", "\\", "~", "."))
+            or "/" in prefix
+            or "\\" in prefix
+            or re.match(r"^[A-Za-z]:[\\/]", prefix) is not None
+        )
+        if prefix and candidate_looks_like_path and not prefix_looks_like_path:
+            return prefix, candidate
+    return "", stripped
+
+
+def _target_path_from_line(line: str) -> str:
+    """Extract a path from either a plain or labelled persisted target line."""
+    return _target_line_parts(line)[1]
+
+
+def _add_to_disabled_targets(path_str: str) -> bool:
     if not path_str or not path_str.strip():
-        return
+        return False
     path_str = path_str.strip()
     try:
         norm_path = str(Path(path_str).expanduser().resolve())
@@ -94,8 +135,8 @@ def _add_to_disabled_targets(path_str: str):
 
     exists = False
     for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        stripped = _target_path_from_line(line)
+        if not stripped:
             continue
         try:
             line_path = str(Path(stripped).expanduser().resolve())
@@ -110,11 +151,12 @@ def _add_to_disabled_targets(path_str: str):
         try:
             _atomic_write_text(DISABLED_TARGETS_FILE, "\n".join(lines) + "\n")
         except OSError:
-            pass
+            return False
+    return True
 
-def _remove_from_disabled_targets(path_str: str):
+def _remove_from_disabled_targets(path_str: str) -> bool:
     if not path_str or not path_str.strip() or not DISABLED_TARGETS_FILE.exists():
-        return
+        return True
     path_str = path_str.strip()
     try:
         norm_path = str(Path(path_str).expanduser().resolve())
@@ -125,13 +167,13 @@ def _remove_from_disabled_targets(path_str: str):
     try:
         lines = DISABLED_TARGETS_FILE.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError):
-        return
+        return False
 
     new_lines = []
     updated = False
     for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        stripped = _target_path_from_line(line)
+        if not stripped:
             new_lines.append(line)
             continue
         try:
@@ -147,15 +189,16 @@ def _remove_from_disabled_targets(path_str: str):
         try:
             _atomic_write_text(DISABLED_TARGETS_FILE, "\n".join(new_lines) + "\n")
         except (OSError, UnicodeError):
-            pass
+            return False
+    return True
 
 def _get_disabled_targets() -> set[str]:
     disabled = set()
     if DISABLED_TARGETS_FILE.exists():
         try:
             for line in DISABLED_TARGETS_FILE.read_text(encoding="utf-8").splitlines():
-                stripped = line.strip()
-                if stripped and not stripped.startswith("#"):
+                stripped = _target_path_from_line(line)
+                if stripped:
                     try:
                         norm = str(Path(stripped).expanduser().resolve())
                     except Exception:
@@ -201,7 +244,12 @@ TOKEN_FILE = SCRIPT_DIR / ".easyskills-token"
 def _load_or_create_token() -> str:
     env_token = os.environ.get("EASYSKILLS_WEBUI_TOKEN")
     if env_token:
-        return env_token
+        # Enforce the same minimum strength as the file-backed path below: a
+        # mistyped or placeholder env value must not silently become a weak token.
+        if len(env_token) >= 16:
+            return env_token
+        print(f"ignoring EASYSKILLS_WEBUI_TOKEN: too short ({len(env_token)} < 16 chars); "
+              "generating a file-backed token instead", file=_sys.stderr)
     TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
     lock_path = TOKEN_FILE.with_name(TOKEN_FILE.name + ".lock")
     lock_fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
@@ -247,7 +295,10 @@ def _load_or_create_token() -> str:
         finally:
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
-WEBUI_TOKEN = _load_or_create_token()
+# Doctor mode is a strictly read-only diagnostic path. Avoid creating the
+# persistent browser token (or its lock file) when the backend is only being
+# used to print a support report.
+WEBUI_TOKEN = "" if _DOCTOR_MODE else _load_or_create_token()
 
 # ---- Load agents from agents.json (single source of truth) ----
 def _load_default_agents() -> list[tuple[str, Path]]:
@@ -350,7 +401,7 @@ DEFAULT_INSTRUCTION_PATHS = _load_default_instruction_paths()
 # created by their respective tools, Qoder CN relies on EasySkills to create
 # the path if it does not already exist.
 _qoder_cn_skills = Path.home() / ".qoder-cn" / "skills"
-if not _qoder_cn_skills.exists():
+if not _DOCTOR_MODE and not _qoder_cn_skills.exists():
     _qoder_cn_skills.mkdir(parents=True, exist_ok=True)
 
 EXCLUDE_NAMES = {"EasySkills维护工具", ".git", "node_modules", "dist", "docs", "instructions", "mcp", ".runtime", ".maintenance-bak"}
@@ -415,14 +466,38 @@ GITHUB_RELEASE_TAG_PREFIX = f"https://github.com/{GITHUB_REPO}/releases/tag/"
 # redirect to codeload.github.com; all listed hosts are GitHub-owned delivery
 # endpoints.
 _GITHUB_TARBALL_HOSTS = {"api.github.com", "github.com", "codeload.github.com", "objects.githubusercontent.com"}
+_WINDOWS_RESERVED_FILENAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def _is_portable_filename(name: str) -> bool:
+    """Return whether *name* is a safe single component on Unix and Windows."""
+    if not name or name.endswith((" ", ".")):
+        return False
+    if any(ord(char) < 32 or char in '<>:"/\\|?*' for char in name):
+        return False
+    return name.split(".", 1)[0].upper() not in _WINDOWS_RESERVED_FILENAMES
 
 def _is_github_download_url(url: str) -> bool:
     """True only for https URLs whose host is a known GitHub delivery host."""
     try:
         parsed = urllib.parse.urlparse(url)
+        # Userinfo and non-default ports change the trust boundary even when
+        # the textual hostname still looks like github.com.  Release URLs are
+        # ordinary HTTPS URLs and never need either form.
+        port = parsed.port
     except ValueError:
         return False
-    return parsed.scheme == "https" and (parsed.hostname or "") in _GITHUB_TARBALL_HOSTS
+    return (
+        parsed.scheme.lower() == "https"
+        and (parsed.hostname or "").lower() in _GITHUB_TARBALL_HOSTS
+        and parsed.username is None
+        and parsed.password is None
+        and port in (None, 443)
+    )
 
 # Serializes all WebUI write operations within this process. Combined with the
 # cross-process deploy lock below, this closes the WebUI-vs-launchd race: a
@@ -457,6 +532,29 @@ def _writes_locked(func):
 # acquire THIS lock so they exclude an in-flight watcher sync.
 
 _DEPLOY_LOCK_TIMEOUT = 10.0  # seconds; bounded so a WebUI request never hangs
+_deploy_lock_state = threading.local()
+
+
+def _inherited_deploy_lock_held(lock_dir: Path) -> bool:
+    """Return whether this child process is intentionally running under a parent lock.
+
+    A locked WebUI operation may invoke ``deploy.sh``/``webui.py --sync-rules``.
+    Those children must participate in the parent's critical section instead of
+    waiting on the same on-disk lock.  The marker is accepted only when the lock
+    directory still records the advertised live parent PID; a stray environment
+    variable therefore cannot bypass a missing or unrelated lock.
+    """
+    if os.environ.get("EASYSKILLS_DEPLOY_LOCK_HELD") != "1":
+        return False
+    owner = os.environ.get("EASYSKILLS_DEPLOY_LOCK_PID", "").strip()
+    if not owner.isdigit() or owner == str(os.getpid()):
+        return False
+    try:
+        recorded = (lock_dir / "pid").read_text(encoding="utf-8").strip()
+        os.kill(int(owner), 0)
+    except (OSError, ValueError):
+        return False
+    return recorded == owner
 
 
 @contextlib.contextmanager
@@ -472,6 +570,31 @@ def _cross_process_deploy_lock(timeout: float = _DEPLOY_LOCK_TIMEOUT):
     lock_base = SCRIPT_DIR / ".deploy.lock"
     lock_dir = Path(str(lock_base) + ".d")
     pid_file = lock_dir / "pid"
+
+    # A single request can legitimately compose several locked helpers (for
+    # example add_mcp_server -> save_mcp_config or update_agent_paths ->
+    # do_map).  The on-disk lock is process-wide, so treat nested acquisition
+    # on the same thread as re-entrant instead of waiting on our own PID until
+    # the timeout expires.  The outermost context remains responsible for the
+    # actual directory cleanup.
+    if (
+        getattr(_deploy_lock_state, "depth", 0) > 0
+        and getattr(_deploy_lock_state, "lock_dir", "") == str(lock_dir)
+    ):
+        _deploy_lock_state.depth += 1
+        try:
+            yield True
+        finally:
+            _deploy_lock_state.depth -= 1
+        return
+
+    # A child deploy/webui process inherits the parent's lock marker. Treat the
+    # parent-owned lock as already held, but never trust the marker without
+    # matching the on-disk PID stamp and a live owner check.
+    if _inherited_deploy_lock_held(lock_dir):
+        yield True
+        return
+
     deadline = time.monotonic() + timeout
     acquired = False
     poll = 0.1
@@ -528,6 +651,9 @@ def _cross_process_deploy_lock(timeout: float = _DEPLOY_LOCK_TIMEOUT):
                 if time.monotonic() >= deadline:
                     break
                 time.sleep(poll)
+        if acquired:
+            _deploy_lock_state.lock_dir = str(lock_dir)
+            _deploy_lock_state.depth = 1
         yield acquired
     finally:
         if acquired:
@@ -539,20 +665,25 @@ def _cross_process_deploy_lock(timeout: float = _DEPLOY_LOCK_TIMEOUT):
                 current = ""
             if current == str(os.getpid()):
                 shutil.rmtree(lock_dir, ignore_errors=True)
+            _deploy_lock_state.depth = 0
+            _deploy_lock_state.lock_dir = ""
 
 
 def _writes_locked_proc(func):
     """Decorator: hold BOTH the in-process write lock and the cross-process
     deploy lock. Use for operations that mutate agent-target symlink trees
-    directly (do_map / do_unmap / delete_skill / import_skill_folder). If the
-    cross-process lock cannot be acquired within the timeout, the operation
-    still runs under the in-process lock alone (best-effort) — it never silently
-    no-ops, because a WebUI action the user clicked must take effect."""
+    directly (do_map / do_unmap / delete_skill). A timed-out lock is a hard
+    failure: proceeding anyway would reintroduce the exact watcher/WebUI race
+    this lock is meant to prevent."""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        with _webui_write_lock:
-            with _cross_process_deploy_lock() as _held:
-                return func(*args, **kwargs)
+        with _webui_write_lock, _cross_process_deploy_lock() as held:
+            if not held:
+                return {
+                    "success": False,
+                    "message": "Another EasySkills synchronization is still running. Please retry shortly.",
+                }
+            return func(*args, **kwargs)
     return wrapper
 
 
@@ -563,14 +694,22 @@ def _writes_locked_proc(func):
 def get_agent_root(target: Path) -> Path:
     home = Path.home()
     lib_app = home / "Library" / "Application Support"
-    if str(target).startswith(str(lib_app)):
+    try:
         rel = target.relative_to(lib_app)
+        if not rel.parts:
+            return lib_app
         return lib_app / rel.parts[0]
-    if str(target).startswith(str(home)):
+    except ValueError:
+        pass
+    try:
         rel = target.relative_to(home)
+        if not rel.parts:
+            return home
         if len(rel.parts) > 1 and rel.parts[0] == ".config":
             return home / ".config" / rel.parts[1]
         return home / rel.parts[0]
+    except ValueError:
+        pass
     return target.parent
 
 
@@ -647,6 +786,27 @@ def _normalize_local_path(path_str: str) -> str:
         return str(path.resolve())
     except (OSError, ValueError):
         return str(path)
+
+
+def _validate_mapping_target(path_str: str, *, require_existing: bool = False) -> tuple[Path | None, str]:
+    """Validate an Agent skills directory without changing filesystem state."""
+    if not isinstance(path_str, str) or not path_str.strip():
+        return None, "Target path cannot be empty"
+    target = Path(_normalize_local_path(path_str))
+    if require_existing and not target.exists():
+        return None, "Path does not exist"
+    if target.is_symlink() and not target.exists():
+        return None, "Target path must be a directory"
+    if target.exists() and not target.is_dir():
+        return None, "Target path must be a directory"
+    try:
+        central_resolved = CENTRAL_DIR.resolve()
+        target_resolved = target.resolve()
+    except (OSError, RuntimeError) as exc:
+        return None, f"Invalid target path: {exc}"
+    if target_resolved == central_resolved or central_resolved in target_resolved.parents:
+        return None, "Target path cannot be the EasySkills library or one of its subdirectories"
+    return target, ""
 
 
 def _load_agent_path_configs() -> list[dict]:
@@ -752,10 +912,9 @@ def get_agents():
     custom_list = []
     
     for line in custom_targets:
-        if "=" in line:
-            name, path = line.split("=", 1)
-            name = name.strip()
-            path = _normalize_local_path(path)
+        name, raw_path = _target_line_parts(line)
+        if name:
+            path = _normalize_local_path(raw_path)
             if not path:
                 continue
             if is_proma_workspace_target(path):
@@ -885,12 +1044,17 @@ def _validate_instruction_name(name: str) -> tuple[bool, str]:
     """Validate a rule filename (must be safe, end with .md)."""
     if not isinstance(name, str):
         return False, "Rule name must be text"
-    name = name.strip()
+    if name != name.strip():
+        return False, "Invalid rule name"
     if not name:
         return False, "Rule name cannot be empty"
-    if "/" in name or "\\" in name or "\x00" in name or name in (".", ".."):
+    if "/" in name or "\\" in name or "\x00" in name:
         return False, "Invalid rule name"
-    if not name.endswith(".md"):
+    if name in (".", "..") or not _is_portable_filename(name):
+        return False, "Invalid rule name"
+    if name.lower().endswith(".md"):
+        name = name[:-3] + ".md"
+    else:
         name = name + ".md"
     return True, name
 
@@ -1279,7 +1443,7 @@ def get_instructions() -> dict:
     }
 
 
-@_writes_locked
+@_writes_locked_proc
 def save_instruction(name: str, content: str) -> dict:
     """Create or overwrite a single rule file in the instructions library."""
     valid, clean = _validate_instruction_name(name)
@@ -1289,13 +1453,16 @@ def save_instruction(name: str, content: str) -> dict:
         return {"success": False, "message": "Rule content must be text"}
     try:
         INSTRUCTIONS_DIR.mkdir(parents=True, exist_ok=True)
+        collision = _casefold_child(INSTRUCTIONS_DIR, clean)
+        if collision is not None and collision.name != clean:
+            return {"success": False, "message": f"Rule name conflicts case-insensitively with: {collision.name}"}
         _atomic_write_text(INSTRUCTIONS_DIR / clean, content)
     except OSError as e:
         return {"success": False, "message": f"Save failed: {e}"}
     return {"success": True, "message": f"Saved rule: {clean}", "name": clean}
 
 
-@_writes_locked
+@_writes_locked_proc
 def delete_instruction(name: str) -> dict:
     """Delete a single rule file from the instructions library."""
     valid, clean = _validate_instruction_name(name)
@@ -1344,6 +1511,29 @@ def _atomic_write_text(path: Path, content: str) -> None:
         if path.exists():
             shutil.copystat(path, temp_path)
         os.replace(temp_path, path)
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _atomic_copy_file(source: Path, destination: Path) -> None:
+    """Copy a file without following a pre-existing destination symlink."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        suffix=".tmp",
+        dir=str(destination.parent),
+    )
+    temp_path = Path(temp_name)
+    try:
+        with source.open("rb") as source_handle, os.fdopen(fd, "wb") as destination_handle:
+            shutil.copyfileobj(source_handle, destination_handle)
+            destination_handle.flush()
+            os.fsync(destination_handle.fileno())
+        os.chmod(temp_path, 0o600)
+        os.replace(temp_path, destination)
     finally:
         try:
             temp_path.unlink()
@@ -1533,7 +1723,7 @@ def _known_instruction_target(path_str: str) -> Path | None:
     return None
 
 
-@_writes_locked
+@_writes_locked_proc
 def write_instructions_to_all() -> dict:
     """Write every library rule to every detected agent instruction file."""
     rules, error = _rule_library()
@@ -1587,7 +1777,7 @@ def write_instructions_to_all() -> dict:
     return {"success": len(failed) == 0, "message": msg, "written": len(written), "failed": failed}
 
 
-@_writes_locked
+@_writes_locked_proc
 def remove_instructions_from_all() -> dict:
     """Remove the managed block from every detected or previously synced agent instruction file."""
     targets = _detected_instruction_targets()
@@ -1615,7 +1805,7 @@ def remove_instructions_from_all() -> dict:
     return {"success": len(failed) == 0, "message": msg, "removed": len(removed), "failed": failed}
 
 
-@_writes_locked
+@_writes_locked_proc
 def write_instructions_to_one(path_str: str) -> dict:
     """Write the managed block into a single agent's instruction file."""
     path = _known_instruction_target(path_str)
@@ -1629,7 +1819,7 @@ def write_instructions_to_one(path_str: str) -> dict:
     return {"success": False, "message": f"Write failed for {path}"}
 
 
-@_writes_locked
+@_writes_locked_proc
 def remove_instructions_from_one(path_str: str) -> dict:
     """Remove the managed block from a single agent's instruction file."""
     path = _known_instruction_target(path_str)
@@ -1640,7 +1830,7 @@ def remove_instructions_from_one(path_str: str) -> dict:
     return {"success": False, "message": f"Remove failed for {path}"}
 
 
-@_writes_locked
+@_writes_locked_proc
 def write_selected_instructions(rules: list[str] | None = None, agents: list[str] | None = None) -> dict:
     """Add or refresh exactly the selected rules on exactly the selected agents."""
     if (
@@ -1677,7 +1867,7 @@ def write_selected_instructions(rules: list[str] | None = None, agents: list[str
     return {"success": len(failed) == 0, "message": msg, "written": len(written), "failed": failed}
 
 
-@_writes_locked
+@_writes_locked_proc
 def remove_selected_instructions(rules: list[str] | None = None, agents: list[str] | None = None) -> dict:
     """Remove exactly the selected rules from exactly the selected agents."""
     if (
@@ -1725,6 +1915,8 @@ _MCP_SERVER_FIELDS = {
     "enabled_tools", "disabled_tools",
 }
 _MCP_PROFILE_FIELDS = {"servers", "enabled_tools", "disabled_tools"}
+_MCP_ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_MCP_HEADER_NAME_RE = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 
 
 def _default_mcp_config() -> dict:
@@ -1742,6 +1934,102 @@ def _validate_string_list(value, field: str, problems: list[str]) -> None:
         not isinstance(value, list) or any(not isinstance(item, str) for item in value)
     ):
         problems.append(f"{field} must be an array of strings")
+
+
+def _valid_mcp_runtime_value_syntax(value: str) -> bool:
+    """Mirror the Gateway's ${env:NAME} syntax validation at save time."""
+    offset = 0
+    while offset < len(value):
+        if value.startswith("$${env:", offset):
+            offset += len("$${env:")
+            continue
+        if not value.startswith("${env:", offset):
+            offset += 1
+            continue
+        closing = value.find("}", offset)
+        if closing < 0:
+            return False
+        name = value[offset + len("${env:"):closing]
+        if _MCP_ENV_NAME_RE.fullmatch(name) is None:
+            return False
+        offset = closing + 1
+    return True
+
+
+def _valid_mcp_tool_pattern_syntax(pattern: str) -> bool:
+    """Validate the glob syntax accepted by Go's path.Match."""
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\":
+            if index + 1 >= len(pattern):
+                return False
+            index += 2
+            continue
+        if char != "[":
+            index += 1
+            continue
+
+        index += 1
+        if index < len(pattern) and pattern[index] == "^":
+            index += 1
+        ranges = 0
+        while True:
+            if index < len(pattern) and pattern[index] == "]" and ranges > 0:
+                index += 1
+                break
+            if index >= len(pattern) or pattern[index] in "-]":
+                return False
+            if pattern[index] == "\\":
+                index += 1
+                if index >= len(pattern):
+                    return False
+            index += 1
+            if index >= len(pattern):
+                return False
+            if pattern[index] == "-":
+                index += 1
+                if index >= len(pattern) or pattern[index] in "-]":
+                    return False
+                if pattern[index] == "\\":
+                    index += 1
+                    if index >= len(pattern):
+                        return False
+                index += 1
+                if index >= len(pattern):
+                    return False
+            ranges += 1
+    return True
+
+
+def _valid_mcp_http_url(value: str) -> bool:
+    """Validate an HTTP MCP endpoint before it reaches the Gateway."""
+    # Keep this deliberately stricter than urllib.parse: a URL that contains
+    # whitespace or a backslash can be interpreted differently by browsers,
+    # proxies, Go's net/url, and .NET's System.Uri. All three runtimes share
+    # this portable subset so a configuration cannot validate on one backend
+    # and fail (or be redirected) on another.
+    if (
+        value != value.strip()
+        or any(char.isspace() for char in value)
+        or any(ord(char) < 32 for char in value)
+        or "\\" in value
+    ):
+        return False
+    try:
+        parsed = urllib.parse.urlparse(value)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme.lower() in {"http", "https"}
+        and bool(parsed.netloc)
+        and parsed.hostname is not None
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.netloc.endswith(":")
+        and (port is None or 1 <= port <= 65535)
+    )
 
 
 def _validate_mcp_config(config_data) -> tuple[bool, str]:
@@ -1784,6 +2072,11 @@ def _validate_mcp_config(config_data) -> tuple[bool, str]:
         if "url" in server and not isinstance(server["url"], str):
             problems.append(f"{prefix}.url must be a string")
 
+        for scalar_field in ("command", "cwd", "url"):
+            scalar_value = server.get(scalar_field)
+            if isinstance(scalar_value, str) and "\x00" in scalar_value:
+                problems.append(f"{prefix}.{scalar_field} must not contain NUL")
+
         transport = str(server.get("transport", "")).strip().lower().replace("_", "-")
         if transport == "streamable-http":
             transport = "http"
@@ -1792,12 +2085,15 @@ def _validate_mcp_config(config_data) -> tuple[bool, str]:
                 problems.append(f"{prefix}.command is required for stdio")
         elif transport in {"http", "sse"}:
             url = server.get("url")
-            parsed = urllib.parse.urlparse(url) if isinstance(url, str) else None
-            if not parsed or parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            if not isinstance(url, str) or not _valid_mcp_http_url(url):
                 problems.append(f"{prefix}.url must be a valid http(s) URL")
         else:
             problems.append(f"{prefix}.transport must be stdio, http, streamable-http, or sse")
         _validate_string_list(server.get("args"), f"{prefix}.args", problems)
+        if isinstance(server.get("args"), list):
+            for index, argument in enumerate(server["args"]):
+                if isinstance(argument, str) and "\x00" in argument:
+                    problems.append(f"{prefix}.args[{index}] must not contain NUL")
         for map_field in ("env", "headers"):
             value = server.get(map_field)
             if value is not None and (
@@ -1805,11 +2101,32 @@ def _validate_mcp_config(config_data) -> tuple[bool, str]:
                 or any(not isinstance(k, str) or not isinstance(v, str) for k, v in value.items())
             ):
                 problems.append(f"{prefix}.{map_field} must be an object of string values")
+            elif isinstance(value, dict):
+                for key, runtime_value in value.items():
+                    if map_field == "env" and (not key or "=" in key or "\x00" in key):
+                        problems.append(f"{prefix}.env[{key!r}] has an invalid variable name")
+                    if map_field == "headers" and _MCP_HEADER_NAME_RE.fullmatch(key) is None:
+                        problems.append(f"{prefix}.headers[{key!r}] has an invalid HTTP field name")
+                    if "\x00" in runtime_value or (map_field == "headers" and any(c in runtime_value for c in "\r\n")):
+                        problems.append(f"{prefix}.{map_field}[{key!r}] contains invalid control characters")
+                    if not _valid_mcp_runtime_value_syntax(runtime_value):
+                        problems.append(
+                            f"{prefix}.{map_field}[{key!r}] has an invalid environment reference; "
+                            "expected ${env:NAME}"
+                        )
         for list_field in ("enabled_tools", "disabled_tools"):
             _validate_string_list(server.get(list_field), f"{prefix}.{list_field}", problems)
+            patterns = server.get(list_field)
+            if isinstance(patterns, list):
+                for pattern in patterns:
+                    if isinstance(pattern, str) and not _valid_mcp_tool_pattern_syntax(pattern):
+                        problems.append(f"{prefix}.{list_field} contains invalid pattern {pattern!r}")
         for number_field, maximum in (("startup_timeout_seconds", 600), ("tool_timeout_seconds", 3600)):
-            value = server.get(number_field)
-            if value is not None and (
+            if number_field in server:
+                value = server[number_field]
+            else:
+                value = None
+            if number_field in server and (
                 isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > maximum
             ):
                 problems.append(f"{prefix}.{number_field} must be an integer from 0 to {maximum}")
@@ -1826,6 +2143,10 @@ def _validate_mcp_config(config_data) -> tuple[bool, str]:
             problems.append(f"{prefix} has unknown fields: {', '.join(sorted(unknown))}")
         for list_field in _MCP_PROFILE_FIELDS:
             _validate_string_list(profile.get(list_field), f"{prefix}.{list_field}", problems)
+            if list_field != "servers" and isinstance(profile.get(list_field), list):
+                for pattern in profile[list_field]:
+                    if isinstance(pattern, str) and not _valid_mcp_tool_pattern_syntax(pattern):
+                        problems.append(f"{prefix}.{list_field} contains invalid pattern {pattern!r}")
         selected = profile.get("servers", [])
         if isinstance(selected, list):
             for server_name in selected:
@@ -1840,6 +2161,8 @@ def _read_mcp_config() -> tuple[dict | None, str | None]:
     if not MCP_CONFIG_FILE.exists():
         return _default_mcp_config(), None
     try:
+        if MCP_CONFIG_FILE.stat().st_size > 1024 * 1024:
+            return None, "MCP configuration exceeds the 1 MB limit."
         data = json.loads(MCP_CONFIG_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeError) as exc:
         return None, f"Could not read MCP config: {exc}"
@@ -1852,7 +2175,15 @@ def _gateway_info() -> dict:
     if not binary.is_file():
         found = shutil.which("easyskills-mcp")
         binary = Path(found) if found else binary
-    info = {"installed": binary.is_file(), "path": str(binary), "version": ""}
+    expected_version = get_version()
+    info = {
+        "installed": binary.is_file(),
+        "path": str(binary),
+        "version": "",
+        "version_number": "",
+        "expected_version": expected_version,
+        "version_matches": None,
+    }
     if info["installed"]:
         try:
             result = subprocess.run(
@@ -1860,9 +2191,42 @@ def _gateway_info() -> dict:
             )
             if result.returncode == 0:
                 info["version"] = result.stdout.strip()
+                match = re.match(r"^easyskills-mcp\s+(\S+)\s+\(", info["version"])
+                if match:
+                    info["version_number"] = match.group(1)
+                    if expected_version != "unknown":
+                        info["version_matches"] = match.group(1) == expected_version
         except (OSError, subprocess.SubprocessError):
             pass
     return info
+
+
+def _install_gateway_for_engine(engine_dir: Path, source_dir: Path | None = None) -> dict:
+    """Best-effort install of the Gateway version paired with *engine_dir*."""
+    installer = engine_dir / "install-gateway.sh"
+    if not installer.is_file():
+        return {"attempted": False, "success": True, "message": ""}
+    env = os.environ.copy()
+    if source_dir is not None and source_dir.is_dir():
+        env["EASYSKILLS_GATEWAY_SOURCE"] = str(source_dir)
+    try:
+        result = subprocess.run(
+            ["bash", str(installer)],
+            capture_output=True,
+            text=True,
+            timeout=240,
+            check=False,
+            cwd=str(engine_dir),
+            env=env,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"attempted": True, "success": False, "message": str(exc)}
+    output = (result.stdout + result.stderr).strip()
+    return {
+        "attempted": True,
+        "success": result.returncode == 0,
+        "message": output[-4000:],
+    }
 
 
 def get_mcp_config() -> dict:
@@ -1877,7 +2241,7 @@ def get_mcp_config() -> dict:
     }
 
 
-@_writes_locked
+@_writes_locked_proc
 def save_mcp_config(config_data) -> dict:
     valid, message = _validate_mcp_config(config_data)
     if not valid:
@@ -1892,7 +2256,7 @@ def save_mcp_config(config_data) -> dict:
         except OSError:
             pass
         if MCP_CONFIG_FILE.is_file():
-            shutil.copy2(MCP_CONFIG_FILE, MCP_CONFIG_BACKUP_FILE)
+            _atomic_copy_file(MCP_CONFIG_FILE, MCP_CONFIG_BACKUP_FILE)
             try:
                 MCP_CONFIG_BACKUP_FILE.chmod(0o600)
             except OSError:
@@ -1907,7 +2271,7 @@ def save_mcp_config(config_data) -> dict:
         return {"success": False, "message": f"Could not save MCP configuration: {exc}"}
 
 
-@_writes_locked
+@_writes_locked_proc
 def add_mcp_server(name: str, server_data) -> dict:
     clean = (name or "").strip()
     if not _MCP_IDENTIFIER_RE.fullmatch(clean):
@@ -1921,7 +2285,7 @@ def add_mcp_server(name: str, server_data) -> dict:
     return save_mcp_config(current)
 
 
-@_writes_locked
+@_writes_locked_proc
 def update_mcp_server(name: str, server_data) -> dict:
     clean = (name or "").strip()
     current, error = _read_mcp_config()
@@ -1933,7 +2297,7 @@ def update_mcp_server(name: str, server_data) -> dict:
     return save_mcp_config(current)
 
 
-@_writes_locked
+@_writes_locked_proc
 def delete_mcp_server(name: str) -> dict:
     clean = (name or "").strip()
     current, error = _read_mcp_config()
@@ -2080,6 +2444,187 @@ def get_watcher_status():
         return {"running": False, "pid": None}
 
 
+_MCP_ENV_REFERENCE_RE = re.compile(r"(?<!\$)\$\{env:[A-Za-z_][A-Za-z0-9_]*\}")
+_MCP_SENSITIVE_KEY_RE = re.compile(
+    r"(?:^|[_-])(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|"
+    r"password|passwd|credential|authorization|auth|cookie)(?:[_-]|$)",
+    re.IGNORECASE,
+)
+
+
+def _is_sensitive_mcp_value(field: str, key: str) -> bool:
+    """Conservatively identify credential-bearing env/header entries."""
+    normalized = key.strip().lower()
+    if field == "headers" and normalized in {
+        "authorization", "proxy-authorization", "x-api-key", "api-key",
+        "cookie", "set-cookie",
+    }:
+        return True
+    return bool(_MCP_SENSITIVE_KEY_RE.search(normalized))
+
+
+def _display_path(path: Path) -> str:
+    """Return a support-safe path without exposing the user's home directory."""
+    try:
+        relative = path.expanduser().resolve().relative_to(Path.home().resolve())
+        return str(Path("~") / relative)
+    except (OSError, ValueError):
+        return str(path)
+
+
+def _mcp_credential_posture(config_data: dict | None) -> dict:
+    references = 0
+    literals = 0
+    if not isinstance(config_data, dict):
+        return {"environment_references": 0, "literal_values": 0}
+    servers = config_data.get("servers", {})
+    if not isinstance(servers, dict):
+        return {"environment_references": 0, "literal_values": 0}
+    for server in servers.values():
+        if not isinstance(server, dict):
+            continue
+        for field in ("env", "headers"):
+            values = server.get(field, {})
+            if not isinstance(values, dict):
+                continue
+            for key, value in values.items():
+                if not isinstance(value, str) or not value:
+                    continue
+                if not _is_sensitive_mcp_value(field, str(key)):
+                    continue
+                if _MCP_ENV_REFERENCE_RE.search(value):
+                    references += 1
+                else:
+                    literals += 1
+    return {"environment_references": references, "literal_values": literals}
+
+
+def get_doctor_report() -> dict:
+    """Build a read-only, credential-safe health report for support and UI use."""
+    skills = get_skills()
+    agents = get_visible_agents()
+    detected_agents = [agent for agent in agents if agent.get("active")]
+    mapped_agents = [agent for agent in detected_agents if agent.get("mapped")]
+    instructions = get_instructions()
+    instruction_agents = instructions.get("agents", []) if isinstance(instructions, dict) else []
+    detected_instruction_agents = [agent for agent in instruction_agents if agent.get("active")]
+    managed_instruction_agents = [
+        agent for agent in detected_instruction_agents
+        if int(agent.get("managed_rule_count", 0) or 0) > 0
+    ]
+    rules = instructions.get("rules", []) if isinstance(instructions, dict) else []
+    link_warnings = get_central_dir_warnings()
+    watcher = get_watcher_status()
+    mcp_data = get_mcp_config()
+    mcp_config = mcp_data.get("config") if mcp_data.get("success") else None
+    mcp_servers = mcp_config.get("servers", {}) if isinstance(mcp_config, dict) else {}
+    enabled_mcp_servers = [
+        server for server in mcp_servers.values()
+        if isinstance(server, dict) and server.get("enabled", True)
+    ]
+    credential_posture = _mcp_credential_posture(mcp_config)
+    gateway = mcp_data.get("gateway", {}) if isinstance(mcp_data, dict) else {}
+
+    checks: list[dict] = []
+
+    def add_check(check_id: str, status: str, message: str, action: str = "") -> None:
+        checks.append({"id": check_id, "status": status, "message": message, "action": action})
+
+    if CENTRAL_DIR.is_dir():
+        add_check("central-directory", "ok", "Central EasySkills directory is available.")
+    else:
+        add_check("central-directory", "error", "Central EasySkills directory is missing.", "Reinstall EasySkills or restore the directory from backup.")
+
+    if watcher.get("running"):
+        add_check("watcher", "ok", "Background synchronization watcher is running.")
+    else:
+        add_check("watcher", "warning", "Background synchronization watcher is stopped.", "Start the watcher from the dashboard or run deploy.sh --watch.")
+
+    dangling = int(link_warnings.get("dangling_count", 0) or 0)
+    external = int(link_warnings.get("external_link_count", 0) or 0)
+    if dangling:
+        add_check("link-health", "warning", f"{dangling} dangling central skill link(s) detected.", "Run a full sync to prune dangling links.")
+    elif external:
+        add_check("link-health", "warning", f"{external} externally linked skill folder(s) detected.", "Keep external targets available or import them into the central library.")
+    else:
+        add_check("link-health", "ok", "No dangling or external central skill links detected.")
+
+    if skills and mapped_agents:
+        add_check("skills-channel", "ok", f"{len(skills)} skill(s) are connected to {len(mapped_agents)} detected Agent(s).")
+    elif skills:
+        add_check("skills-channel", "warning", f"{len(skills)} skill(s) exist but no detected Agent is connected.", "Connect an Agent target or run a full sync.")
+    else:
+        add_check("skills-channel", "info", "The central skill library is empty.", "Import a skill when you are ready.")
+
+    if rules and managed_instruction_agents:
+        add_check("rules-channel", "ok", f"{len(rules)} rule(s) are written to {len(managed_instruction_agents)} detected Agent target(s).")
+    elif rules:
+        add_check("rules-channel", "warning", f"{len(rules)} rule(s) exist but none are written to a detected Agent target.", "Select rules and Agent targets, then write the managed blocks.")
+    else:
+        add_check("rules-channel", "info", "The modular Agent rules library is empty.")
+
+    if not mcp_data.get("success"):
+        add_check("mcp-config", "error", "The MCP configuration is invalid or unreadable.", "Open the MCP page and correct the configuration error.")
+    elif gateway.get("installed") and gateway.get("version_matches") is False:
+        add_check(
+            "mcp-channel",
+            "warning",
+            f"Gateway version {gateway.get('version_number') or 'unknown'} does not match EasySkills {gateway.get('expected_version') or 'unknown'}.",
+            "Reinstall the Gateway from this EasySkills version before using MCP tools.",
+        )
+    elif mcp_servers and gateway.get("installed"):
+        add_check("mcp-channel", "ok", f"Gateway installed with {len(enabled_mcp_servers)} enabled server(s).")
+    elif mcp_servers:
+        add_check("mcp-channel", "warning", f"{len(mcp_servers)} MCP server(s) are configured but the Gateway binary is missing.", "Retry the Gateway installation from EasySkills.")
+    elif gateway.get("installed"):
+        add_check("mcp-channel", "info", "Gateway is installed; no downstream MCP server is configured yet.")
+    else:
+        add_check("mcp-channel", "info", "MCP Gateway is not installed and no downstream server is configured.")
+
+    if credential_posture["literal_values"]:
+        add_check(
+            "credential-posture",
+            "warning",
+            f"{credential_posture['literal_values']} MCP credential value(s) are stored literally.",
+            "Replace literal secrets with ${env:VARIABLE} references where possible.",
+        )
+    elif credential_posture["environment_references"]:
+        add_check("credential-posture", "ok", f"{credential_posture['environment_references']} MCP credential value(s) use environment references.")
+    else:
+        add_check("credential-posture", "info", "No MCP environment or header credentials are configured.")
+
+    summary = {
+        "ok": sum(1 for check in checks if check["status"] == "ok"),
+        "info": sum(1 for check in checks if check["status"] == "info"),
+        "warnings": sum(1 for check in checks if check["status"] == "warning"),
+        "errors": sum(1 for check in checks if check["status"] == "error"),
+    }
+    return {
+        "schema_version": 1,
+        "success": summary["errors"] == 0,
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "version": get_version(),
+        "platform": platform.system(),
+        "runtime": {"python": platform.python_version()},
+        "paths": {"central": _display_path(CENTRAL_DIR), "engine": _display_path(SCRIPT_DIR)},
+        "summary": summary,
+        "metrics": {
+            "skills": len(skills),
+            "agents_detected": len(detected_agents),
+            "agents_mapped": len(mapped_agents),
+            "rules": len(rules),
+            "rule_targets_detected": len(detected_instruction_agents),
+            "rule_targets_managed": len(managed_instruction_agents),
+            "mcp_servers": len(mcp_servers),
+            "mcp_servers_enabled": len(enabled_mcp_servers),
+            "credential_posture": credential_posture,
+            "dangling_links": dangling,
+            "external_links": external,
+        },
+        "checks": checks,
+    }
+
+
 # ──────────────────────────────────────────────────────────────
 # Operations
 # ──────────────────────────────────────────────────────────────
@@ -2087,10 +2632,15 @@ def get_watcher_status():
 def run_deploy(*args: str) -> dict:
     deploy = SCRIPT_DIR / "deploy.sh"
     try:
+        env = os.environ.copy()
+        if getattr(_deploy_lock_state, "depth", 0) > 0:
+            env["EASYSKILLS_DEPLOY_LOCK_HELD"] = "1"
+            env["EASYSKILLS_DEPLOY_LOCK_PID"] = str(os.getpid())
         r = subprocess.run(
             ["bash", str(deploy), *args],
             capture_output=True, text=True, timeout=30,
             cwd=str(SCRIPT_DIR),
+            env=env,
         )
         combined = (r.stdout + r.stderr).strip()
         return {
@@ -2106,14 +2656,33 @@ def run_deploy(*args: str) -> dict:
 def _validate_skill_name(name: str) -> tuple[bool, str]:
     if not isinstance(name, str):
         return False, "Skill name must be text"
-    name = name.strip()
+    if name != name.strip():
+        return False, "Invalid skill name"
     if not name:
         return False, "Skill name cannot be empty"
     if name.startswith(("_", ".")) or name in EXCLUDE_NAMES:
         return False, "Reserved skill name"
-    if "/" in name or "\\" in name or "\x00" in name or name in (".", ".."):
+    if name in (".", "..") or not _is_portable_filename(name):
         return False, "Invalid skill name"
     return True, name
+
+
+def _casefold_child(directory: Path, name: str) -> Path | None:
+    """Find a child whose name collides case-insensitively with *name*.
+
+    The Unix backend runs on a case-sensitive filesystem, but the same library
+    may later be copied to Windows. Rejecting ambiguous names at creation time
+    keeps the central library portable instead of allowing two entries that
+    would collapse into one junction target on a case-insensitive volume.
+    """
+    try:
+        folded = name.casefold()
+        for entry in directory.iterdir():
+            if entry.name.casefold() == folded:
+                return entry
+    except OSError:
+        pass
+    return None
 
 
 def _safe_relative_path(path: str) -> Path | None:
@@ -2122,10 +2691,17 @@ def _safe_relative_path(path: str) -> Path | None:
     rel = Path(path.replace("\\", "/"))
     if rel.is_absolute() or any(part in ("", ".", "..") for part in rel.parts):
         return None
+    # Every uploaded component must be valid on both POSIX and Windows.  The
+    # central skill library is portable data and may later be mapped to a
+    # Windows junction; accepting names such as ``CON`` or ``guide. `` here
+    # would create an archive that imports successfully on Unix but cannot be
+    # materialized safely on Windows.
+    if any(not _is_portable_filename(part) for part in rel.parts):
+        return None
     return rel
 
 
-@_writes_locked
+@_writes_locked_proc
 def import_skill_folder(name: str, files: list[dict]) -> dict:
     valid, clean_name = _validate_skill_name(name)
     if not valid:
@@ -2133,12 +2709,8 @@ def import_skill_folder(name: str, files: list[dict]) -> dict:
     if not isinstance(files, list) or not files:
         return {"success": False, "message": "No files were provided"}
 
-    CENTRAL_DIR.mkdir(parents=True, exist_ok=True)
-    target = CENTRAL_DIR / clean_name
-    if target.exists() or target.is_symlink():
-        return {"success": False, "message": f"Skill already exists: {clean_name}"}
-
     prepared: list[tuple[Path, bytes]] = []
+    seen_paths: set[str] = set()
     has_skill_md = False
     for item in files:
         if not isinstance(item, dict):
@@ -2146,6 +2718,10 @@ def import_skill_folder(name: str, files: list[dict]) -> dict:
         rel = _safe_relative_path(str(item.get("path", "")))
         if rel is None:
             return {"success": False, "message": "Invalid file path in upload"}
+        folded = rel.as_posix().casefold()
+        if folded in seen_paths:
+            return {"success": False, "message": f"Duplicate file path in upload: {rel}"}
+        seen_paths.add(folded)
         data = item.get("data", "")
         if not isinstance(data, str):
             return {"success": False, "message": f"Invalid file data: {rel}"}
@@ -2159,6 +2735,17 @@ def import_skill_folder(name: str, files: list[dict]) -> dict:
 
     if not has_skill_md:
         return {"success": False, "message": "Selected folder must contain SKILL.md at its root"}
+
+    # The outer _writes_locked_proc decorator keeps the atomic library mutation
+    # and its follow-up sync in one shared critical section. run_deploy inherits
+    # that lock marker, so the child cannot race a watcher or deadlock itself.
+    CENTRAL_DIR.mkdir(parents=True, exist_ok=True)
+    target = CENTRAL_DIR / clean_name
+    if target.exists() or target.is_symlink():
+        return {"success": False, "message": f"Skill already exists: {clean_name}"}
+    collision = _casefold_child(CENTRAL_DIR, clean_name)
+    if collision is not None:
+        return {"success": False, "message": f"Skill name conflicts case-insensitively with: {collision.name}"}
 
     tmp_dir = Path(tempfile.mkdtemp(prefix=".import-", dir=str(CENTRAL_DIR)))
     try:
@@ -2175,7 +2762,18 @@ def import_skill_folder(name: str, files: list[dict]) -> dict:
     msg = f"Imported {clean_name}"
     if sync.get("message"):
         msg += f"\n{sync['message']}"
-    return {"success": True, "message": msg, "skill": clean_name}
+    result = {
+        # The folder import itself is complete at this point. Report sync as a
+        # separate outcome so a transient deploy failure does not prompt the UI
+        # to retry the import and hit a misleading "already exists" error.
+        "success": True,
+        "message": msg,
+        "skill": clean_name,
+        "sync_success": bool(sync.get("success")),
+    }
+    if not sync.get("success"):
+        result["partial"] = True
+    return result
 
 
 @_writes_locked_proc
@@ -2199,15 +2797,23 @@ def delete_skill(name: str) -> dict:
     # Remove only the symlinks for this specific skill from all agent targets,
     # instead of a full cleanup+sync cycle.
     removed_count = 0
+    failed_links: list[str] = []
     for agent_dir in _iter_agent_skill_dirs():
         link = agent_dir / clean_name
         if link.is_symlink() and _link_points_into_central(link, CENTRAL_DIR.resolve()):
             try:
                 link.unlink()
                 removed_count += 1
-            except Exception:
-                pass
-    return {"success": True, "message": f"Deleted {clean_name} (removed {removed_count} symlinks)", "skill": clean_name}
+            except Exception as exc:
+                failed_links.append(f"{link}: {exc}")
+    message = f"Deleted {clean_name} (removed {removed_count} symlinks)"
+    if failed_links:
+        message += f"; {len(failed_links)} symlink(s) could not be removed: {'; '.join(failed_links)}"
+    result = {"success": True, "message": message, "skill": clean_name}
+    if failed_links:
+        result["partial"] = True
+        result["failed_links"] = failed_links
+    return result
 
 
 @_writes_locked_proc
@@ -2215,8 +2821,9 @@ def do_map(target_path: str) -> dict:
     if not isinstance(target_path, str) or not target_path.strip():
         return {"success": False, "message": "Target path cannot be empty"}
     target_path = target_path.strip()
-    _remove_from_disabled_targets(target_path)
-    target = Path(target_path)
+    target, validation_error = _validate_mapping_target(target_path)
+    if target is None:
+        return {"success": False, "message": validation_error}
     try:
         target.mkdir(parents=True, exist_ok=True)
         # Per-skill links
@@ -2236,6 +2843,13 @@ def do_map(target_path: str) -> dict:
                     continue
             if not dest.exists():
                 dest.symlink_to(skill_dir)
+        if not _remove_from_disabled_targets(str(target)):
+            return {
+                "success": False,
+                "message": "Skills were mapped, but the disabled-target state could not be updated; please retry",
+                "partial": True,
+                "conflicts": conflicts,
+            }
         message = f"Mapped to {target_path}"
         if conflicts:
             message += f" (preserved {len(conflicts)} foreign link conflict(s): {', '.join(conflicts)})"
@@ -2249,10 +2863,11 @@ def do_unmap(target_path: str) -> dict:
     if not isinstance(target_path, str) or not target_path.strip():
         return {"success": False, "message": "Target path cannot be empty"}
     target_path = target_path.strip()
-    _add_to_disabled_targets(target_path)
-    target = Path(target_path)
-    if not target.exists():
-        return {"success": False, "message": "Path does not exist"}
+    target, validation_error = _validate_mapping_target(target_path, require_existing=True)
+    if target is None:
+        return {"success": False, "message": validation_error}
+    if not _add_to_disabled_targets(str(target)):
+        return {"success": False, "message": "Could not persist the disabled-target state; no links were removed"}
     removed = []
     errors = []
     central_resolved = str(CENTRAL_DIR.resolve())
@@ -2271,10 +2886,17 @@ def do_unmap(target_path: str) -> dict:
     msg = f"Removed {len(removed)} symlinks"
     if errors:
         msg += f" ({len(errors)} errors: {'; '.join(errors)})"
-    return {"success": True, "message": msg, "removed": removed}
+    result = {"success": True, "message": msg, "removed": removed}
+    if errors:
+        # The disabled-target marker is already persisted, but one or more
+        # links remain.  Keep success=true for backward compatibility while
+        # exposing a machine-readable degraded outcome to callers/UI.
+        result["partial"] = True
+        result["errors"] = errors
+    return result
 
 
-@_writes_locked
+@_writes_locked_proc
 def update_agent_paths(
     name: str,
     old_skills_path: str,
@@ -2307,6 +2929,10 @@ def update_agent_paths(
     # otherwise a `~`-form or dotted old_path silently fails to match the stored
     # absolute path, leaving a stale/duplicate entry behind.
     old_path = _normalize_local_path(old_skills_path)
+    validated_new_path, mapping_error = _validate_mapping_target(skills_path)
+    if validated_new_path is None:
+        return {"success": False, "message": mapping_error}
+    new_path = str(validated_new_path)
 
     lines = []
     if CUSTOM_TARGETS_FILE.exists():
@@ -2324,11 +2950,8 @@ def update_agent_paths(
         
         # Parse line
         line_name, line_path = "", ""
-        if "=" in stripped:
-            line_name, line_path = stripped.split("=", 1)
-            line_name = line_name.strip()
-            line_path = line_path.strip()
-        else:
+        line_name, line_path = _target_line_parts(stripped)
+        if not line_name:
             line_path = stripped
             line_name = get_agent_name(line_path)
 
@@ -2371,9 +2994,10 @@ def update_agent_paths(
         return {"success": False, "message": f"Failed to write Agent path config: {e}"}
 
     # Preserve the Agent's connection state while moving its skills path.
-    _remove_from_disabled_targets(old_path)
+    # Do not silently ignore disabled-target persistence failures: a failed
+    # write can make the UI report a mapped target as disabled (or vice versa)
+    # after the path metadata has already been committed.
     if bool((current or {}).get("mapped")):
-        _remove_from_disabled_targets(new_path)
         cleanup_warning = ""
         if new_path != old_path:
             map_result = do_map(new_path)
@@ -2390,22 +3014,44 @@ def update_agent_paths(
                     "partial": True,
                 }
             cleanup_result = do_unmap(old_path)
-            _remove_from_disabled_targets(old_path)
-            if not cleanup_result.get("success"):
+            if not cleanup_result.get("success") or cleanup_result.get("partial"):
                 cleanup_warning = (
                     f" Warning: old skills links at {old_path} could not be fully removed: "
                     f"{cleanup_result.get('message', 'unknown cleanup error')}."
                 )
+            elif not _remove_from_disabled_targets(old_path):
+                cleanup_warning = (
+                    f" Warning: old skills links were removed, but the disabled-target state "
+                    f"for {old_path} could not be cleared."
+                )
+        elif not _remove_from_disabled_targets(new_path):
+            cleanup_warning = (
+                f" Warning: the Agent is mapped, but the disabled-target state for {new_path} "
+                "could not be cleared."
+            )
     else:
-        _add_to_disabled_targets(new_path)
+        if not _add_to_disabled_targets(new_path):
+            return {
+                "success": False,
+                "message": (
+                    f"Agent paths were saved, but the disabled-target state for {new_path} "
+                    "could not be persisted."
+                ),
+                "skills_path": new_path,
+                "instructions_path": new_instructions_path,
+                "partial": True,
+            }
         cleanup_warning = ""
 
-    return {
+    result = {
         "success": True,
         "message": f"Updated {name} skills and instructions paths.{cleanup_warning}",
         "skills_path": new_path,
         "instructions_path": new_instructions_path,
     }
+    if cleanup_warning:
+        result["partial"] = True
+    return result
 
 
 def update_agent_path(name: str, old_path: str, new_path: str) -> dict:
@@ -2424,13 +3070,14 @@ def update_agent_path(name: str, old_path: str, new_path: str) -> dict:
     return update_agent_paths(name, old_path, new_path, instructions_path)
 
 
-@_writes_locked
+@_writes_locked_proc
 def register_custom_agent(skills_path: str, instructions_path: str) -> dict:
     """Register a custom Agent with both skill and instruction channels."""
-    skills_path = _normalize_local_path(skills_path)
+    validated_skills_path, mapping_error = _validate_mapping_target(skills_path)
+    if validated_skills_path is None:
+        return {"success": False, "message": mapping_error}
+    skills_path = str(validated_skills_path)
     instructions_path = _normalize_local_path(instructions_path)
-    if not skills_path:
-        return {"success": False, "message": "Skills path cannot be empty"}
     if not instructions_path:
         return {"success": False, "message": "Instructions file path cannot be empty"}
     instruction_target = Path(instructions_path)
@@ -2438,7 +3085,7 @@ def register_custom_agent(skills_path: str, instructions_path: str) -> dict:
         return {"success": False, "message": "Instructions path must point to a file, not a directory"}
 
     was_registered = any(
-        _normalize_local_path(line.split("=", 1)[-1].strip()) == skills_path
+        _normalize_local_path(_target_path_from_line(line)) == skills_path
         for line in get_custom_targets()
     )
     deploy_result = run_deploy("--add", skills_path)
@@ -2469,7 +3116,7 @@ def register_custom_agent(skills_path: str, instructions_path: str) -> dict:
     }
 
 
-@_writes_locked
+@_writes_locked_proc
 def remove_custom_agent(skills_path: str) -> dict:
     skills_path = _normalize_local_path(skills_path)
     result = run_deploy("--remove", skills_path)
@@ -2548,7 +3195,6 @@ def _safe_extract_tar(
     the self-update tarball so a crafted release cannot write outside the
     temporary directory.
     """
-    dest_real = os.path.realpath(dest)
     members = tf.getmembers()
     if len(members) > max_members:
         raise ValueError(f"Release archive contains too many entries ({len(members)} > {max_members})")
@@ -2556,38 +3202,104 @@ def _safe_extract_tar(
     if total_size > max_total_size:
         raise ValueError("Release archive exceeds the 512 MB extracted-size safety limit")
 
+    seen: set[str] = set()
+    links: dict[str, tuple[str, bool]] = {}
+
+    def normalize_name(name: str) -> str:
+        if not name or "\x00" in name or "\\" in name:
+            raise ValueError(f"Refusing to extract invalid path: {name!r}")
+        normalized = posixpath.normpath(name)
+        if normalized in ("", "."):
+            return ""
+        if normalized == ".." or normalized.startswith("../") or normalized.startswith("/"):
+            raise ValueError(f"Refusing to extract unsafe path: {name!r}")
+        return normalized
+
     for member in members:
         if not (member.isfile() or member.isdir() or member.issym() or member.islnk()):
             raise ValueError(f"Refusing to extract unsupported tar member type: {member.name!r}")
-        target = os.path.realpath(os.path.join(dest, member.name))
-        # Reject absolute members, and any member whose resolved path escapes
-        # dest (covers "../" traversal). The explicit grouping avoids the
-        # `and`-binds-tighter-than-`or` precedence trap.
-        escapes_dest = (
-            target != dest_real
-            and os.path.commonpath([target, dest_real]) != dest_real
-        )
-        if os.path.isabs(member.name) or escapes_dest:
-            raise ValueError(f"Refusing to extract unsafe path: {member.name!r}")
-        # Reject symlinks/hardlinks whose link target escapes dest.
+        normalized = normalize_name(member.name)
+        if not normalized or normalized in seen:
+            raise ValueError(f"Refusing to extract duplicate path: {member.name!r}")
+        seen.add(normalized)
         if member.issym() or member.islnk():
-            if os.path.isabs(member.linkname):
+            if not member.linkname or "\x00" in member.linkname or os.path.isabs(member.linkname):
                 raise ValueError(f"Refusing to extract unsafe link: {member.name!r}")
-            # Symbolic links are relative to the link's directory; tar hardlink
-            # targets are archive-root-relative.
-            link_base = os.path.dirname(target) if member.issym() else dest_real
-            link_real = os.path.realpath(os.path.join(link_base, member.linkname))
-            link_escapes = (
-                link_real != dest_real
-                and os.path.commonpath([link_real, dest_real]) != dest_real
-            )
-            if link_escapes:
-                raise ValueError(f"Refusing to extract unsafe link: {member.name!r}")
-        tf.extract(member, dest)
+            links[normalized] = (member.linkname, member.issym())
+
+    def resolve_virtual(path: str, follow_final: bool = True) -> str:
+        """Resolve archive-internal links without touching the host filesystem."""
+        current = normalize_name(path)
+        visited: set[str] = set()
+        for _ in range(64):
+            parts = current.split("/") if current else []
+            replaced = False
+            for index in range(1, len(parts) + 1):
+                prefix = "/".join(parts[:index])
+                if prefix not in links or (index == len(parts) and not follow_final):
+                    continue
+                if prefix in visited:
+                    raise ValueError(f"Refusing to extract cyclic link: {prefix!r}")
+                linkname, is_symlink = links[prefix]
+                if is_symlink:
+                    base = posixpath.dirname(prefix)
+                    replacement = posixpath.normpath(posixpath.join(base, linkname))
+                else:
+                    replacement = posixpath.normpath(linkname)
+                if replacement == ".." or replacement.startswith("../") or replacement.startswith("/"):
+                    raise ValueError(f"Refusing to extract unsafe link: {prefix!r}")
+                rest = "/".join(parts[index:])
+                current = normalize_name(posixpath.join(replacement, rest))
+                visited.add(prefix)
+                replaced = True
+                break
+            if not replaced:
+                return current
+        raise ValueError("Refusing to extract an excessively deep link chain")
+
+    # Resolve every member through the virtual archive graph before extracting
+    # anything. This prevents a safe-looking path from escaping via a symlink
+    # declared elsewhere in the same archive.
+    for normalized in seen:
+        resolve_virtual(normalized)
+
+    for member in members:
+        try:
+            tf.extract(member, dest, filter="data")
+        except TypeError:
+            # Python < 3.12 has no filter parameter; the complete virtual-link
+            # validation above remains the compatibility safety barrier.
+            tf.extract(member, dest)
 
 
-@_writes_locked
+def _find_release_root(extract_dir: Path) -> Path:
+    """Return the one extracted root that contains the EasySkills engine.
+
+    Release archives normally contain a single top-level directory, but using
+    the first directory returned by the filesystem makes the selected source
+    nondeterministic when an archive contains extra roots.  Reject both an
+    incomplete archive and an ambiguous one before any live files are touched.
+    """
+    candidates = sorted(
+        (
+            entry
+            for entry in extract_dir.iterdir()
+            if entry.is_dir() and (entry / "EasySkills维护工具/.engine").is_dir()
+        ),
+        key=lambda entry: entry.name,
+    )
+    if not candidates:
+        raise ValueError("Archive does not contain EasySkills维护工具/.engine/")
+    if len(candidates) != 1:
+        names = ", ".join(candidate.name for candidate in candidates)
+        raise ValueError(f"Archive contains multiple EasySkills source roots: {names}")
+    return candidates[0]
+
+
+@_writes_locked_proc
 def do_self_update() -> dict:
+    gateway_result = {"attempted": False, "success": True, "message": ""}
+    update_warning = ""
     try:
         release = get_latest_release()
         if not release.get("success"):
@@ -2631,10 +3343,7 @@ def do_self_update() -> dict:
                 # (the filter="data" arg is 3.12+ only).
                 _safe_extract_tar(tf, tmp)
 
-            extracted = [d for d in os.listdir(tmp) if os.path.isdir(os.path.join(tmp, d))]
-            if not extracted:
-                return {"success": False, "message": "Empty archive"}
-            src_root = Path(tmp) / extracted[0]
+            src_root = _find_release_root(Path(tmp))
 
             # Preserve user runtime files (not shipped in the release tarball)
             custom_backup = None
@@ -2650,8 +3359,34 @@ def do_self_update() -> dict:
             backup_maint_new = CENTRAL_DIR / ".maintenance-bak.new"
 
             src_maint = src_root / "EasySkills维护工具/.engine"
-            if not src_maint.is_dir():
-                return {"success": False, "message": "Archive does not contain EasySkills维护工具/.engine/"}
+            expected_version = latest_tag[1:] if latest_tag.startswith("v") else latest_tag
+            source_version_file = src_maint / ".version"
+            try:
+                source_version = source_version_file.read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                return {"success": False, "message": f"Archive version could not be read: {exc}"}
+            if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?", expected_version):
+                return {"success": False, "message": f"Release tag has an invalid version: {latest_tag}"}
+            if source_version != expected_version:
+                return {
+                    "success": False,
+                    "message": f"Archive version {source_version!r} does not match release tag {latest_tag!r}.",
+                }
+
+            # Reconcile an interrupted prior update before starting a new one.
+            # When .bak is absent, .bak.new may be the only remaining rollback
+            # snapshot and must be promoted rather than overwritten/deleted.
+            if backup_maint_new.exists():
+                if backup_maint.exists():
+                    shutil.rmtree(backup_maint_new)
+                else:
+                    try:
+                        backup_maint_new.rename(backup_maint)
+                    except OSError as exc:
+                        return {
+                            "success": False,
+                            "message": f"Could not reconcile the preserved rollback snapshot: {exc}",
+                        }
 
             # Build new engine in a temp dir, then rename atomically
             new_maint_tmp = CENTRAL_DIR / "EasySkills维护工具/.engine.new"
@@ -2673,14 +3408,18 @@ def do_self_update() -> dict:
                 except OSError:
                     pass
 
-            # Copy README_SYSTEM.md / SKILL.md into the new tree if needed
+            # Prepare executable modes while the new engine is still staged.
+            # A permission failure must happen before the live directory moves.
+            for script in ("deploy.sh", "watch.sh", "unwatch.sh"):
+                staged_script = new_maint_tmp / script
+                if staged_script.exists():
+                    staged_script.chmod(0o755)
+
+            # Select the documentation source now, but update the live README
+            # only after the engine swap succeeds.
             src_readme = src_root / "EasySkills维护工具/README_SYSTEM.md"
-            if src_readme.exists():
-                shutil.copy2(src_readme, CENTRAL_DIR / "EasySkills维护工具/README_SYSTEM.md")
-            else:
-                src_old = src_root / "SKILL.md"
-                if src_old.exists():
-                    shutil.copy2(src_old, CENTRAL_DIR / "EasySkills维护工具/README_SYSTEM.md")
+            src_old = src_root / "SKILL.md"
+            readme_source = src_readme if src_readme.is_file() else (src_old if src_old.is_file() else None)
 
             # Snapshot existing backup (so we can revert even the backup on failure)
             if backup_maint.exists():
@@ -2697,15 +3436,16 @@ def do_self_update() -> dict:
 
                 new_maint_tmp.rename(dest_maint)
 
-                # Clean up the interim backup snapshot
+                # The live swap is complete. Failure to remove the redundant
+                # prior-backup snapshot is non-fatal; the next update will
+                # reconcile it safely.
                 if backup_maint_new.exists():
-                    shutil.rmtree(backup_maint_new)
+                    try:
+                        shutil.rmtree(backup_maint_new)
+                    except OSError as exc:
+                        update_warning += f" Old backup snapshot cleanup failed: {exc}."
 
-                # Ensure shell scripts are executable
-                for script in ("deploy.sh", "watch.sh", "unwatch.sh"):
-                    s = dest_maint / script
-                    if s.exists():
-                        s.chmod(0o755)
+                gateway_result = _install_gateway_for_engine(dest_maint, src_root / "gateway")
 
             except Exception:
                 # Rollback. Two renames happened above; the dangerous case is
@@ -2728,6 +3468,19 @@ def do_self_update() -> dict:
                     pass
                 raise
 
+            if readme_source is not None:
+                readme_dest = CENTRAL_DIR / "EasySkills维护工具/README_SYSTEM.md"
+                readme_staged = readme_dest.with_name(".README_SYSTEM.md.new")
+                try:
+                    shutil.copy2(readme_source, readme_staged)
+                    os.replace(readme_staged, readme_dest)
+                except OSError as exc:
+                    update_warning += f" Documentation refresh failed: {exc}."
+                    try:
+                        readme_staged.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+
         sync_result = run_deploy("--sync")
 
         new_version = get_version()
@@ -2737,12 +3490,16 @@ def do_self_update() -> dict:
             message += " All agents re-synced."
         else:
             message += f" Update succeeded, but agent re-sync failed: {sync_result.get('message', 'unknown error')}"
+        if gateway_result.get("attempted") and not gateway_result.get("success"):
+            message += " Gateway update failed; the previous binary was preserved. Run Doctor and retry the Gateway installation."
+        message += update_warning
         message += " The UI will reload to pick up the new version."
         return {
             "success": True,
             "message": message,
             "version": new_version,
             "sync_success": sync_ok,
+            "gateway_success": bool(gateway_result.get("success")),
             # Signal the frontend to reload: the running Python process still
             # holds the pre-update code, so a page reload (or a supervisor
             # restart) is needed to serve the new logic.
@@ -2752,13 +3509,29 @@ def do_self_update() -> dict:
         return {"success": False, "message": f"Update failed: {e}"}
 
 
-@_writes_locked
+@_writes_locked_proc
 def do_rollback() -> dict:
     backup_maint = CENTRAL_DIR / ".maintenance-bak"
     dest_maint = CENTRAL_DIR / "EasySkills维护工具/.engine"
     if not backup_maint.exists():
         return {"success": False, "message": "No backup found. Nothing to roll back."}
     try:
+        # Recover a current engine stranded in .engine.prev by an interrupted
+        # prior rollback. Never delete .prev when the normal live path is
+        # missing: it may be the only runnable copy left.
+        prev = CENTRAL_DIR / "EasySkills维护工具/.engine.prev"
+        if prev.exists():
+            if dest_maint.exists():
+                shutil.rmtree(prev)
+            else:
+                try:
+                    prev.rename(dest_maint)
+                except OSError as exc:
+                    return {
+                        "success": False,
+                        "message": f"Rollback recovery snapshot is preserved at {prev}, but could not be restored: {exc}",
+                    }
+
         # Preserve the user's CURRENT runtime files across the rollback
         custom_backup = None
         if CUSTOM_TARGETS_FILE.exists():
@@ -2783,13 +3556,6 @@ def do_rollback() -> dict:
                 shutil.copy2(TOKEN_FILE, rollback_tmp / TOKEN_FILE.name)
             except OSError:
                 pass
-
-        # Pre-clean .engine.prev: a stale .prev left by a prior failed
-        # rollback would make the rename below fail (POSIX rename refuses to
-        # overwrite an existing directory), dooming every subsequent rollback.
-        prev = CENTRAL_DIR / "EasySkills维护工具/.engine.prev"
-        if prev.exists():
-            shutil.rmtree(prev)
 
         try:
             # Rotate: current -> .prev, rollback-tmp -> current (two renames).
@@ -2817,6 +3583,8 @@ def do_rollback() -> dict:
             if s.exists():
                 s.chmod(0o755)
 
+        gateway_result = _install_gateway_for_engine(dest_maint)
+
         sync_result = run_deploy("--sync")
         # Remove backup so a second rollback doesn’t restore stale state
         try:
@@ -2830,12 +3598,15 @@ def do_rollback() -> dict:
             message += " All agents re-synced."
         else:
             message += f" Rollback succeeded, but agent re-sync failed: {sync_result.get('message', 'unknown error')}"
+        if gateway_result.get("attempted") and not gateway_result.get("success"):
+            message += " Gateway rollback failed; the existing binary was preserved. Run Doctor and retry the Gateway installation."
         message += " The UI will reload to pick up the rolled-back version."
         return {
             "success": True,
             "message": message,
             "version": version,
             "sync_success": sync_ok,
+            "gateway_success": bool(gateway_result.get("success")),
             # Same rationale as do_self_update: the running process holds the
             # pre-rollback code until a reload/supervisor restart.
             "_restart": True,
@@ -2849,6 +3620,8 @@ def do_rollback() -> dict:
 # ──────────────────────────────────────────────────────────────
 
 _backend_restart_scheduled = threading.Event()
+_INVALID_REQUEST_BODY = object()
+_MISSING_CONTENT_LENGTH = object()
 
 
 def _schedule_backend_restart(server) -> None:
@@ -2927,6 +3700,17 @@ subprocess.Popen(
     threading.Thread(target=server.shutdown, daemon=True).start()
 
 
+def _render_index_template(template: str, token: str, nonce: str | None = None) -> tuple[str, str]:
+    """Inject the CSP nonce and escaped token into the static index template."""
+    nonce = nonce or secrets.token_urlsafe(18)
+    # Replace the nonce first, then inject an attribute-escaped token. This
+    # prevents an environment-supplied token containing the nonce placeholder
+    # from acquiring permission to execute script.
+    page = template.replace("__EASYSKILLS_NONCE__", nonce)
+    page = page.replace("__EASYSKILLS_TOKEN__", html_lib.escape(token, quote=True))
+    return page, nonce
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     # Per-connection socket timeout: a slow/idle client (or a slowloris-style
     # drip) gets dropped after this many seconds rather than pinning a server
@@ -2959,6 +3743,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # any other (even loopback) origin.
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
 
     def _json(self, data, status: int = 200):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -2974,13 +3761,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _index(self):
         try:
-            html = (WEBUI_DIR / "index.html").read_text(encoding="utf-8")
-            html = html.replace("__EASYSKILLS_TOKEN__", WEBUI_TOKEN)
-            data = html.encode("utf-8")
+            page = (WEBUI_DIR / "index.html").read_text(encoding="utf-8")
+            page, nonce = _render_index_template(page, WEBUI_TOKEN)
+            data = page.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
             self._send_security_headers()
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'none'; "
+                f"script-src 'nonce-{nonce}'; script-src-attr 'none'; "
+                "style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+                "font-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            )
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
@@ -2990,18 +3784,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def _body(self) -> dict | None:
+    def _body(self) -> dict | None | object:
         """Parse the JSON request body.
 
         Returns:
             dict  – on success
             None  – when the body is too large (caller must send 413 and return)
-            {}    – on missing / empty / malformed body (safe to proceed)
+            _INVALID_REQUEST_BODY – on malformed framing or JSON (send 400)
+            {}    – on an explicitly empty body (Content-Length: 0)
+            _MISSING_CONTENT_LENGTH – when request framing omits Content-Length
         """
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            # The backend intentionally does not implement chunked request
+            # decoding.  Reject an unframed POST instead of treating it as an
+            # empty request while leaving bytes unread on a keep-alive socket.
+            self.close_connection = True
+            return _MISSING_CONTENT_LENGTH
         try:
-            length = int(self.headers.get("Content-Length", 0))
+            length = int(raw_length)
         except (ValueError, TypeError):
-            return {}
+            self.close_connection = True
+            return _INVALID_REQUEST_BODY
         if not length:
             return {}
         if length > 10 * 1024 * 1024:  # 10 MB cap
@@ -3011,12 +3815,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.close_connection = True
             return None  # Signal to caller: send 413
         if length < 0:
-            return {}
+            self.close_connection = True
+            return _INVALID_REQUEST_BODY
         try:
-            parsed = json.loads(self.rfile.read(length))
-            return parsed if isinstance(parsed, dict) else {}
+            raw = self.rfile.read(length)
+            if len(raw) != length:
+                self.close_connection = True
+                return _INVALID_REQUEST_BODY
+            parsed = json.loads(raw)
+            if not isinstance(parsed, dict):
+                self.close_connection = True
+                return _INVALID_REQUEST_BODY
+            return parsed
         except (json.JSONDecodeError, OSError, UnicodeError, ValueError):
-            return {}
+            self.close_connection = True
+            return _INVALID_REQUEST_BODY
 
     def _is_post_allowed(self) -> bool:
         origin = self.headers.get("Origin")
@@ -3144,6 +3957,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             self._json(get_mcp_config())
 
+        elif path == "/api/doctor":
+            if not self._is_token_valid():
+                self._reject_forbidden()
+                return
+            self._json(get_doctor_report())
+
         elif path.startswith("/api/instructions/content/"):
             if not self._is_token_valid():
                 self._reject_forbidden()
@@ -3169,6 +3988,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(413)  # Request Entity Too Large
             self.send_header("Content-Length", "0")
             self.end_headers()
+            return
+        if body is _MISSING_CONTENT_LENGTH:
+            self.send_response(411)  # Length Required
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if body is _INVALID_REQUEST_BODY:
+            self._json({"success": False, "message": "Invalid JSON request body"}, status=400)
             return
 
         routes = {
@@ -3273,7 +4100,7 @@ def _iter_agent_skill_dirs():
             for line in CUSTOM_TARGETS_FILE.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
                 if line and not line.startswith("#"):
-                    p = line.split("=", 1)[-1].strip() if "=" in line else line
+                    p = _target_path_from_line(line)
                     tp = Path(p).expanduser()
                     if tp.is_dir():
                         key = str(tp)
@@ -3289,6 +4116,11 @@ def _iter_agent_skill_dirs():
 # ──────────────────────────────────────────────────────────────
 
 def main():
+    if "--doctor" in _sys.argv:
+        report = get_doctor_report()
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        _sys.exit(0 if report["success"] else 1)
+
     if "--sync-rules" in _sys.argv:
         res = write_instructions_to_all()
         print(f"Rules Sync: {'Success' if res['success'] else 'Failed'} - {res['message']}")
