@@ -32,9 +32,11 @@ if defined MAINT_DIR_AMBIGUOUS (
 :: the Recycle Bin (recoverable) instead of an irreversible rd /S /Q — users
 :: keep their custom skills under %PERM_DIR%.
 if exist "%MAINT_DIR%\deploy.ps1" (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%MAINT_DIR%\deploy.ps1" -Cleanup
-  if errorlevel 1 goto cleanup_failed
+  REM Stop the watcher FIRST: while it is alive it will re-sync and rebuild
+  REM junctions in the gap after -Cleanup removes them, leaving dead links.
   powershell -NoProfile -ExecutionPolicy Bypass -File "%MAINT_DIR%\unwatch.ps1"
+  if errorlevel 1 goto cleanup_failed
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%MAINT_DIR%\deploy.ps1" -Cleanup
   if errorlevel 1 goto cleanup_failed
 
   powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $p = Join-Path $env:USERPROFILE 'EasySkills'; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } catch { Write-Host 'Warning: could not send to Recycle Bin automatically.'; Write-Host ('Please manually delete: ' + (Join-Path $env:USERPROFILE 'EasySkills')); exit 1 }"

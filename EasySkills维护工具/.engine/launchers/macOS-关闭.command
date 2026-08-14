@@ -2,7 +2,16 @@
 # EasySkills Shutdown (macOS) / 关闭 EasySkills 后台服务
 # Stops the WebUI backend on port 6633 and unloads the background watcher.
 # Resolve the physical script location even when invoked through a symlink.
-cd "$(cd "$(dirname "$0")" && pwd -P)/.." || exit 1
+# Follow the link chain explicitly; `dirname $0` alone keeps the symlink path.
+_SRC="$0"
+while [ -L "$_SRC" ]; do
+  _DIR="$(cd "$(dirname "$_SRC")" && pwd)"
+  _SRC="$(readlink "$_SRC")"
+  [[ "$_SRC" != /* ]] && _SRC="$_DIR/$_SRC"
+done
+cd "$(cd "$(dirname "$_SRC")" && pwd -P)" || exit 1
+cd "$(pwd)/.." || exit 1
+unset _SRC _DIR
 
 # --- Stop the WebUI backend (port 6633) --------------------------------
 # Match precisely on this installation's webui.py so editors/greps that merely

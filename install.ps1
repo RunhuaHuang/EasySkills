@@ -6,12 +6,12 @@
 $ErrorActionPreference = "Stop"
 
 $Repo = "RunhuaHuang/EasySkills"
-$DefaultVersion = "4.1.0"
+$DefaultVersion = "4.1.1"
 $InstallChannel = if ($env:EASYSKILLS_CHANNEL) { $env:EASYSKILLS_CHANNEL.ToLowerInvariant() } else { "stable" }
 if ($InstallChannel -eq "stable") {
   $InstallVersion = if ($env:EASYSKILLS_VERSION) { $env:EASYSKILLS_VERSION } else { $DefaultVersion }
   if ($InstallVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$') {
-    throw "Invalid EASYSKILLS_VERSION '$InstallVersion' (expected SemVer, e.g. 4.1.0)."
+    throw "Invalid EASYSKILLS_VERSION '$InstallVersion' (expected SemVer, e.g. 4.1.1)."
   }
   $GitRef = "v$InstallVersion"
   $ArchiveRef = "tags/$GitRef"

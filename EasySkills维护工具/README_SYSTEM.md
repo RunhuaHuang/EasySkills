@@ -1,6 +1,6 @@
 # EasySkills — System & Operations Reference
 
-> **Version:** 4.1.0 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
+> **Version:** 4.1.1 · **Homepage:** https://github.com/RunhuaHuang/EasySkills
 
 EasySkills is a cross-platform skills, rules, and MCP manager for macOS, Linux, and Windows. It establishes a centralized folder (`~/EasySkills`) and delivers capabilities through three channels:
 - **Channel 01 / Skills (Symlinks)**: Dynamically maps top-level folders inside `~/EasySkills` into every installed agent's skills directory using native symlinks (macOS/Linux) or directory junctions (Windows).

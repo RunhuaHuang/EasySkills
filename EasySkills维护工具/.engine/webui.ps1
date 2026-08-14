@@ -1367,7 +1367,11 @@ function Is-Mapped([string]$TargetPath, $DisabledSet, [bool]$HasSkills) {
     if ($DisabledSet.ContainsKey($NormPath)) { return $false }
 
     if (-not (Test-Path $TargetPath -PathType Container)) { return $false }
-    if (-not $HasSkills) { return $true }
+    if (-not $HasSkills) {
+        # No skills => no links can exist; reporting "mapped" would inflate
+        # the dashboard. The disabled/exists checks above still apply.
+        return $false
+    }
 
     try {
         $Items = Get-ChildItem -Path $TargetPath -Force
@@ -1464,11 +1468,17 @@ function Get-AgentsData {
         }
     }
 
+    # Named custom-target rows whose name matched no default agent must stay
+    # visible, otherwise a user-edited override would silently disappear.
+    $MatchedOverrideNames = @{}
+    foreach ($Name in $CustomOverrides.Keys) { $MatchedOverrideNames[$Name] = $true }
+
     # 1. Add Default Agents (checking for overrides)
     foreach ($Def in $DefaultAgents) {
         $Path = $Def.Path
         if ($CustomOverrides.ContainsKey($Def.Name)) {
             $Path = $CustomOverrides[$Def.Name]
+            $MatchedOverrideNames.Remove($Def.Name) | Out-Null
         }
         $PathKey = Normalize-AgentPath $Path
         if ($Seen.ContainsKey($PathKey)) { continue }
@@ -1487,6 +1497,10 @@ function Get-AgentsData {
             mapped = if ($Active) { Is-Mapped $Path $DisabledSet $HasSkills } else { $false }
             custom = $CustomOverrides.ContainsKey($Def.Name)
         }
+    }
+
+    foreach ($Name in @($MatchedOverrideNames.Keys)) {
+        $CustomList += @{ Name = $Name; Path = $CustomOverrides[$Name] }
     }
 
     # 2. Add Custom Agents (that don't match any default name override)
@@ -1952,6 +1966,9 @@ function Do-Map-Core([string]$TargetPath) {
                         continue
                     }
                 } else {
+                    # A real file/dir (not one of our links) already occupies
+                    # the name — never overwrite user data, report a conflict.
+                    $Conflicts += $Name
                     continue
                 }
             }

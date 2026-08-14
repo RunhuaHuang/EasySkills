@@ -2122,12 +2122,18 @@ class SecurityContractsTest(unittest.TestCase):
     # -------------------------------------------------------------------------
 
     def test_self_update_verifies_download_integrity(self):
-        """do_self_update must perform a SHA-256 double-download check."""
+        """do_self_update must hash the archive and reject tampered tarballs.
+
+        The old double-download comparison only caught random transport
+        corruption at 2x bandwidth and lock-hold time; the contract now is a
+        single bounded download, a logged SHA-256 digest, and safe extraction
+        (which rejects truncated/tampered archives outright).
+        """
         py_src = read("EasySkills维护工具/.engine/webui.py")
         self.assertIn("_sha256_file", py_src)
         self.assertIn("import hashlib", py_src)
-        self.assertIn("hmac.compare_digest(digest1, digest2)", py_src)
-        self.assertIn("Integrity check failed", py_src)
+        self.assertIn("archive_digest = _sha256_file(archive_path)", py_src)
+        self.assertIn("_safe_extract_tar", py_src)
 
     def test_python_self_update_bounds_download_and_validates_final_redirect(self):
         src = read("EasySkills维护工具/.engine/webui.py")

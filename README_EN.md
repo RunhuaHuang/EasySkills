@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-brightgreen.svg)](#quick-start)
 [![Agents](https://img.shields.io/badge/Supported%20Agents-43+-orange.svg)](#supported-agents)
-[![Version](https://img.shields.io/badge/Version-4.1.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Version](https://img.shields.io/badge/Version-4.1.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **One central library, three capability channels, every AI coding agent under control.**
 
@@ -45,11 +45,11 @@ irm `
   https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
 ```
 
-The installer deploys the current stable release, `v4.1.0`, by default instead of an unpublished `main` snapshot. Pin another version or opt into the development branch explicitly:
+The installer deploys the current stable release, `v4.1.1`, by default instead of an unpublished `main` snapshot. Pin another version or opt into the development branch explicitly:
 
 ```bash
 # macOS / Linux: pin a release
-curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_VERSION=4.1.0 bash
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_VERSION=4.1.1 bash
 
 # macOS / Linux: explicitly use main
 curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_CHANNEL=edge bash
@@ -250,7 +250,7 @@ The local-only WebUI running at `http://127.0.0.1:6633` is the central interface
   <img src="easyskills-guide-final.png" alt="EasySkills WebUI linked agents and guide view" width="100%">
 </p>
 
-> These screenshots are live UI examples from the 4.0.x line. The 4.1.0 release keeps the same information architecture and adds MCP, rules-sync, and rollback diagnostics.
+> These screenshots are live UI examples from the 4.0.x line. The 4.1.1 release keeps the same information architecture and adds MCP, rules-sync, and rollback diagnostics.
 
 ---
 

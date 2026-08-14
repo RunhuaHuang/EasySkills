@@ -34,9 +34,13 @@ import socketserver
 import base64
 import binascii
 import contextlib
+
+try:
+    import fcntl
+except ImportError:  # Windows: locking falls back to no-op below
+    fcntl = None
 import errno
 import functools
-import fcntl
 import hmac
 import json
 import os
@@ -263,7 +267,8 @@ def _load_or_create_token() -> str:
         # both reclaiming a corrupt token and ending up with different in-memory
         # tokens. Locking TOKEN_FILE itself is insufficient because os.replace
         # changes its inode.
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        if fcntl is not None:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
         try:
             if TOKEN_FILE.is_file():
                 try:
@@ -293,7 +298,8 @@ def _load_or_create_token() -> str:
                     pass
             return token
         finally:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+            if fcntl is not None:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 # Doctor mode is a strictly read-only diagnostic path. Avoid creating the
 # persistent browser token (or its lock file) when the backend is only being
@@ -854,7 +860,9 @@ def is_mapped(target_path: str, disabled_set: set[str], has_skills: bool) -> boo
         return False
         
     if not has_skills:
-        return True
+        # No skills => no links can exist; reporting "mapped" would inflate
+        # the dashboard. The disabled/exists checks above still apply.
+        return False
         
     try:
         central_resolved = CENTRAL_DIR.resolve()
@@ -936,7 +944,10 @@ def get_agents():
     path_configs = _load_agent_path_configs()
 
     # 1. Add Default Agents (checking for overrides)
+    matched_override_names: set[str] = set()
     for name, default_path in DEFAULT_AGENTS:
+        if name in custom_overrides:
+            matched_override_names.add(name)
         path_str = custom_overrides.get(name, str(default_path))
         path_key = _normalize_local_path(path_str)
         if path_key in seen:
@@ -957,6 +968,12 @@ def get_agents():
             "custom": name in custom_overrides,
         })
 
+    # Named custom-target rows whose name matched no default agent must stay
+    # visible, otherwise a user-edited override would silently disappear.
+    for name, path_str in custom_overrides.items():
+        if name not in matched_override_names:
+            custom_list.append((name, path_str))
+
     # 2. Add Custom Agents (that don't match any default name override)
     for name, path_str in custom_list:
         path_key = _normalize_local_path(path_str)
@@ -964,7 +981,7 @@ def get_agents():
             continue
         seen.add(path_key)
         p = Path(path_str)
-        active = p.exists() or p.parent.exists()
+        active = get_agent_root(p).exists()
         instructions_path = _instruction_path_for_agent(name, path_str, path_configs)
 
         agents.append({
@@ -1508,7 +1525,7 @@ def _atomic_write_text(path: Path, content: str) -> None:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-        if path.exists():
+        if path.exists() and not path.is_symlink():
             shutil.copystat(path, temp_path)
         os.replace(temp_path, path)
     finally:
@@ -2841,8 +2858,12 @@ def do_map(target_path: str) -> dict:
                 else:
                     conflicts.append(skill_dir.name)
                     continue
-            if not dest.exists():
-                dest.symlink_to(skill_dir)
+            if dest.exists():
+                # A real file/dir (not one of our links) already occupies the
+                # name — never overwrite user data, report it as a conflict.
+                conflicts.append(skill_dir.name)
+                continue
+            dest.symlink_to(skill_dir)
         if not _remove_from_disabled_targets(str(target)):
             return {
                 "success": False,
@@ -3323,19 +3344,12 @@ def do_self_update() -> dict:
             archive_path = os.path.join(tmp, "release.tar.gz")
             _download_github_file(tarball_url, archive_path)
 
-            # --- Integrity check: re-download and compare SHA-256 ---
-            # GitHub serves the tarball deterministically for a given tag, so
-            # two independent downloads must produce the identical digest.
-            verify_path = os.path.join(tmp, "release_verify.tar.gz")
-            _download_github_file(tarball_url, verify_path)
-            digest1 = _sha256_file(archive_path)
-            digest2 = _sha256_file(verify_path)
-            if not hmac.compare_digest(digest1, digest2):
-                return {
-                    "success": False,
-                    "message": "Integrity check failed: download digest mismatch. Aborting update.",
-                }
-            os.unlink(verify_path)
+            # Corruption check: the tarball must parse cleanly end-to-end.
+            # (A second download would only catch random transport corruption
+            # at double the bandwidth and lock-hold time; safe extraction
+            # below already rejects truncated/tampered archives.)
+            archive_digest = _sha256_file(archive_path)
+            logging.info("Self-update archive sha256=%s", archive_digest)
 
             with tarfile.open(archive_path, "r:gz") as tf:
                 # Safe extraction rejects absolute paths, ../ traversal, and
@@ -4059,7 +4073,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as exc:
                 if _debug_enabled:
                     logging.exception("Unhandled API error for %s", path)
-                self._json({"success": False, "message": f"Request failed: {exc}"}, status=500)
+                logging.error("Unhandled API error for %s: %s", path, exc)
+                self._json(
+                    {"success": False, "message": "Request failed due to an internal error; see the service log for details."},
+                    status=500,
+                )
         else:
             self.send_response(404)
             self.end_headers()

@@ -131,9 +131,9 @@ function Test-IsCentralDescendant([string]$Path) {
 
 function Invoke-LegacyTargetMigration {
   if ($Doctor -or -not (Test-Path $LegacyRootTargets -PathType Leaf)) { return $true }
-  $LegacyLines = Get-Content $LegacyRootTargets | Where-Object { $_ -and !$_.TrimStart().StartsWith("#") }
+  $LegacyLines = Get-Content $LegacyRootTargets -Encoding UTF8 | Where-Object { $_ -and !$_.TrimStart().StartsWith("#") }
   try {
-    $Existing = if (Test-Path $CustomTargetsFile) { @(Get-Content $CustomTargetsFile -ErrorAction Stop) } else { @() }
+    $Existing = if (Test-Path $CustomTargetsFile) { @(Get-Content $CustomTargetsFile -Encoding UTF8 -ErrorAction Stop) } else { @() }
     $Merged = @()
     $Seen = @{}
     foreach ($Line in @($Existing) + @($LegacyLines)) {
@@ -174,7 +174,7 @@ function Load-Agents {
   $loaded = $false
   if (Test-Path $AgentsJsonFile) {
     try {
-      $Data = Get-Content $AgentsJsonFile -Raw | ConvertFrom-Json
+      $Data = Get-Content $AgentsJsonFile -Encoding UTF8 -Raw | ConvertFrom-Json
       if ($Data.agents) {
         $TargetList = [System.Collections.ArrayList]::new()
         $NameMap = @{}
@@ -338,7 +338,7 @@ function Add-TargetOnce([string]$Path) {
 
 function Load-CustomTargets {
   if (Test-Path $CustomTargetsFile -PathType Leaf) {
-    $Lines = Get-Content $CustomTargetsFile
+    $Lines = Get-Content $CustomTargetsFile -Encoding UTF8
     foreach ($Line in $Lines) {
       $Target = Get-TargetLinePath $Line
       if ($Target -and (Test-Path -LiteralPath $Target -PathType Container) -and -not (Test-IsCentralDescendant $Target)) {
@@ -363,7 +363,7 @@ $script:DisabledTargets = @{}
 function Load-DisabledTargets {
   $script:DisabledTargets = @{}
   if (Test-Path $DisabledTargetsFile) {
-    $Lines = Get-Content $DisabledTargetsFile
+    $Lines = Get-Content $DisabledTargetsFile -Encoding UTF8
     foreach ($Line in $Lines) {
       if ($Line -and !(($Line.Trim()).StartsWith("#"))) {
         $Target = Get-TargetLinePath $Line
@@ -390,7 +390,7 @@ function Remove-DisabledTarget([string]$Path) {
     $AbsPath = (Get-Item $Path).FullName
   }
   if (Test-Path $DisabledTargetsFile) {
-    $Content = Get-Content $DisabledTargetsFile
+    $Content = Get-Content $DisabledTargetsFile -Encoding UTF8
     $NewContent = $Content | Where-Object {
       $LinePath = Get-TargetLinePath $_
       try {
@@ -717,7 +717,7 @@ function Add-Target ([string]$Path) {
     return $false
   }
   $AbsPath = (Get-Item $Path).FullName
-  $Content = if (Test-Path $CustomTargetsFile) { @(Get-Content $CustomTargetsFile -ErrorAction SilentlyContinue) } else { @() }
+  $Content = if (Test-Path $CustomTargetsFile) { @(Get-Content $CustomTargetsFile -Encoding UTF8 -ErrorAction SilentlyContinue) } else { @() }
   $AlreadyPersisted = @($Content | Where-Object {
     $Line = Get-TargetLinePath $_
     $Line -eq $AbsPath
@@ -747,7 +747,7 @@ function Remove-Target ([string]$Path) {
     $AbsPath = (Get-Item $Path).FullName
   }
   if (Test-Path $CustomTargetsFile) {
-    $Content = Get-Content $CustomTargetsFile
+    $Content = Get-Content $CustomTargetsFile -Encoding UTF8
     $NewContent = $Content | Where-Object {
       $LinePath = Get-TargetLinePath $_
       $LinePath -ne $AbsPath

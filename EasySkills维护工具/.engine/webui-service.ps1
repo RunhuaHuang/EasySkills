@@ -94,7 +94,9 @@ function Start-WebUIBackend {
     $WscriptExe  = "$env:WINDIR\System32\wscript.exe"
 
     $ProcInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $ProcInfo.EnvironmentVariables["EASYSKILLS_SUPERVISED"] = "1"
+    # EnvironmentVariables is only usable once UseShellExecute=$false; set the
+    # flag first so later .NET versions never silently drop the variables.
+    $ProcInfo.UseShellExecute  = $false
     if ((Test-Path $LauncherVbs) -and (Test-Path $WscriptExe)) {
         $ProcInfo.FileName  = $WscriptExe
         # run-hidden.vbs forwards: powershell.exe -File <script.ps1>
@@ -111,7 +113,7 @@ function Start-WebUIBackend {
         $ProcInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$WebUIScript`" -NoBrowser"
     }
     $ProcInfo.WorkingDirectory = $ScriptDir
-    $ProcInfo.UseShellExecute  = $false
+    $ProcInfo.EnvironmentVariables["EASYSKILLS_SUPERVISED"] = "1"
     $ProcInfo.CreateNoWindow   = $true
     return [System.Diagnostics.Process]::Start($ProcInfo)
 }

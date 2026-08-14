@@ -2,7 +2,17 @@
 # EasySkills WebUI Launcher / 启动 EasySkills 控制面板
 # Resolve the physical script location even when invoked through a symlink
 # (EasySkills维护工具/macOS/启动.command -> ../.engine/launchers/macOS-启动.command).
-cd "$(cd "$(dirname "$0")" && pwd -P)/.." || exit 1
+# `dirname $0` alone does not resolve a symlink on the final path component,
+# so follow the link chain explicitly (same approach as watch.sh).
+_SRC="$0"
+while [ -L "$_SRC" ]; do
+  _DIR="$(cd "$(dirname "$_SRC")" && pwd)"
+  _SRC="$(readlink "$_SRC")"
+  [[ "$_SRC" != /* ]] && _SRC="$_DIR/$_SRC"
+done
+cd "$(cd "$(dirname "$_SRC")" && pwd -P)" || exit 1
+cd "$(pwd)/.." || exit 1
+unset _SRC _DIR
 
 # Under launchd the PATH is minimal and /usr/bin/python3 may be a stale system
 # Python too old to run webui.py (needs 3.10+ for `X | None` syntax). Prepend

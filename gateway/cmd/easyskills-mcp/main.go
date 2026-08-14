@@ -26,6 +26,49 @@ var (
 	commit  = "unknown"
 )
 
+// reloadBackoff throttles repeated reload attempts after failures so a
+// permanently broken server does not cause an endless 2-second retry loop
+// (each attempt may spawn a downstream process and wait out its timeout).
+type backoffController struct {
+	failures    int
+	maxBackoff  time.Duration
+	lastAttempt time.Time
+}
+
+func (b *backoffController) Current() time.Duration {
+	d := time.Duration(1) << min(b.failures, 5) * time.Second // 2s..32s
+	if d > b.maxBackoff {
+		d = b.maxBackoff
+	}
+	return d
+}
+
+// Wait blocks until the next attempt is allowed; returns true if it paused.
+// It aborts immediately when ctx is cancelled so shutdown is never delayed.
+func (b *backoffController) Wait(ctx context.Context) bool {
+	if b.failures == 0 {
+		b.lastAttempt = time.Now()
+		return false
+	}
+	wait := b.Current() - time.Since(b.lastAttempt)
+	if wait <= 0 {
+		b.lastAttempt = time.Now()
+		return false
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		b.lastAttempt = time.Now()
+		return true
+	}
+}
+
+func (b *backoffController) Fail()  { b.failures++; b.lastAttempt = time.Now() }
+func (b *backoffController) Reset() { b.failures = 0 }
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "easyskills-mcp:", err)
@@ -111,6 +154,7 @@ func serve(args []string) error {
 			h := sha256.Sum256(data)
 			return h[:], nil
 		}
+		reloadBackoff := &backoffController{maxBackoff: 30 * time.Second}
 		var lastHash []byte
 		if h, err := getFileHash(*configPath); err == nil {
 			lastHash = h
@@ -127,16 +171,22 @@ func serve(args []string) error {
 					continue
 				}
 				if !bytes.Equal(h, lastHash) {
+					if reloadBackoff.Wait(ctx) {
+						logger.Warn("MCP config reload paused after repeated failures", "backoff", reloadBackoff.Current().String())
+					}
 					newCfg, err := config.Load(*configPath)
 					if err != nil {
 						logger.Warn("Failed to reload changed MCP config", "path", *configPath, "error", err)
+						reloadBackoff.Fail()
 						continue
 					}
 					logger.Info("Reloading configuration...", "path", *configPath)
 					if err := router.Reload(ctx, newCfg, *profile, server); err != nil {
 						logger.Error("Failed to apply reloaded configuration", "error", err)
+						reloadBackoff.Fail()
 					} else {
 						lastHash = h
+						reloadBackoff.Reset()
 					}
 				}
 			}

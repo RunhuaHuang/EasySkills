@@ -1,3 +1,75 @@
+## EasySkills 4.1.1
+
+A stability release: a full cross-platform code audit fixed launcher, uninstall,
+encoding, and hot-reload regressions plus a batch of WebUI correctness issues.
+All 182 Python security/contract tests and all Go unit and routing tests pass.
+
+### Platform fixes (scripts)
+
+- macOS launchers (`启动`/`关闭`) now resolve symlinks explicitly, so the
+  user-facing entries in `EasySkills维护工具/macOS/` work when double-clicked
+  (previously they failed to locate `deploy.sh`; the shutdown launcher could
+  silently fail to stop both WebUI and watcher).
+- Windows uninstallers stop the watcher **before** running cleanup, preventing
+  the file watcher from rebuilding junctions in the gap and leaving dead links.
+  The engine launcher uninstaller also gained the multi-directory ambiguity
+  check.
+- `deploy.ps1` reads `custom-targets.txt` / `disabled-targets.txt` /
+  `agents.json` with explicit UTF-8 encoding, fixing silently dropped
+  non-ASCII custom target paths on Windows PowerShell 5.1.
+- `webui-service.ps1` sets `UseShellExecute=$false` before touching
+  `EnvironmentVariables`, avoiding dropped env vars on newer .NET runtimes.
+- Block-inner `::` comments in batch uninstallers converted to `REM` for
+  reliable cmd parsing.
+
+### WebUI backend (webui.py / webui.ps1)
+
+- Named custom-target rows whose name matches no default agent no longer
+  vanish from the agent list after editing.
+- `map` now reports a real file/dir name collision as a conflict instead of
+  silently skipping it (user data is never overwritten).
+- Empty central library no longer reports every agent as "mapped", keeping
+  dashboard stats honest.
+- Self-update downloads the release tarball once instead of twice (the old
+  double-download added bandwidth and lock-hold time without real integrity
+  gains); safe extraction still rejects tampered archives.
+- `fcntl` import is conditional so the module parses on Windows; atomic writes
+  no longer follow symlinked backups; 500 responses no longer echo internal
+  paths.
+
+### WebUI frontend
+
+- The MCP list and diagnostics panel skip no-op re-renders, fixing the
+  two-click delete confirmation being interrupted by the 5-second poll and
+  preserving diagnostics scroll position.
+- Removed the full-document language re-apply after every button request
+  (~thousands of DOM operations per action).
+- Rules page now filters Proma workspace agents like every other page.
+- Version check no longer compares against a hardcoded fallback; unknown
+  versions show a "version unknown" badge instead.
+- Removed dead code (`updateMCPTransportFields` reference,
+  `toggleSearchInput`).
+
+### MCP Gateway (Go)
+
+- Hot reload keeps the previous working session and tool routes when an
+  optional downstream fails, instead of aborting the whole reload (and now
+  matches the startup-time tolerance); required servers still fail hard.
+- Config-reload retries back off exponentially (2s → 30s cap) and abort
+  immediately on shutdown, ending the 2-second retry loop that respawned
+  downstream processes.
+- Connection-error redaction no longer masks command/args, restoring useful
+  troubleshooting output; secrets (env/headers) stay redacted.
+- `DefaultPath()` fails loudly instead of falling back to a CWD-relative
+  path; dead `boolPtr` helper removed.
+
+### Misc
+
+- Removed the stale, unsynced `mcp/servers.json.bak`.
+- Default install version bumped to `v4.1.1`.
+
+---
+
 ## 目录结构重构（推广准备）
 
 为降低用户认知负担，对安装目录结构做了如下调整：

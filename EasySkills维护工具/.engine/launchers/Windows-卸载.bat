@@ -18,12 +18,19 @@ set "PERM_DIR=%USERPROFILE%\EasySkills"
 :: Match the PARENT dir (EasySkills维护工具) and append "\.engine", since
 :: deploy.ps1 lives inside the .engine subfolder.
 set "MAINT_DIR="
-for /d %%D in ("%PERM_DIR%\EasySkills*") do if exist "%%D\.engine\deploy.ps1" set "MAINT_DIR=%%D\.engine"
+set "MAINT_DIR_AMBIGUOUS="
+for /d %%D in ("%PERM_DIR%\EasySkills*") do call :ResolveMaintDir "%%~fD"
+if defined MAINT_DIR_AMBIGUOUS (
+  echo Error: multiple installed engine directories matched EasySkills*. Aborting; existing install untouched. 1>&2
+  goto cleanup_failed
+)
 
 if exist "%MAINT_DIR%\deploy.ps1" (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%MAINT_DIR%\deploy.ps1" -Cleanup
-  if errorlevel 1 goto cleanup_failed
+  REM Stop the watcher FIRST: while it is alive it will re-sync and rebuild
+  REM junctions in the gap after -Cleanup removes them, leaving dead links.
   powershell -NoProfile -ExecutionPolicy Bypass -File "%MAINT_DIR%\unwatch.ps1"
+  if errorlevel 1 goto cleanup_failed
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%MAINT_DIR%\deploy.ps1" -Cleanup
   if errorlevel 1 goto cleanup_failed
   powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $p = Join-Path $env:USERPROFILE 'EasySkills'; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } catch { Write-Host 'Warning: could not send to Recycle Bin automatically.'; Write-Host ('Please manually delete: ' + (Join-Path $env:USERPROFILE 'EasySkills')); exit 1 }"
   if errorlevel 1 goto cleanup_failed
@@ -42,3 +49,12 @@ echo Uninstallation incomplete. The EasySkills folder was kept to protect user d
 echo Please resolve the error above and run the uninstaller again.
 timeout /t 5 /nobreak > nul
 exit /b 1
+
+:ResolveMaintDir
+if not exist "%~1\.engine\deploy.ps1" exit /b 0
+if defined MAINT_DIR (
+  set "MAINT_DIR_AMBIGUOUS=1"
+) else (
+  set "MAINT_DIR=%~1\.engine"
+)
+exit /b 0

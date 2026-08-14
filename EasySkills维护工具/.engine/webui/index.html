@@ -5142,8 +5142,6 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
         applyLanguage();
         const mcpServerForm = document.getElementById('mcp-server-form');
         if (mcpServerForm) mcpServerForm.addEventListener('submit', saveMCPServerForm);
-        const mcpTransportSelect = document.getElementById('mcp-form-transport');
-        if (mcpTransportSelect) mcpTransportSelect.addEventListener('change', updateMCPTransportFields);
         const mcpEditorBackdrop = document.getElementById('mcp-editor-backdrop');
         if (mcpEditorBackdrop) {
             mcpEditorBackdrop.addEventListener('click', event => {
@@ -5443,7 +5441,11 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
             if (strong) strong.textContent = value;
         }
 
+        let lastDoctorRenderJson = '';
         function renderDoctorReport(report) {
+            const doctorSignature = currentLang + '|' + JSON.stringify(report);
+            if (doctorSignature === lastDoctorRenderJson) return;
+            lastDoctorRenderJson = doctorSignature;
             if (!report) return;
             latestDoctorReport = report;
             const summary = report.summary || {};
@@ -5881,7 +5883,6 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                     btnElement.disabled = false;
                     btnElement.classList.remove('btn-loading');
                     btnElement.innerHTML = originalHtml;
-                    applyLanguage(); // Ensures localization matches active language after recovery
                 }
             }
         }
@@ -5892,7 +5893,13 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
             if (data) renderMCPConfig(data);
         }
 
+        let lastMcpRenderJson = '';
         function renderMCPConfig(data) {
+            // Rebuilding innerHTML on every poll would drop transient UI state
+            // (e.g. the armed two-click delete confirmation), so skip no-op renders.
+            const renderSignature = currentLang + '|' + JSON.stringify(data);
+            if (renderSignature === lastMcpRenderJson) return;
+            lastMcpRenderJson = renderSignature;
             const gatewayTag = document.getElementById('mcp-gateway-status');
             const countTag = document.getElementById('mcp-server-count');
             const list = document.getElementById('mcp-server-list');
@@ -6310,7 +6317,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                                 ? 'The rule library is empty. Create a rule to start synchronizing detected Agents.'
                                 : `${rulesCount} rules with ${managedRuleInstances} managed rule instances across ${managedRuleAgents} Agents.`);
                     }
-                    document.getElementById('stat-central-dir').innerText = status.central_dir;
+                    document.getElementById('stat-central-dir').innerText = status.central_dir || '—';
                     
                     // Update version display from backend
                     if (status.version) {
@@ -6899,7 +6906,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
             // --- Agent status grid with checkboxes ---
             const agentsGrid = document.getElementById('rules-agents-grid');
             if (agentsGrid) {
-                const agents = sortAgentsByDetection(data.agents || []);
+                const agents = sortAgentsByDetection(getVisibleAgents(data.agents || []));
                 const detectedAgents = agents.filter(agent => agent.active);
                 const undetectedAgents = agents.filter(agent => !agent.active);
                 const allAgentChecked = agents.length > 0 && window._agentsChecked.size === agents.length;
@@ -7238,27 +7245,6 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
             });
         }
 
-        // --- Toggle Expandable Search Input ---
-        function toggleSearchInput(btn) {
-            const input = document.getElementById('agent-search-input');
-            if (!input) return;
-            if (input.style.width === '0px' || !input.style.width) {
-                input.style.width = '38px';
-                input.style.opacity = '1';
-                input.style.padding = '4px 2px';
-                input.style.border = '1px solid var(--border-color)';
-                input.style.marginRight = '4px';
-                input.focus();
-            } else {
-                input.style.width = '0px';
-                input.style.opacity = '0';
-                input.style.padding = '0px';
-                input.style.border = '1px solid transparent';
-                input.style.marginRight = '0px';
-                input.value = '';
-                filterAgents(); // Reset filter when closing
-            }
-        }
 
         // --- Agent Path Configuration Dialog Editing ---
         let activeEditName = '';
@@ -7449,17 +7435,25 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                     
                     document.getElementById('latest-version').innerText = latestVer;
                     
-                    const currentVer = normalizeVersionTag(window._esCurrentVersion || 'v1.0.1');
+                    const currentVer = normalizeVersionTag(window._esCurrentVersion || '');
+                    const versionKnown = currentVer !== 'unknown';
                     const tagBadge = document.getElementById('update-status-tag');
                     
                     const updateBtn = document.getElementById('btn-update-now');
-                    if (latestVer !== 'unknown' && latestVer !== currentVer) {
+                    if (latestVer !== 'unknown' && versionKnown && latestVer !== currentVer) {
                         showToast(currentLang === 'en' ? 'New version available: ' + latestVer : '检测到新版本: ' + latestVer, 'warning');
                         if (tagBadge) {
                             tagBadge.className = 'tag tag-warning';
                             tagBadge.innerText = currentLang === 'en' ? 'Update Available' : '有新版本';
                         }
                         if (updateBtn) updateBtn.style.display = 'flex';
+                    } else if (!versionKnown) {
+                        // Current version unknown (status request failed earlier);
+                        // comparing against a placeholder would give false results.
+                        if (tagBadge) {
+                            tagBadge.className = 'tag tag-warning';
+                            tagBadge.innerText = currentLang === 'en' ? 'Version Unknown' : '版本未知';
+                        }
                     } else {
                         showToast(currentLang === 'en' ? 'EasySkills is up to date!' : 'EasySkills 已是最新版本！', 'success');
                         if (tagBadge) {

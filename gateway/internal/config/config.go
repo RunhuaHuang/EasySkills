@@ -53,8 +53,6 @@ type Profile struct {
 	DisabledTools []string `json:"disabled_tools,omitempty"`
 }
 
-func boolPtr(v bool) *bool { return &v }
-
 func Default() *Config {
 	return &Config{
 		Version: CurrentVersion,
@@ -85,7 +83,9 @@ func DefaultPath() string {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join("EasySkills", "mcp", "servers.json")
+		// A relative fallback would silently read/write CWD-relative paths;
+		// fail loudly instead so callers can report the real problem.
+		return ""
 	}
 	return filepath.Join(home, "EasySkills", "mcp", "servers.json")
 }

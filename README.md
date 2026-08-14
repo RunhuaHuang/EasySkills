@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-brightgreen.svg)](#快速开始)
 [![Agents](https://img.shields.io/badge/支持Agent-43+-orange.svg)](#支持的-agent-列表)
-[![Version](https://img.shields.io/badge/版本-4.1.0-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Version](https://img.shields.io/badge/版本-4.1.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **一个中央库、三条能力通道，统一管理所有 AI Coding Agent 的技能与规则。**
 
@@ -45,11 +45,11 @@ irm `
   https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
 ```
 
-安装器默认部署当前稳定版 `v4.1.0`，而不是直接安装 `main` 的未发布快照。需要指定版本或体验开发分支时：
+安装器默认部署当前稳定版 `v4.1.1`，而不是直接安装 `main` 的未发布快照。需要指定版本或体验开发分支时：
 
 ```bash
 # macOS / Linux：固定指定版本
-curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_VERSION=4.1.0 bash
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_VERSION=4.1.1 bash
 
 # macOS / Linux：显式使用 main
 curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_CHANNEL=edge bash
@@ -250,7 +250,7 @@ EasySkills 会自动扫描 `instructions/` 目录下的所有 Markdown 文件，
   <img src="easyskills-guide-final.png" alt="EasySkills WebUI 使用教程界面示意" width="100%">
 </p>
 
-> 界面截图为 4.0.x 系列的实机示意图；4.1.0 保持同一套 WebUI 信息架构，并新增了 MCP、规则同步与回滚诊断能力。
+> 界面截图为 4.0.x 系列的实机示意图；4.1.1 保持同一套 WebUI 信息架构，并新增了 MCP、规则同步与回滚诊断能力。
 
 ---
 

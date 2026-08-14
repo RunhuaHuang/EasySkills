@@ -8,13 +8,13 @@
 set -e
 
 REPO="RunhuaHuang/EasySkills"
-DEFAULT_VERSION="4.1.0"
+DEFAULT_VERSION="4.1.1"
 INSTALL_CHANNEL="${EASYSKILLS_CHANNEL:-stable}"
 case "$INSTALL_CHANNEL" in
   stable)
     INSTALL_VERSION="${EASYSKILLS_VERSION:-$DEFAULT_VERSION}"
     if [[ ! "$INSTALL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
-      echo "Error: invalid EASYSKILLS_VERSION '$INSTALL_VERSION' (expected SemVer, e.g. 4.1.0)." >&2
+      echo "Error: invalid EASYSKILLS_VERSION '$INSTALL_VERSION' (expected SemVer, e.g. 4.1.1)." >&2
       exit 1
     fi
     GIT_REF="v$INSTALL_VERSION"

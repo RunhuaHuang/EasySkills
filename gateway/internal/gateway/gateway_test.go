@@ -520,8 +520,8 @@ func TestGatewayReloadOptionalReplacementFailurePreservesExistingServer(t *testi
 		Version:  1,
 		Servers:  map[string]config.ServerConfig{"fixture": failing},
 		Profiles: map[string]config.Profile{"default": {Servers: []string{"*"}}},
-	}, "default", mcp.NewServer(&mcp.Implementation{Name: "gateway-test", Version: "1"}, nil)); err == nil {
-		t.Fatal("expected optional replacement to fail transactionally")
+	}, "default", mcp.NewServer(&mcp.Implementation{Name: "gateway-test", Version: "1"}, nil)); err != nil {
+		t.Fatal("expected optional replacement failure to be tolerated without aborting the reload")
 	}
 
 	router.mu.RLock()

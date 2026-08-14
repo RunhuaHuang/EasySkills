@@ -203,9 +203,9 @@ func redactConnectionError(err error, cfg config.ServerConfig) error {
 			message = strings.ReplaceAll(message, cfg.URL, redactedURL)
 		}
 	}
-	secrets := make([]string, 0, 2+len(cfg.Args)+len(cfg.Env)+len(cfg.Headers))
-	secrets = append(secrets, cfg.Command)
-	secrets = append(secrets, cfg.Args...)
+	// Command and args are not credentials; redacting them destroys the only
+	// useful troubleshooting context (e.g. "connect: npx -y some-server ...").
+	secrets := make([]string, 0, len(cfg.Env)+len(cfg.Headers))
 	for _, values := range []map[string]string{cfg.Env, cfg.Headers} {
 		for _, value := range values {
 			secrets = append(secrets, value)
@@ -439,6 +439,9 @@ func (r *Router) Reload(ctx context.Context, cfg *config.Config, profileName str
 	// Pre-flight Phase 1: Connect to new/modified servers
 	newSessions := make(map[string]*downstream)
 	connectionErrors := make(map[string]error)
+	// Servers whose replacement failed but whose previous session must keep
+	// serving (tools and connection untouched) instead of aborting the reload.
+	keepServers := make(map[string]struct{})
 
 	defer func() {
 		if err != nil {
@@ -454,13 +457,15 @@ func (r *Router) Reload(ctx context.Context, cfg *config.Config, profileName str
 		if connErr != nil {
 			r.logger.Warn("MCP server reload connection failed (pre-flight)", "server", name, "error", connErr)
 			connectionErrors[name] = connErr
-			if existingServers[name] {
-				err = fmt.Errorf("replacement server %q failed: %w", name, connErr)
-				return err
-			}
 			if serverCfg.Required {
 				err = fmt.Errorf("required server %q failed: %w", name, connErr)
 				return err
+			}
+			if existingServers[name] {
+				// Match Open()'s tolerance: one flapping downstream must not
+				// abort the whole reload. Keep the previous working session.
+				keepServers[name] = struct{}{}
+				continue
 			}
 			continue
 		}
@@ -502,13 +507,17 @@ func (r *Router) Reload(ctx context.Context, cfg *config.Config, profileName str
 				ds.session.Close()
 				delete(newSessions, name)
 			}
-			if existingServers[name] {
-				err = fmt.Errorf("replacement server %q discovery failed: %w", name, discErr)
-				return err
-			}
 			if serverCfg.Required {
 				err = fmt.Errorf("required server %q discovery failed: %w", name, discErr)
 				return err
+			}
+			if existingServers[name] {
+				// Match Open()'s tolerance: one flapping downstream must not
+				// abort the whole reload. Keep the previous working session
+				// and its already-registered tool routes.
+				r.logger.Warn("Keeping previous session and tools after failed replacement discovery", "server", name)
+				keepServers[name] = struct{}{}
+				continue
 			}
 			continue
 		}
@@ -530,9 +539,15 @@ func (r *Router) Reload(ctx context.Context, cfg *config.Config, profileName str
 	// remained published and still pointed at a closed downstream session.
 	toolsToRemoveFor := make(map[string]struct{}, len(toClose)+len(toReevaluate))
 	for _, name := range toClose {
+		if _, kept := keepServers[name]; kept {
+			continue
+		}
 		toolsToRemoveFor[name] = struct{}{}
 	}
 	for _, name := range toReevaluate {
+		if _, kept := keepServers[name]; kept {
+			continue
+		}
 		toolsToRemoveFor[name] = struct{}{}
 	}
 	toolServerNames := make([]string, 0, len(toolsToRemoveFor))
@@ -558,6 +573,9 @@ func (r *Router) Reload(ctx context.Context, cfg *config.Config, profileName str
 
 	// 2. Close and remove old sessions
 	for _, name := range toClose {
+		if _, kept := keepServers[name]; kept {
+			continue
+		}
 		oldDS, exists := r.sessions[name]
 		if exists {
 			delete(r.sessions, name)
