@@ -54,6 +54,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -477,6 +478,15 @@ _WINDOWS_RESERVED_FILENAMES = {
     *(f"COM{i}" for i in range(1, 10)),
     *(f"LPT{i}" for i in range(1, 10)),
 }
+
+# Upload path portability limits, mirrored by webui.ps1 and the frontend
+# pre-check. They keep imported skills writable on Windows PowerShell 5.1
+# (no long-path support; MAX_PATH component limit) while staying generous for
+# real skill folders.
+MAX_IMPORT_FILES = 1000
+MAX_IMPORT_DEPTH = 32
+MAX_IMPORT_COMPONENT = 255
+MAX_IMPORT_RELPATH = 200
 
 
 def _is_portable_filename(name: str) -> bool:
@@ -2702,20 +2712,59 @@ def _casefold_child(directory: Path, name: str) -> Path | None:
     return None
 
 
-def _safe_relative_path(path: str) -> Path | None:
-    if not path or "\x00" in path:
-        return None
-    rel = Path(path.replace("\\", "/"))
-    if rel.is_absolute() or any(part in ("", ".", "..") for part in rel.parts):
-        return None
-    # Every uploaded component must be valid on both POSIX and Windows.  The
-    # central skill library is portable data and may later be mapped to a
-    # Windows junction; accepting names such as ``CON`` or ``guide. `` here
-    # would create an archive that imports successfully on Unix but cannot be
-    # materialized safely on Windows.
-    if any(not _is_portable_filename(part) for part in rel.parts):
-        return None
-    return rel
+def _portable_name_problem(name: str) -> str | None:
+    """Return a human-readable reason *name* is unsafe as a single component,
+    or ``None`` when it is safe. Mirrors the rules of ``_is_portable_filename``
+    so upload errors can name the offending file and the exact rule it broke."""
+    if not name:
+        return "empty path component"
+    if name.endswith((" ", ".")):
+        return f"'{name}' ends with a space or dot, which Windows cannot store"
+    bad = sorted({char for char in name if ord(char) < 32 or char in '<>:"/\\|?*'})
+    if bad:
+        chars = ", ".join(f"'{char}'" for char in bad)
+        return f"'{name}' contains a character not allowed in portable file names ({chars})"
+    if name.split(".", 1)[0].upper() in _WINDOWS_RESERVED_FILENAMES:
+        return f"'{name}' collides with the reserved Windows device name '{name.split('.', 1)[0].upper()}'"
+    return None
+
+
+def _safe_relative_path(path: str) -> tuple[Path | None, str | None]:
+    """Validate an uploaded relative path. Returns ``(rel, None)`` on success or
+    ``(None, reason)`` with a reason that names the offending component so the
+    API error is actionable instead of a bare 'Invalid file path in upload'.
+
+    The raw string is validated BEFORE any Path normalization: pathlib folds
+    ``a//b`` and ``a/./b`` away, while the Windows backend's PowerShell split
+    sees those as empty/dot segments and rejects them. Validating the raw
+    segments keeps both backends's rejections identical."""
+
+    if not path:
+        return None, "the file path is empty"
+    if "\x00" in path:
+        return None, f"'{path}' contains a NUL character"
+    normalized = path.replace("\\", "/")
+    if normalized.startswith("/"):
+        return None, f"'{path}' is an absolute path; only paths inside the skill folder are allowed"
+    if len(normalized) > MAX_IMPORT_RELPATH:
+        return None, f"'{path}' exceeds the {MAX_IMPORT_RELPATH}-character total path length limit"
+    parts = normalized.split("/")
+    if len(parts) > MAX_IMPORT_DEPTH:
+        return None, f"'{path}' exceeds the {MAX_IMPORT_DEPTH}-level directory depth limit"
+    if any(part in ("", ".", "..") for part in parts):
+        return None, f"'{path}' contains a '.', '..' or empty path component"
+    for part in parts:
+        if len(part) > MAX_IMPORT_COMPONENT:
+            return None, f"'{part}' exceeds the {MAX_IMPORT_COMPONENT}-character component length limit"
+        # Every uploaded component must be valid on both POSIX and Windows.
+        # The central skill library is portable data and may later be mapped
+        # to a Windows junction; accepting names such as ``CON`` or ``guide. ``
+        # here would create an archive that imports successfully on Unix but
+        # cannot be materialized safely on Windows.
+        problem = _portable_name_problem(part)
+        if problem:
+            return None, problem
+    return Path(*parts), None
 
 
 @_writes_locked_proc
@@ -2725,6 +2774,8 @@ def import_skill_folder(name: str, files: list[dict]) -> dict:
         return {"success": False, "message": clean_name}
     if not isinstance(files, list) or not files:
         return {"success": False, "message": "No files were provided"}
+    if len(files) > MAX_IMPORT_FILES:
+        return {"success": False, "message": f"Too many files in upload (limit {MAX_IMPORT_FILES})"}
 
     prepared: list[tuple[Path, bytes]] = []
     seen_paths: set[str] = set()
@@ -2732,10 +2783,13 @@ def import_skill_folder(name: str, files: list[dict]) -> dict:
     for item in files:
         if not isinstance(item, dict):
             return {"success": False, "message": "Invalid file payload"}
-        rel = _safe_relative_path(str(item.get("path", "")))
+        rel, path_problem = _safe_relative_path(str(item.get("path", "")))
         if rel is None:
-            return {"success": False, "message": "Invalid file path in upload"}
-        folded = rel.as_posix().casefold()
+            return {"success": False, "message": f"Invalid file path in upload: {path_problem}"}
+        # Duplicate detection is case- and NFC-insensitive so the same skill
+        # cannot later collapse into one junction target on a case-insensitive
+        # or normalization-insensitive volume (macOS stores names as NFD).
+        folded = unicodedata.normalize("NFC", rel.as_posix()).casefold()
         if folded in seen_paths:
             return {"success": False, "message": f"Duplicate file path in upload: {rel}"}
         seen_paths.add(folded)
@@ -3795,8 +3849,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
         except FileNotFoundError:
-            self.send_response(404)
-            self.end_headers()
+            self._json({"success": False, "message": "Not found"}, status=404)
 
     def _body(self) -> dict | None | object:
         """Parse the JSON request body.
@@ -3872,8 +3925,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         if not self._is_host_allowed():
-            self.send_response(400)
-            self.end_headers()
+            self._json({"success": False, "message": "Forbidden"}, status=400)
             return
         path = urllib.parse.urlparse(self.path).path
 
@@ -3985,13 +4037,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(get_instruction_content(rule_name))
 
         else:
-            self.send_response(404)
-            self.end_headers()
+            self._json({"success": False, "message": "Not found"}, status=404)
 
     def do_POST(self):
         if not self._is_host_allowed():
-            self.send_response(400)
-            self.end_headers()
+            self._json({"success": False, "message": "Forbidden"}, status=400)
             return
         if not self._is_post_allowed():
             self._reject_forbidden()
@@ -3999,14 +4049,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         body = self._body()
         if body is None:  # body too large
-            self.send_response(413)  # Request Entity Too Large
-            self.send_header("Content-Length", "0")
-            self.end_headers()
+            self._json({"success": False, "message": "Request Entity Too Large"}, status=413)
             return
         if body is _MISSING_CONTENT_LENGTH:
-            self.send_response(411)  # Length Required
-            self.send_header("Content-Length", "0")
-            self.end_headers()
+            self._json({"success": False, "message": "Content-Length is required"}, status=411)
             return
         if body is _INVALID_REQUEST_BODY:
             self._json({"success": False, "message": "Invalid JSON request body"}, status=400)
@@ -4079,8 +4125,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     status=500,
                 )
         else:
-            self.send_response(404)
-            self.end_headers()
+            self._json({"success": False, "message": "Not found"}, status=404)
 
 
 # ──────────────────────────────────────────────────────────────

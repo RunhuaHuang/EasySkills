@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-brightgreen.svg)](#快速开始)
 [![Agents](https://img.shields.io/badge/支持Agent-43+-orange.svg)](#支持的-agent-列表)
-[![Version](https://img.shields.io/badge/版本-4.1.1-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
+[![Version](https://img.shields.io/badge/版本-4.1.2-purple.svg)](https://github.com/RunhuaHuang/EasySkills/releases)
 
 **一个中央库、三条能力通道，统一管理所有 AI Coding Agent 的技能与规则。**
 
@@ -41,15 +41,24 @@ curl -fsSL \
 
 **Windows (PowerShell)**
 ```powershell
-irm `
-  https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+$i = "$env:TEMP\EasySkills-install.ps1"
+Invoke-WebRequest -UseBasicParsing `
+  https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 `
+  -OutFile $i
+& "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" `
+  -NoLogo -NoProfile -ExecutionPolicy Bypass -File $i
 ```
 
-安装器默认部署当前稳定版 `v4.1.1`，而不是直接安装 `main` 的未发布快照。需要指定版本或体验开发分支时：
+> 💡 **Windows 说明**：推荐「先下载 → 再用 `-NoProfile -File` 新进程执行」。这样安装器不会受你 PowerShell Profile 中自定义函数（例如覆盖 `Remove-Item` 的安全包装，通常不接受管道输入）或安全产品对 `iex` 内存执行拦截的影响。如果你已经克隆仓库或从 Release ZIP 解压了完整源码，也可以双击该目录下的 `install_windows.bat`。默认环境下仍可使用的快速单行版（高级用法，会在你的 Profile 会话内执行）：
+> ```powershell
+> irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+> ```
+
+安装器默认部署当前稳定版 `v4.1.2`，而不是直接安装 `main` 的未发布快照。需要指定版本或体验开发分支时：
 
 ```bash
 # macOS / Linux：固定指定版本
-curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_VERSION=4.1.1 bash
+curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_VERSION=4.1.2 bash
 
 # macOS / Linux：显式使用 main
 curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | EASYSKILLS_CHANNEL=edge bash

@@ -96,6 +96,134 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertIn("$Listener.GetContext()", body)
         self.assertIn("Invoke-WebUIRequest $Context", body)
 
+    def test_skill_import_rejections_name_the_offending_path_on_both_backends(self):
+        # User reports showed a bare "Invalid file path in upload" with no way
+        # to tell which file or rule was responsible. Both backends must keep
+        # appending a reason that names the offending component.
+        py_src = read("EasySkills维护工具/.engine/webui.py")
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+
+        self.assertIn(
+            '"Invalid file path in upload: {path_problem}"',
+            py_src,
+        )
+        self.assertIn(
+            'message = "Invalid file path in upload: $($RelResult.reason)"',
+            ps_src,
+        )
+        # The PS validator must keep returning a structured result whose
+        # reason mentions the exact component (not just a boolean).
+        ps_fn = ps_src.split("function ConvertTo-SafeRelativePath", 1)[1].split(
+            "function Import-SkillFolder", 1
+        )[0]
+        self.assertIn("@{ ok = $false; reason =", ps_fn)
+        self.assertIn("@{ ok = $true; rel =", ps_fn)
+
+    def test_skill_import_json_is_utf8_end_to_end(self):
+        # JSON.stringify emits raw UTF-8 for non-ASCII names; the Windows
+        # HttpListenerRequest.ContentEncoding guesses Latin-1 without a
+        # charset parameter, which mojibakes Chinese skill/file names. The
+        # frontend must declare UTF-8 and the PS backend must default to it
+        # per RFC 8259 when the charset parameter is absent.
+        html_src = read("EasySkills维护工具/.engine/webui/index.html")
+        # every JSON Content-Type header must carry the charset parameter.
+        # (parseApiResponse legitimately greps for the 'application/json'
+        # substring in a Content-Type, so the assertion targets the header
+        # assignment form, not the substring.)
+        self.assertNotIn("'Content-Type': 'application/json'", html_src)
+        self.assertNotIn('"Content-Type": "application/json"', html_src)
+        self.assertIn("application/json; charset=utf-8", html_src)
+
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        self.assertIn("charset\\s*=", ps_src)
+        self.assertIn("[System.Text.Encoding]::UTF8", ps_src)
+        # PS 5.1 ConvertFrom-Json rejects payloads over its 2 MB
+        # maxJsonLength; large skill imports must retry with the limit raised.
+        self.assertIn("System.Web.Script.Serialization.JavaScriptSerializer", ps_src)
+        self.assertIn("MaxJsonLength", ps_src)
+
+    def test_skill_import_rejection_rules_and_limits_are_consistent_between_backends(self):
+        webui = load_python_webui_module()
+        # Parity with the PowerShell Split("/") validator: raw segments must
+        # be validated BEFORE pathlib folds a//b and a/./b away.
+        for bad in ("a//b.md", "a/./b.md", "a/../b.md", "nested//SKILL.md"):
+            with self.subTest(bad=bad):
+                rel, reason = webui._safe_relative_path(bad)
+                self.assertIsNone(rel, f"{bad} must be rejected like the PS backend")
+                self.assertTrue(reason)
+        # Portability limits are shared with webui.ps1 and the frontend.
+        too_deep = "/".join(["d"] * (webui.MAX_IMPORT_DEPTH + 1)) + "/f.md"
+        too_long_part = "x" * (webui.MAX_IMPORT_COMPONENT + 1) + ".md"
+        too_long_total = "a/" + "b" * (webui.MAX_IMPORT_RELPATH + 1) + ".md"
+        for bad in (too_deep, too_long_part, too_long_total):
+            with self.subTest(bad=bad[:40]):
+                rel, reason = webui._safe_relative_path(bad)
+                self.assertIsNone(rel)
+                self.assertIn("limit", reason)
+        # Case- and NFC-insensitive duplicate detection (macOS names are NFD).
+        rel_ok, reason = webui._safe_relative_path("nested/guide.txt")
+        self.assertIsNone(reason)
+        self.assertEqual(rel_ok.as_posix(), "nested/guide.txt")
+
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        ps_fn = ps_src.split("function ConvertTo-SafeRelativePath", 1)[1].split(
+            "function Import-SkillFolder", 1
+        )[0]
+        self.assertIn("$Normalized.Length -gt 200", ps_fn)
+        self.assertIn("$Parts.Count -gt 32", ps_fn)
+        self.assertIn("$Part.Length -gt 255", ps_fn)
+        self.assertIn("NormalizationForm]::FormC", ps_src)
+        self.assertIn("Too many files in upload (limit 1000)", ps_src)
+
+        py_src = read("EasySkills维护工具/.engine/webui.py")
+        self.assertIn('"Too many files in upload (limit {MAX_IMPORT_FILES})"', py_src)
+        self.assertIn('unicodedata.normalize("NFC", rel.as_posix()).casefold()', py_src)
+
+    def test_http_errors_are_json_on_both_backends_and_frontend_parses_safely(self):
+        # Empty 411/413/404 bodies made the frontend's unconditional res.json()
+        # throw, which was misreported as "network offline / backend unreachable".
+        py_src = read("EasySkills维护工具/.engine/webui.py")
+        ps_src = read("EasySkills维护工具/.engine/webui.ps1")
+        html_src = read("EasySkills维护工具/.engine/webui/index.html")
+
+        self.assertIn('"message": "Request Entity Too Large"', py_src)
+        self.assertIn('"message": "Content-Length is required"', py_src)
+        self.assertIn('"message": "Not found"', py_src)
+        self.assertIn('"Request Entity Too Large"', ps_src)
+        self.assertIn('"Content-Length is required"', ps_src)
+        self.assertIn('"Not found"', ps_src)
+
+        self.assertNotIn("await res.json()", html_src)
+        self.assertIn("function parseApiResponse(res)", html_src)
+        self.assertIn("function validateImportPaths(relPaths)", html_src)
+        # Error toasts persist until closed and expose a copy button: lock the
+        # actual wiring (conditional on type === 'error', title assignment,
+        # appendChild), not the explanatory comment.
+        toast_src = html_src.split("function showToast", 1)[1].split("// ---", 1)[0]
+        self.assertIn("if (type === 'error')", toast_src)
+        self.assertIn("copyBtn.title =", toast_src)
+        self.assertIn("navigator.clipboard.writeText(message)", toast_src)
+        self.assertIn("type !== 'error'", toast_src)
+
+    def test_zip_validators_use_signed_shift_and_installer_reports_stages(self):
+        # Regression lock for the PS 5.1 negative-Int32 [uint64] cast bug
+        # (0x81818000) that aborted installs and self-updates while the error
+        # was swallowed and reported as a network failure.
+        for path in ("install.ps1", "EasySkills维护工具/.engine/webui.ps1"):
+            with self.subTest(path=path):
+                src = read(path)
+                self.assertNotIn("[uint64]$Entry.ExternalAttributes", src)
+                self.assertIn("[int64]$Entry.ExternalAttributes -shr 16", src)
+
+        installer = read("install.ps1")
+        # Download / validate / extract are staged so the final error names
+        # the phase and source instead of blurring everything into "network".
+        self.assertIn('$SourceErrors.Add("download |', installer)
+        self.assertIn('$SourceErrors.Add("validate |', installer)
+        self.assertIn('$SourceErrors.Add("extract |', installer)
+        self.assertIn("All sources failed:", installer)
+        self.assertIn("-NoProfile -ExecutionPolicy Bypass -File $i", installer)
+
     def test_windows_webui_bounds_posts_and_protects_tokenized_index(self):
         src = read("EasySkills维护工具/.engine/webui.ps1")
         index_fn = src.split("function Send-IndexResponse", 1)[1].split("\n}", 1)[0]
@@ -613,8 +741,15 @@ class SecurityContractsTest(unittest.TestCase):
         webui = load_python_webui_module()
         for unsafe_path in ("nested/CON", "nested/guide. ", "nested/name:txt", "nested/aux.txt"):
             with self.subTest(unsafe_path=unsafe_path):
-                self.assertIsNone(webui._safe_relative_path(unsafe_path))
-        self.assertEqual(webui._safe_relative_path("nested/guide.txt").as_posix(), "nested/guide.txt")
+                rel, reason = webui._safe_relative_path(unsafe_path)
+                self.assertIsNone(rel)
+                # The rejection must name the offending component so the API
+                # error is actionable, not a bare "Invalid file path in upload".
+                self.assertTrue(reason and unsafe_path.split("/")[-1].strip() in reason,
+                                f"reason {reason!r} does not mention the offending component")
+        rel, reason = webui._safe_relative_path("nested/guide.txt")
+        self.assertIsNone(reason)
+        self.assertEqual(rel.as_posix(), "nested/guide.txt")
 
         ps_src = read("EasySkills维护工具/.engine/webui.ps1")
         safe_path_fn = ps_src.split("function ConvertTo-SafeRelativePath", 1)[1].split(
@@ -2266,10 +2401,12 @@ class SecurityContractsTest(unittest.TestCase):
         self.assertNotIn("Get-ChildItem -Path $ExtractDir -Directory | Select-Object -First 1", ps_src)
 
     def test_oversized_body_returns_413(self):
-        """_body() must return None and do_POST must send 413 for oversized payloads."""
+        """_body() must return None and do_POST must send 413 with a JSON body
+        for oversized payloads (an empty body made the frontend report the
+        import as "network offline")."""
         py_src = read("EasySkills维护工具/.engine/webui.py")
         self.assertIn("return None  # Signal to caller: send 413", py_src)
-        self.assertIn("self.send_response(413)", py_src)
+        self.assertIn('"message": "Request Entity Too Large"', py_src)
         self.assertIn("body is None", py_src)
         self.assertIn("self.close_connection = True", py_src)
         oversized_branch = py_src.split("if length > 10 * 1024 * 1024", 1)[1].split(

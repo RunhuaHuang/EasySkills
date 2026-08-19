@@ -1,3 +1,53 @@
+## EasySkills 4.1.2
+
+Release focused on the Windows PowerShell 5.1 install/self-update path and on
+making WebUI skill-import failures actionable instead of opaque. All 187
+security/contract tests pass; install.ps1 and webui.ps1 parse cleanly under
+the real PowerShell parser.
+
+### Windows installer & self-update (install.ps1 / webui.ps1)
+
+- **Fixed install/self-update abort on Windows PowerShell 5.1**: the zip
+  validator cast the signed Int32 `Entry.ExternalAttributes` (negative for
+  every regular file/symlink mode such as `0x81818000`) to `[uint64]`, which
+  throws on .NET Framework. Both copies now use a sign-extending `[int64]`
+  arithmetic shift; the mode-nibble result is identical on every PowerShell
+  version.
+- Download errors are no longer misattributed to the network: download /
+  validate / extract run as separate stages and the final error lists
+  `stage | source | cause` for every mirror attempt (temp paths redacted).
+- The installer is immune to profile-defined functions that override
+  `Remove-Item` (common security wrappers reject pipeline input):
+  filesystem-mutating cmdlets are module-qualified and stale expansion
+  directories are removed by `-LiteralPath` instead of through a pipeline.
+- README / WebUI / script header now recommend downloading the installer and
+  running it in a clean `-NoProfile -File` process; `irm | iex` remains
+  available as the advanced one-liner.
+
+### WebUI skill import (webui.py / webui.ps1 / webui/index.html)
+
+- `Invalid file path in upload` now names the offending file and the rule it
+  broke (reserved Windows device name, forbidden character, trailing dot,
+  absolute path, …) on both backends.
+- Frontend pre-validates every path before base64-encoding and reports up to
+  10 problems plus the total count, so a rejected folder is diagnosed before
+  any upload.
+- Shared portability limits (1000 files / 32 depth / 255 component /
+  200 total path) plus a 7 MB pre-flight raw-bytes cap are enforced
+  identically by Python, PowerShell, and the frontend.
+- Python validates raw path segments before `pathlib` folds them away, so
+  `a//b` and `a/./b` are rejected consistently with the PowerShell backend;
+  duplicate detection is case- and NFC-insensitive on both backends.
+- Non-ASCII skill/file names no longer arrive as mojibake on Windows: the
+  frontend declares `charset=utf-8` and the PowerShell backend decodes JSON
+  as UTF-8 per RFC 8259 when no charset is given. Windows PowerShell 5.1
+  imports larger than the 2 MB `ConvertFrom-Json` limit now work via a
+  JavaScriptSerializer fallback.
+- HTTP errors (400/404/411/413) carry JSON bodies on both backends and the
+  frontend parses responses defensively, so an oversized import shows a real
+  size error instead of "Network offline / backend unreachable".
+- Error toasts persist until dismissed and gain a copy-diagnostics button.
+
 ## EasySkills 4.1.1
 
 A stability release: a full cross-platform code audit fixed launcher, uninstall,

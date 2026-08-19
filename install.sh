@@ -8,7 +8,7 @@
 set -e
 
 REPO="RunhuaHuang/EasySkills"
-DEFAULT_VERSION="4.1.1"
+DEFAULT_VERSION="4.1.2"
 INSTALL_CHANNEL="${EASYSKILLS_CHANNEL:-stable}"
 case "$INSTALL_CHANNEL" in
   stable)

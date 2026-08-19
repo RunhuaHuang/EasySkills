@@ -4008,7 +4008,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                             <div class="t-html-guide-update-cli-desc">
                                 You can also re-run the Quick Start installation script. It will securely pull the latest repository changes:<br>
                                 • <strong>macOS / Linux</strong>: <code>curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash</code><br>
-                                • <strong>Windows</strong>: <code>irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex</code>
+                                • <strong>Windows</strong>: download then run with <code>-NoProfile</code>:<pre><code>$i = "$env:TEMP\EasySkills-install.ps1"; iwr -UseBasicParsing https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 -OutFile $i; &amp; powershell -NoProfile -File $i</code></pre>
                             </div>
                         </div>
                     </div>
@@ -4279,7 +4279,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                     <div data-es-action="copy-update-command" data-platform="win" role="button" tabindex="0" style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); background: rgba(0,0,0,0.22); padding: var(--space-sm) var(--space-md); border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);" title="Click to copy Windows update command">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <i class="fa-brands fa-windows" style="font-size: 1.15rem; color: var(--text-terminal-label);"></i>
-                            <span style="color: var(--text-terminal-main);">irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex</span>
+                            <span style="color: var(--text-terminal-main);">$i = &quot;$env:TEMP\EasySkills-install.ps1&quot;; iwr -UseBasicParsing https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 -OutFile $i; &amp; powershell -NoProfile -File $i</span>
                         </div>
                         <i class="fa-regular fa-copy" style="font-size: 0.85rem; color: var(--icon-terminal-copy);"></i>
                     </div>
@@ -4832,7 +4832,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                 't-guide-update-easy-title': 'WebUI One-click Update (Recommended)',
                 't-html-guide-update-easy-desc': 'Go to the <strong>About</strong> section in this WebUI, check for new versions, and click the Update button. It preserves your custom configurations, custom agent paths, and tokens automatically, backing up the old engine to <code>.maintenance-bak</code>.',
                 't-guide-update-cli-title': 'Terminal Re-installation',
-                't-html-guide-update-cli-desc': 'You can also re-run the Quick Start installation script. It will securely pull the latest repository changes:<br>• <strong>macOS / Linux</strong>: <code>curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash</code><br>• <strong>Windows</strong>: <code>irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex</code>',
+                't-html-guide-update-cli-desc': 'You can also re-run the Quick Start installation script. It will securely pull the latest repository changes:<br>• <strong>macOS / Linux</strong>: <code>curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash</code><br>• <strong>Windows</strong>: download then run with <code>-NoProfile</code>:<pre><code>\$i = \"\$env:TEMP\EasySkills-install.ps1\"; iwr -UseBasicParsing https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 -OutFile \$i; & powershell -NoProfile -File \$i</code></pre>',
                 't-html-guide-rules-config-desc': '<ul><li><strong>Rules Library Path</strong>: Modular rules are stored in <code>~/EasySkills/instructions/</code> (e.g. <code>~/EasySkills/instructions/rule1.md</code>). You can drop any markdown file here directly.</li><li><strong>Global Instruction File Paths</strong>: Configure target paths in the <strong>Agent Config</strong> tab (e.g. <code>~/.claude/CLAUDE.md</code> for Claude Code, <code>~/.cursor/AGENTS.md</code> for Cursor).</li><li><strong>State Tracker</strong>: The active write targets and metadata are stored in <code>~/EasySkills/.easyskills-instruction-state.json</code>.</li></ul>'
             },
             zh: {
@@ -5128,7 +5128,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                 't-guide-update-easy-title': 'WebUI 控制台一键更新（最推荐）',
                 't-html-guide-update-easy-desc': '直接切换到本控制台的 <strong>“关于” (About)</strong> 页面，点击 “检查更新” 按钮。若检测到新版本，直接点击更新即可。该方式会自动帮您备份旧的引擎至 <code>.maintenance-bak</code>，并无损继承您已配置的 Agent 自定义路径和登录 token。',
                 't-guide-update-cli-title': '命令行强制覆盖更新',
-                't-html-guide-update-cli-desc': '您也可以像首次安装时那样，在终端中重新执行 Quick Start 命令行。脚本会自动拉取最新 GitHub 源码并覆盖升级运行环境：<br>• <strong>macOS / Linux</strong>：<code>curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash</code><br>• <strong>Windows</strong>：<code>irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex</code>',
+                't-html-guide-update-cli-desc': '您也可以像首次安装时那样，在终端中重新执行 Quick Start 命令行。脚本会自动拉取最新 GitHub 源码并覆盖升级运行环境：<br>• <strong>macOS / Linux</strong>：<code>curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash</code><br>• <strong>Windows</strong>：先下载再用 <code>-NoProfile</code> 执行：<pre><code>\$i = \"\$env:TEMP\EasySkills-install.ps1\"; iwr -UseBasicParsing https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 -OutFile \$i; & powershell -NoProfile -File \$i</code></pre>',
                 't-html-guide-rules-config-desc': '<ul><li><strong>规则模块库物理路径</strong>：所有的模块化规则都以 <code>.md</code> 文件物理存放在 <code>~/EasySkills/instructions/</code> 目录。您可以直接往该目录粘贴任何 markdown 文件。</li><li><strong>智能体全局指令目标路径</strong>：每个 Agent 的同步终点路径可以在 <strong>“Agent 配置”</strong> 页面中维护（例如 Cursor 的 <code>~/.cursor/AGENTS.md</code> 或 Claude Code 的 <code>~/.claude/CLAUDE.md</code>）。</li><li><strong>状态跟踪器</strong>：EasySkills 在 <code>~/EasySkills/.easyskills-instruction-state.json</code> 中持久化维护每个 Agent 勾选的同步绑定状态。</li></ul>'
             }
         };
@@ -5695,6 +5695,42 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
             };
             closeBtn.onclick = dismissToast;
             toast.appendChild(closeBtn);
+
+            // Error toasts stay open until dismissed and get a copy-diagnostic
+            // button so the exact message can be read or pasted into an issue.
+            let copyBtn = null;
+            if (type === 'error') {
+                copyBtn = document.createElement('button');
+                copyBtn.innerHTML = '<i class="fa-solid fa-copy"></i>';
+                copyBtn.title = currentLang === 'zh' ? '复制诊断信息' : 'Copy diagnostics';
+                copyBtn.style.cssText = 'background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.85rem;padding:2px var(--space-xs);display:flex;align-items:center;opacity:0.6;transition:var(--transition-smooth);';
+                copyBtn.onmouseenter = () => copyBtn.style.opacity = '1';
+                copyBtn.onmouseleave = () => copyBtn.style.opacity = '0.6';
+                copyBtn.onclick = async (event) => {
+                    event.stopPropagation();
+                    try {
+                        await navigator.clipboard.writeText(message);
+                    } catch (err) {
+                        // Clipboard API unavailable (e.g. http on some browsers):
+                        // fall back to a temporary textarea.
+                        const ta = document.createElement('textarea');
+                        ta.value = message;
+                        ta.style.position = 'fixed';
+                        ta.style.opacity = '0';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                    }
+                    copyBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                    copyBtn.style.color = 'var(--success)';
+                    setTimeout(() => {
+                        copyBtn.innerHTML = '<i class="fa-solid fa-copy"></i>';
+                        copyBtn.style.color = 'var(--text-muted)';
+                    }, 1500);
+                };
+                toast.appendChild(copyBtn);
+            }
             
             container.appendChild(toast);
             
@@ -5704,10 +5740,14 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                 toast.style.transform = 'translateY(0)';
             }, 10);
             
-            // 4. Auto dismissal set to exactly 3 seconds as requested
-            setTimeout(() => {
-                dismissToast();
-            }, 3000);
+            // 4. Auto dismissal: errors persist until the user closes them so
+            // the diagnostic can be read or copied; transient messages clear
+            // after 3 seconds.
+            if (type !== 'error') {
+                setTimeout(() => {
+                    dismissToast();
+                }, 3000);
+            }
         }
 
         // --- REST API Service Layer ---
@@ -5734,6 +5774,27 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
         // to once per 15s and only re-announce after the backend recovers.
         let lastGetErrorToastAt = 0;
         let getErrorActive = false;
+
+        async function parseApiResponse(res) {
+            // Never assume a JSON body: the backend may answer 404/411/413 with
+            // a status-only response, and a parse failure must not be
+            // misreported as "network offline" by the caller's catch block.
+            const contentType = res.headers.get('content-type') || '';
+            let text = '';
+            try { text = await res.text(); } catch (err) { text = ''; }
+            let data = null;
+            if (contentType.includes('application/json') && text) {
+                try { data = JSON.parse(text); } catch (err) { data = null; }
+            }
+            if (!data || typeof data !== 'object') {
+                data = { success: res.ok, message: text || `HTTP ${res.status}` };
+            }
+            if (!res.ok) {
+                data.success = false;
+                if (!data.message) data.message = `HTTP ${res.status}`;
+            }
+            return data;
+        }
 
         async function apiCall(endpoint, payload = null, btnElement = null, retryOnForbidden = true) {
             let originalHtml = '';
@@ -5793,7 +5854,11 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                     }
                 };
                 if (payload !== null) {
-                    options.headers['Content-Type'] = 'application/json';
+                    // Explicit UTF-8 declaration: the Windows backend's
+                    // HttpListenerRequest.ContentEncoding guesses Latin-1 for
+                    // JSON without a charset parameter, which would mojibake
+                    // non-ASCII skill and file names.
+                    options.headers['Content-Type'] = 'application/json; charset=utf-8';
                     options.body = JSON.stringify(payload);
                 }
                 
@@ -5808,7 +5873,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                     options.headers['X-EasySkills-Token'] = easySkillsToken;
                     res = await fetch(endpoint, options);
                 }
-                const data = await res.json();
+                const data = await parseApiResponse(res);
                 
                 if (endpoint === '/api/sync' && syncBtn && !btnElement) {
                     setTimeout(() => syncBtn.querySelector('i').classList.remove('fa-spin'), 600);
@@ -6464,6 +6529,55 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
             return parts.length > 1 ? parts[0] : '';
         }
 
+        // ---- Upload path pre-validation ------------------------------------
+        // Mirrors the rules in webui.py (_safe_relative_path /
+        // _portable_name_problem) and webui.ps1 (ConvertTo-SafeRelativePath).
+        // The backend remains authoritative; this only gives instant,
+        // aggregated feedback before the payload is base64-encoded.
+        const IMPORT_WINDOWS_RESERVED = new Set([
+            'CON', 'PRN', 'AUX', 'NUL',
+            'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+            'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+        ]);
+        const IMPORT_BAD_CHARS = /[<>:"/\\|?*\u0000-\u001f]/;
+        const IMPORT_MAX_RELPATH = 200, IMPORT_MAX_DEPTH = 32, IMPORT_MAX_COMPONENT = 255, IMPORT_MAX_FILES = 1000;
+        // The backend caps the encoded JSON body at 10 MB; base64 inflates by
+        // ~4/3. This raw-bytes cap is enforced pre-flight because an
+        // oversized POST is reset mid-upload by the backend (which refuses to
+        // drain the body), and a mid-upload reset looks like a network
+        // failure to the browser — the "network offline" misattribution the
+        // backend-side 413 JSON alone cannot prevent.
+        const IMPORT_MAX_RAW_BYTES = 7 * 1024 * 1024;
+
+        function validateImportPaths(relPaths) {
+            const problems = [];
+            const seen = new Set();
+            for (const path of relPaths) {
+                if (!path) { problems.push("'<empty>' path is empty"); continue; }
+                if (path.includes('\u0000')) { problems.push(`'${path}' contains a NUL character`); continue; }
+                const norm = path.replace(/\\/g, '/');
+                if (norm.startsWith('/')) { problems.push(`'${path}' is an absolute path; only paths inside the skill folder are allowed`); continue; }
+                if (norm.length > IMPORT_MAX_RELPATH) { problems.push(`'${path}' exceeds the ${IMPORT_MAX_RELPATH}-character total path length limit`); continue; }
+                const parts = norm.split('/');
+                if (parts.length > IMPORT_MAX_DEPTH) { problems.push(`'${path}' exceeds the ${IMPORT_MAX_DEPTH}-level directory depth limit`); continue; }
+                if (parts.some(p => p === '' || p === '.' || p === '..')) { problems.push(`'${path}' contains a '.', '..' or empty path component`); continue; }
+                let componentProblem = null;
+                for (const part of parts) {
+                    if (part.length > IMPORT_MAX_COMPONENT) { componentProblem = `'${part}' exceeds the ${IMPORT_MAX_COMPONENT}-character component length limit`; break; }
+                    if (part.endsWith(' ') || part.endsWith('.')) { componentProblem = `'${part}' ends with a space or dot, which Windows cannot store`; break; }
+                    if (IMPORT_BAD_CHARS.test(part)) { componentProblem = `'${part}' contains a character not allowed in portable file names (such as : * ? or |)`; break; }
+                    const base = part.split('.')[0].toUpperCase();
+                    if (IMPORT_WINDOWS_RESERVED.has(base)) { componentProblem = `'${part}' collides with the reserved Windows device name '${base}'`; break; }
+                }
+                if (componentProblem) { problems.push(componentProblem); continue; }
+                // Case- and NFC-insensitive duplicate detection (macOS stores NFD).
+                const key = norm.normalize('NFC').toLowerCase();
+                if (seen.has(key)) { problems.push(`'${path}' duplicates another file path (case/NFC-insensitive collision)`); continue; }
+                seen.add(key);
+            }
+            return problems;
+        }
+
         let lastSkillFolderPickerOpen = 0;
         function openSkillFolderPicker() {
             const input = document.getElementById('skill-folder-input');
@@ -6496,7 +6610,11 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                 return;
             }
 
-            const payloadFiles = [];
+            // Pre-validate every relative path BEFORE reading or base64-encoding
+            // file contents. Mirrors the backend rules (webui.py / webui.ps1)
+            // so the user sees which files are blocked and why, before upload.
+            const relPaths = [];
+            let totalBytes = 0;
             for (const file of selected) {
                 const fullPath = file.webkitRelativePath || file.name;
                 const prefix = root + '/';
@@ -6504,6 +6622,42 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                     showToast(isZh ? '一次只能导入一个技能文件夹。' : 'Import one skill folder at a time.', 'warning');
                     return;
                 }
+                const relPath = fullPath.slice(prefix.length);
+                if (relPath) {
+                    relPaths.push(relPath);
+                    totalBytes += (file.size || 0);
+                }
+            }
+
+            if (relPaths.length > IMPORT_MAX_FILES) {
+                showToast(isZh ? `文件数量超过上限（${IMPORT_MAX_FILES} 个）。` : `Too many files (limit ${IMPORT_MAX_FILES}).`, 'error');
+                return;
+            }
+            if (totalBytes > IMPORT_MAX_RAW_BYTES) {
+                showToast(
+                    isZh
+                        ? `总大小超过上限（${Math.round(totalBytes / 1024 / 1024)} MB，上限 ${IMPORT_MAX_RAW_BYTES / 1024 / 1024} MB）。请移除大文件后重试。`
+                        : `Total size exceeds the ${IMPORT_MAX_RAW_BYTES / 1024 / 1024} MB limit (${Math.round(totalBytes / 1024 / 1024)} MB selected). Remove large files and retry.`,
+                    'error'
+                );
+                return;
+            }
+            const pathProblems = validateImportPaths(relPaths);
+            if (pathProblems.length > 0) {
+                const shown = pathProblems.slice(0, 10).map((p, i) => `${i + 1}) ${p}`).join('\n');
+                const extra = pathProblems.length > 10 ? `\n… 另有 ${pathProblems.length - 10} 个问题` : '';
+                showToast(
+                    (isZh ? `导入被拒绝：${pathProblems.length} 个文件名不兼容。请重命名后重试。\n\n` : `Import rejected: ${pathProblems.length} incompatible file name(s). Rename them and retry.\n\n`)
+                    + shown + extra,
+                    'error'
+                );
+                return;
+            }
+
+            const payloadFiles = [];
+            for (const file of selected) {
+                const fullPath = file.webkitRelativePath || file.name;
+                const prefix = root + '/';
                 const relPath = fullPath.slice(prefix.length);
                 if (!relPath) continue;
                 payloadFiles.push({
@@ -7167,7 +7321,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                     res = await fetch('/api/instructions/content/' + encodeURIComponent(name), { headers: { 'X-EasySkills-Token': easySkillsToken } });
                 }
                 if (res.ok) {
-                    const data = await res.json();
+                    const data = await parseApiResponse(res);
                     if (data.success === false) {
                         showToast(
                             data.message || (currentLang === 'zh' ? '无法读取规则内容' : 'Unable to read rule content'),
@@ -7334,7 +7488,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                 const options = {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
+                        'Content-Type': 'application/json; charset=utf-8',
                         'X-EasySkills-Token': easySkillsToken
                     },
                     body: JSON.stringify({
@@ -7349,7 +7503,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                     options.headers['X-EasySkills-Token'] = easySkillsToken;
                     res = await fetch('/api/agents/update', options);
                 }
-                const data = await res.json();
+                const data = await parseApiResponse(res);
                 if (data.success) {
                     showToast(
                         currentLang === 'en'
@@ -7412,7 +7566,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
             }
             let data = {};
             try {
-                data = await res.json();
+                data = await parseApiResponse(res);
             } catch (err) {
                 throw new Error('Invalid release response');
             }
@@ -7481,13 +7635,13 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                 btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #fff; font-size: 1.15rem; margin-right: 6px;"></i> <span>${loadText}</span>`;
             }
             try {
-                let headers = { 'Content-Type': 'application/json', 'X-EasySkills-Token': easySkillsToken };
+                let headers = { 'Content-Type': 'application/json; charset=utf-8', 'X-EasySkills-Token': easySkillsToken };
                 let res = await fetch('/api/update', { method: 'POST', headers, body: '{}' });
                 if (res.status === 403 && await refreshEasySkillsToken()) {
                     headers['X-EasySkills-Token'] = easySkillsToken;
                     res = await fetch('/api/update', { method: 'POST', headers, body: '{}' });
                 }
-                const data = await res.json();
+                const data = await parseApiResponse(res);
                 if (data.success) {
                     const degraded = Boolean(
                         data.partial ||
@@ -7527,13 +7681,13 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
                 btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="font-size: 1.15rem; margin-right: 6px;"></i> <span>${loadText}</span>`;
             }
             try {
-                let headers = { 'Content-Type': 'application/json', 'X-EasySkills-Token': easySkillsToken };
+                let headers = { 'Content-Type': 'application/json; charset=utf-8', 'X-EasySkills-Token': easySkillsToken };
                 let res = await fetch('/api/rollback', { method: 'POST', headers, body: '{}' });
                 if (res.status === 403 && await refreshEasySkillsToken()) {
                     headers['X-EasySkills-Token'] = easySkillsToken;
                     res = await fetch('/api/rollback', { method: 'POST', headers, body: '{}' });
                 }
-                const data = await res.json();
+                const data = await parseApiResponse(res);
                 if (data.success) {
                     const degraded = Boolean(
                         data.partial ||
@@ -7568,7 +7722,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\EasySkills\EasySkills
         // --- Copy Update Scripts Helper ---
         function copyUpdateCommand(os) {
             const macCmd = "curl -fsSL https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.sh | bash";
-            const winCmd = "irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex";
+            const winCmd = "$i = \"$env:TEMP\\EasySkills-install.ps1\"; iwr -UseBasicParsing https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 -OutFile $i; & powershell -NoProfile -File $i";
             const targetCmd = os === 'mac' ? macCmd : winCmd;
             
             navigator.clipboard.writeText(targetCmd).then(() => {

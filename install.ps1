@@ -1,12 +1,30 @@
 ﻿# ==============================================================================
 # Script: install.ps1 (Windows remote installer)
-# Usage:  irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+#
+# Recommended usage — download first, then run in a clean -NoProfile process
+# (immune to profile-defined function overrides and iex-blocks from EDR/SBX):
+#   $i = "$env:TEMP\EasySkills-install.ps1"
+#   Invoke-WebRequest -UseBasicParsing `
+#     https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 `
+#     -OutFile $i
+#   & "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" `
+#       -NoLogo -NoProfile -ExecutionPolicy Bypass -File $i
+#
+# Quick one-liner (advanced; runs inside your profiled session):
+#   irm https://raw.githubusercontent.com/RunhuaHuang/EasySkills/main/install.ps1 | iex
+#
+# This script executes inside the user's interactive PowerShell session, so
+# profile-defined functions may shadow built-in cmdlets (security wrappers that
+# override Remove-Item are common and often reject pipeline input). All
+# filesystem-mutating cmdlets below are therefore module-qualified
+# (Microsoft.PowerShell.Management\Remove-Item), which always resolves to the
+# real cmdlet regardless of functions or aliases.
 # ==============================================================================
 
 $ErrorActionPreference = "Stop"
 
 $Repo = "RunhuaHuang/EasySkills"
-$DefaultVersion = "4.1.1"
+$DefaultVersion = "4.1.2"
 $InstallChannel = if ($env:EASYSKILLS_CHANNEL) { $env:EASYSKILLS_CHANNEL.ToLowerInvariant() } else { "stable" }
 if ($InstallChannel -eq "stable") {
   $InstallVersion = if ($env:EASYSKILLS_VERSION) { $env:EASYSKILLS_VERSION } else { $DefaultVersion }
@@ -26,8 +44,8 @@ $TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "EasySkills-install-$(Get-
 $PreserveDir = $null
 
 function Cleanup {
-  if (Test-Path $TmpDir) { Remove-Item $TmpDir -Recurse -Force -ErrorAction SilentlyContinue }
-  if ($PreserveDir -and (Test-Path $PreserveDir)) { Remove-Item $PreserveDir -Recurse -Force -ErrorAction SilentlyContinue }
+  if (Test-Path $TmpDir) { Microsoft.PowerShell.Management\Remove-Item $TmpDir -Recurse -Force -ErrorAction SilentlyContinue }
+  if ($PreserveDir -and (Test-Path $PreserveDir)) { Microsoft.PowerShell.Management\Remove-Item $PreserveDir -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 function Save-BoundedWebFile(
@@ -100,7 +118,7 @@ function Save-BoundedWebFile(
       $Response.Dispose()
     }
   } catch {
-    Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    Microsoft.PowerShell.Management\Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
     throw
   } finally {
     $Request.Dispose()
@@ -187,7 +205,13 @@ function Assert-SafeZipArchive([string]$ZipPath, [string]$DestinationPath) {
       # GitHub ZIP archives preserve Unix symlinks in ExternalAttributes. Read
       # their relative target and include it in the virtual graph so a later
       # member cannot escape through a link declared earlier or later.
-      $UnixType = (([uint64]$Entry.ExternalAttributes -shr 16) -band 0xF000)
+      # ExternalAttributes is a signed Int32 and every regular-file/symlink
+      # mode sets the top bit, so the value is negative for essentially all
+      # file entries; casting a negative Int32 to [uint64] throws on Windows
+      # PowerShell 5.1 (.NET Framework) and would fail every install with a
+      # bogus "download failed". [int64] sign-extension plus the arithmetic
+      # shift extracts the same type nibble on every PowerShell version.
+      $UnixType = (([int64]$Entry.ExternalAttributes -shr 16) -band 0xF000)
       if ($UnixType -eq 0xA000) {
         $LinkStream = $Entry.Open()
         try {
@@ -292,14 +316,14 @@ function Start-BackgroundPowerShell([string]$ScriptPath, [string]$WorkingDirecto
   $LauncherVbs = Join-Path $WorkingDirectory "run-hidden.vbs"
   $WscriptExe  = "$env:WINDIR\System32\wscript.exe"
   if ((Test-Path $LauncherVbs) -and (Test-Path $WscriptExe)) {
-    Start-Process -FilePath $WscriptExe `
+    Microsoft.PowerShell.Management\Start-Process -FilePath $WscriptExe `
       -ArgumentList @("`"$LauncherVbs`"", "`"$ScriptPath`"") `
       -WorkingDirectory $WorkingDirectory -WindowStyle Hidden | Out-Null
     return
   }
   $PSExe = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
   if (-not $PSExe) { $PSExe = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" }
-  Start-Process -FilePath $PSExe `
+  Microsoft.PowerShell.Management\Start-Process -FilePath $PSExe `
     -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", "`"$ScriptPath`"") `
     -WorkingDirectory $WorkingDirectory -WindowStyle Hidden | Out-Null
 }
@@ -314,7 +338,7 @@ try {
   # trust boundary, so it is used only when the user explicitly selects one via
   # $env:EASYSKILLS_MIRROR (an HTTPS URL prefix prepended to github.com URLs).
   Write-Host "Downloading EasySkills ($InstallChannel`: $GitRef)..."
-  New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
+  Microsoft.PowerShell.Management\New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
   $ZipPath = Join-Path $TmpDir "repo.zip"
   $ArchivePath = "/$Repo/archive/refs/$ArchiveRef.zip"
   $MirrorPrefixes = @("")
@@ -327,13 +351,18 @@ try {
   }
 
   $Downloaded = $false
+  $SourceErrors = New-Object 'System.Collections.Generic.List[string]'
   foreach ($Prefix in $MirrorPrefixes) {
     # A failed expansion can leave a partial EasySkills-* directory that would
-    # otherwise be mistaken for the next mirror's source tree.
-    Get-ChildItem -LiteralPath $TmpDir -Directory -ErrorAction SilentlyContinue |
-      Where-Object { $_.Name -like "EasySkills-*" } |
-      Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue }
+    # otherwise be mistaken for the next mirror's source tree. Collect then
+    # remove by -LiteralPath: profile-defined Remove-Item wrapper functions on
+    # user machines frequently do not bind pipeline input at all.
+    $StaleExpandDirs = @(Get-ChildItem -LiteralPath $TmpDir -Directory -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -like "EasySkills-*" })
+    foreach ($StaleDir in $StaleExpandDirs) {
+      Microsoft.PowerShell.Management\Remove-Item -LiteralPath $StaleDir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $ZipPath) { Microsoft.PowerShell.Management\Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue }
     # Empty prefix = GitHub native; mirror proxies prepend themselves to the
     # full github.com URL. Without this special case the empty prefix would
     # produce a host-less "/RunhuaHuang/..." URL that Invoke-WebRequest rejects.
@@ -342,6 +371,10 @@ try {
     } else {
       $ZipUrl = "https://github.com${ArchivePath}"
     }
+    # Stages are tracked separately so a local validation/type error is not
+    # misattributed to the network in the final error (a swallowed
+    # [uint64] cast failure previously masqueraded as "download failed").
+    $SourceLabel = if ($Prefix) { $Prefix } else { "github.com" }
     try {
       $AllowedFinalHosts = if ($Prefix) { @() } else { @("github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com") }
       Save-BoundedWebFile `
@@ -351,16 +384,28 @@ try {
         -LimitMessage "Downloaded archive exceeds the 100 MB safety limit." `
         -AllowedFinalHosts $AllowedFinalHosts `
         -TimeoutSeconds 30 | Out-Null
-      Assert-SafeZipArchive $ZipPath $TmpDir
-      Expand-Archive -Path $ZipPath -DestinationPath $TmpDir -Force -ErrorAction Stop
-      $Downloaded = $true
-      break
     } catch {
-      # This source failed; silently try the next mirror.
+      $SourceErrors.Add("download | $SourceLabel | $($_.Exception.Message.Replace($TmpDir, '<temp>'))")
+      continue
     }
+    try {
+      Assert-SafeZipArchive $ZipPath $TmpDir
+    } catch {
+      $SourceErrors.Add("validate | $SourceLabel | $($_.Exception.Message.Replace($TmpDir, '<temp>'))")
+      continue
+    }
+    try {
+      Microsoft.PowerShell.Archive\Expand-Archive -Path $ZipPath -DestinationPath $TmpDir -Force -ErrorAction Stop
+    } catch {
+      $SourceErrors.Add("extract | $SourceLabel | $($_.Exception.Message.Replace($TmpDir, '<temp>'))")
+      continue
+    }
+    $Downloaded = $true
+    break
   }
   if (-not $Downloaded) {
-    throw "Could not download EasySkills from GitHub or the explicitly configured mirror. Check your network, or explicitly trust one with: `$env:EASYSKILLS_MIRROR='https://ghfast.top'"
+    $Detail = if ($SourceErrors.Count -gt 0) { "`n`nAll sources failed:`n - " + ($SourceErrors -join "`n - ") } else { "" }
+    throw "Could not download EasySkills from GitHub or the explicitly configured mirror. Check your network, or explicitly trust one with: `$env:EASYSKILLS_MIRROR='https://ghfast.top'.$Detail"
   }
   $SourceRoots = @(Get-ChildItem -LiteralPath $TmpDir -Directory -ErrorAction Stop |
     Where-Object {
@@ -391,7 +436,7 @@ try {
   }
 
   # --- Install ---
-  if (!(Test-Path $PermDir)) { New-Item -ItemType Directory -Path $PermDir -Force | Out-Null }
+  if (!(Test-Path $PermDir)) { Microsoft.PowerShell.Management\New-Item -ItemType Directory -Path $PermDir -Force | Out-Null }
 
   # Preserve old version for upgrade reporting
   $OldVersion = $null
@@ -407,13 +452,13 @@ try {
   $DisabledFile = Join-Path $MaintDir "disabled-targets.txt"
   $TokenFile = Join-Path $MaintDir ".easyskills-token"
   $PreserveDir = Join-Path ([System.IO.Path]::GetTempPath()) ("easyskills-preserve-" + [Guid]::NewGuid().ToString("N"))
-  New-Item -ItemType Directory -Path $PreserveDir -Force | Out-Null
+  Microsoft.PowerShell.Management\New-Item -ItemType Directory -Path $PreserveDir -Force | Out-Null
   $PreservedCustom = Join-Path $PreserveDir "custom-targets.txt"
   $PreservedDisabled = Join-Path $PreserveDir "disabled-targets.txt"
   $PreservedToken = Join-Path $PreserveDir ".easyskills-token"
-  if (Test-Path $CustomFile) { Copy-Item $CustomFile $PreservedCustom -Force }
-  if (Test-Path $DisabledFile) { Copy-Item $DisabledFile $PreservedDisabled -Force }
-  if (Test-Path $TokenFile) { Copy-Item $TokenFile $PreservedToken -Force }
+  if (Test-Path $CustomFile) { Microsoft.PowerShell.Management\Copy-Item $CustomFile $PreservedCustom -Force }
+  if (Test-Path $DisabledFile) { Microsoft.PowerShell.Management\Copy-Item $DisabledFile $PreservedDisabled -Force }
+  if (Test-Path $TokenFile) { Microsoft.PowerShell.Management\Copy-Item $TokenFile $PreservedToken -Force }
   # Also migrate from legacy root location (older installs put it at the root)
   $LegacyRootCT = Join-Path $PermDir "custom-targets.txt"
   $LegacyLines = @()
@@ -425,15 +470,15 @@ try {
   $LegacyMaint = Join-Path $PermDir "_maintenance"
   if (-not (Test-Path $PreservedCustom)) {
     $LegacyCustom = Join-Path $LegacyMaint "custom-targets.txt"
-    if (Test-Path $LegacyCustom) { Copy-Item $LegacyCustom $PreservedCustom -Force }
+    if (Test-Path $LegacyCustom) { Microsoft.PowerShell.Management\Copy-Item $LegacyCustom $PreservedCustom -Force }
   }
   if (-not (Test-Path $PreservedDisabled)) {
     $LegacyDisabled = Join-Path $LegacyMaint "disabled-targets.txt"
-    if (Test-Path $LegacyDisabled) { Copy-Item $LegacyDisabled $PreservedDisabled -Force }
+    if (Test-Path $LegacyDisabled) { Microsoft.PowerShell.Management\Copy-Item $LegacyDisabled $PreservedDisabled -Force }
   }
   if (-not (Test-Path $PreservedToken)) {
     $LegacyToken = Join-Path $LegacyMaint ".easyskills-token"
-    if (Test-Path $LegacyToken) { Copy-Item $LegacyToken $PreservedToken -Force }
+    if (Test-Path $LegacyToken) { Microsoft.PowerShell.Management\Copy-Item $LegacyToken $PreservedToken -Force }
   }
 
   # Clean install of EasySkills维护工具/.engine/. Kill any prior supervisors first so
@@ -444,11 +489,11 @@ try {
   # Avoids the previous "Remove-Item then Copy-Item" footgun where a failed
   # copy left no EasySkills维护工具/.engine at all.
   $NewMaint = Join-Path $PermDir "EasySkills维护工具/.engine.new"
-  if (Test-Path $NewMaint) { Remove-Item $NewMaint -Recurse -Force }
-  Copy-Item -Path $SrcMaint -Destination $NewMaint -Recurse
+  if (Test-Path $NewMaint) { Microsoft.PowerShell.Management\Remove-Item $NewMaint -Recurse -Force }
+  Microsoft.PowerShell.Management\Copy-Item -Path $SrcMaint -Destination $NewMaint -Recurse
   $NewDeploy = Join-Path $NewMaint "deploy.ps1"
   if (-not (Test-Path $NewDeploy)) {
-    if (Test-Path $NewMaint) { Remove-Item $NewMaint -Recurse -Force }
+    if (Test-Path $NewMaint) { Microsoft.PowerShell.Management\Remove-Item $NewMaint -Recurse -Force }
     throw "Copy of EasySkills维护工具/.engine/ failed (disk full? permissions?). Existing install left untouched."
   }
 
@@ -457,8 +502,8 @@ try {
   $NewCustomFile = Join-Path $NewMaint "custom-targets.txt"
   $NewDisabledFile = Join-Path $NewMaint "disabled-targets.txt"
   $NewTokenFile = Join-Path $NewMaint ".easyskills-token"
-  if (Test-Path $PreservedCustom) { Copy-Item $PreservedCustom $NewCustomFile -Force }
-  elseif (Test-Path $NewCustomFile) { Remove-Item $NewCustomFile -Force }
+  if (Test-Path $PreservedCustom) { Microsoft.PowerShell.Management\Copy-Item $PreservedCustom $NewCustomFile -Force }
+  elseif (Test-Path $NewCustomFile) { Microsoft.PowerShell.Management\Remove-Item $NewCustomFile -Force }
   $ExistingCustomLines = if (Test-Path $NewCustomFile) { @(Get-Content $NewCustomFile -Encoding UTF8) } else { @() }
   $ExistingTargetKeys = @{}
   foreach ($ExistingLine in @($ExistingCustomLines)) {
@@ -472,10 +517,10 @@ try {
     $ExistingCustomLines += [string]$Line
     if ($LegacyKey) { $ExistingTargetKeys[$LegacyKey] = $true }
   }
-  if (Test-Path $PreservedDisabled) { Copy-Item $PreservedDisabled $NewDisabledFile -Force }
-  elseif (Test-Path $NewDisabledFile) { Remove-Item $NewDisabledFile -Force }
-  if (Test-Path $PreservedToken) { Copy-Item $PreservedToken $NewTokenFile -Force }
-  elseif (Test-Path $NewTokenFile) { Remove-Item $NewTokenFile -Force }
+  if (Test-Path $PreservedDisabled) { Microsoft.PowerShell.Management\Copy-Item $PreservedDisabled $NewDisabledFile -Force }
+  elseif (Test-Path $NewDisabledFile) { Microsoft.PowerShell.Management\Remove-Item $NewDisabledFile -Force }
+  if (Test-Path $PreservedToken) { Microsoft.PowerShell.Management\Copy-Item $PreservedToken $NewTokenFile -Force }
+  elseif (Test-Path $NewTokenFile) { Microsoft.PowerShell.Management\Remove-Item $NewTokenFile -Force }
   # Swap with rollback: current -> .bak, new -> current. Avoid a window where a
   # failed rename leaves no usable EasySkills维护工具/.engine at all. Use
   # Move-Item (not Rename-Item) for the .engine -> .maintenance-bak step:
@@ -486,11 +531,11 @@ try {
   $PrevBackup = Join-Path $PermDir ".maintenance-bak.prev"
   if (Test-Path $PrevBackup) {
     if (Test-Path $BackupMaint) {
-      Remove-Item $PrevBackup -Recurse -Force
+      Microsoft.PowerShell.Management\Remove-Item $PrevBackup -Recurse -Force
     } else {
-      try { Move-Item -Path $PrevBackup -Destination $BackupMaint -Force }
+      try { Microsoft.PowerShell.Management\Move-Item -Path $PrevBackup -Destination $BackupMaint -Force }
       catch {
-        if (Test-Path $NewMaint) { Remove-Item $NewMaint -Recurse -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $NewMaint) { Microsoft.PowerShell.Management\Remove-Item $NewMaint -Recurse -Force -ErrorAction SilentlyContinue }
         throw "Previous recoverable backup is preserved at '$PrevBackup' but could not be reconciled. $($_.Exception.Message)"
       }
     }
@@ -498,40 +543,40 @@ try {
   try {
     if (Test-Path $MaintDir) {
       if (Test-Path $BackupMaint) {
-        Move-Item -Path $BackupMaint -Destination $PrevBackup -Force
+        Microsoft.PowerShell.Management\Move-Item -Path $BackupMaint -Destination $PrevBackup -Force
       }
-      Move-Item -Path $MaintDir -Destination $BackupMaint -Force
+      Microsoft.PowerShell.Management\Move-Item -Path $MaintDir -Destination $BackupMaint -Force
     }
-    Move-Item -Path $NewMaint -Destination $MaintDir -Force
-    if (Test-Path $PrevBackup) { Remove-Item $PrevBackup -Recurse -Force }
+    Microsoft.PowerShell.Management\Move-Item -Path $NewMaint -Destination $MaintDir -Force
+    if (Test-Path $PrevBackup) { Microsoft.PowerShell.Management\Remove-Item $PrevBackup -Recurse -Force }
   } catch {
-    if (Test-Path $NewMaint) { Remove-Item $NewMaint -Recurse -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $NewMaint) { Microsoft.PowerShell.Management\Remove-Item $NewMaint -Recurse -Force -ErrorAction SilentlyContinue }
     if ((-not (Test-Path $MaintDir)) -and (Test-Path $BackupMaint)) {
-      Move-Item -Path $BackupMaint -Destination $MaintDir -Force -ErrorAction SilentlyContinue
+      Microsoft.PowerShell.Management\Move-Item -Path $BackupMaint -Destination $MaintDir -Force -ErrorAction SilentlyContinue
     }
     if (Test-Path $PrevBackup) {
       if (-not (Test-Path $BackupMaint)) {
-        Move-Item -Path $PrevBackup -Destination $BackupMaint -Force -ErrorAction SilentlyContinue
+        Microsoft.PowerShell.Management\Move-Item -Path $PrevBackup -Destination $BackupMaint -Force -ErrorAction SilentlyContinue
       } else {
-        Remove-Item $PrevBackup -Recurse -Force -ErrorAction SilentlyContinue
+        Microsoft.PowerShell.Management\Remove-Item $PrevBackup -Recurse -Force -ErrorAction SilentlyContinue
       }
     }
     throw "Install swap failed; previous EasySkills维护工具/.engine was restored where possible. $($_.Exception.Message)"
   }
-  Copy-Item -Path $SrcReadme -Destination (Join-Path $PermDir "EasySkills维护工具/README_SYSTEM.md") -Force
+  Microsoft.PowerShell.Management\Copy-Item -Path $SrcReadme -Destination (Join-Path $PermDir "EasySkills维护工具/README_SYSTEM.md") -Force
   # Remove legacy SKILL.md left by older installations to avoid ambiguity
   $LegacySkillMd = Join-Path $PermDir "SKILL.md"
-  if (Test-Path $LegacySkillMd) { Remove-Item $LegacySkillMd -Force }
-  if (Test-Path $LegacyRootCT) { Remove-Item $LegacyRootCT -Force }
-  Remove-Item $PreserveDir -Recurse -Force -ErrorAction SilentlyContinue
+  if (Test-Path $LegacySkillMd) { Microsoft.PowerShell.Management\Remove-Item $LegacySkillMd -Force }
+  if (Test-Path $LegacyRootCT) { Microsoft.PowerShell.Management\Remove-Item $LegacyRootCT -Force }
+  Microsoft.PowerShell.Management\Remove-Item $PreserveDir -Recurse -Force -ErrorAction SilentlyContinue
 
   # Initialize the user-owned MCP JSON once; upgrades never overwrite it.
   $MCPDir = Join-Path $PermDir "mcp"
   $MCPConfig = Join-Path $MCPDir "servers.json"
   $MCPTemplate = Join-Path $MaintDir "mcp-servers.template.json"
-  if (-not (Test-Path $MCPDir)) { New-Item -ItemType Directory -Path $MCPDir -Force | Out-Null }
+  if (-not (Test-Path $MCPDir)) { Microsoft.PowerShell.Management\New-Item -ItemType Directory -Path $MCPDir -Force | Out-Null }
   if ((-not (Test-Path $MCPConfig)) -and (Test-Path $MCPTemplate)) {
-    Copy-Item $MCPTemplate $MCPConfig -Force
+    Microsoft.PowerShell.Management\Copy-Item $MCPTemplate $MCPConfig -Force
   }
 
   # Install the optional single-file MCP Gateway. Failure is non-fatal.
@@ -625,12 +670,12 @@ try {
   $LegacyMaint = Join-Path $PermDir "_maintenance"
   if ((Test-Path $LegacyMaint) -and (Test-Path (Join-Path $LegacyMaint "deploy.ps1"))) {
     Write-Host "Removing legacy _maintenance/ directory (config already migrated)..."
-    try { Remove-Item $LegacyMaint -Recurse -Force -ErrorAction Stop } catch { Write-Warning "Could not remove legacy _maintenance/: $_" }
+    try { Microsoft.PowerShell.Management\Remove-Item $LegacyMaint -Recurse -Force -ErrorAction Stop } catch { Write-Warning "Could not remove legacy _maintenance/: $_" }
   }
   $LegacyRuntime = Join-Path $PermDir "_runtime"
   if (Test-Path $LegacyRuntime) {
     Write-Host "Removing legacy _runtime/ directory (gateway re-installed above)..."
-    try { Remove-Item $LegacyRuntime -Recurse -Force -ErrorAction Stop } catch { Write-Warning "Could not remove legacy _runtime/: $_" }
+    try { Microsoft.PowerShell.Management\Remove-Item $LegacyRuntime -Recurse -Force -ErrorAction Stop } catch { Write-Warning "Could not remove legacy _runtime/: $_" }
   }
 
   # --- Wait for the WebUI port to come up, then open the browser ---
@@ -648,7 +693,7 @@ try {
   }
   if ($PortReady) {
     Write-Host "[OK] WebUI is listening on http://localhost:6633" -ForegroundColor Green
-    try { Start-Process "http://localhost:6633" } catch { Write-Warning "Could not open browser: $_" }
+    try { Microsoft.PowerShell.Management\Start-Process "http://localhost:6633" } catch { Write-Warning "Could not open browser: $_" }
   } else {
     Write-Warning "WebUI did not come up within 10s; it should appear shortly."
   }

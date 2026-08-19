@@ -1154,8 +1154,12 @@ function Assert-SafeZipArchive([string]$ZipPath, [string]$DestinationPath) {
 
             # GitHub ZIP archives preserve Unix symlink metadata in the upper
             # mode bits of ExternalAttributes. Validate the complete virtual
-            # graph before Expand-Archive writes anything.
-            $UnixType = (([uint64]$Entry.ExternalAttributes -shr 16) -band 0xF000)
+            # graph before Expand-Archive writes anything. ExternalAttributes
+            # is a signed Int32: every regular-file/symlink mode has the top
+            # bit set, so casting to [uint64] throws on Windows PowerShell
+            # 5.1 and would abort every self-update. [int64] sign-extends and
+            # the arithmetic shift still yields the correct type nibble.
+            $UnixType = (([int64]$Entry.ExternalAttributes -shr 16) -band 0xF000)
             if ($UnixType -eq 0xA000) {
                 $LinkStream = $Entry.Open()
                 try {
@@ -1994,8 +1998,10 @@ function Do-Map([string]$TargetPath) {
 }
 
 function Get-PayloadValue($Item, [string]$Name) {
-    if ($Item -is [hashtable]) {
-        if ($Item.ContainsKey($Name)) { return $Item[$Name] }
+    # IDictionary covers hashtables and the Dictionary<string,object> graph
+    # returned by the large-payload JavaScriptSerializer fallback below.
+    if ($Item -is [System.Collections.IDictionary]) {
+        if ($Item.Contains($Name)) { return $Item[$Name] }
         return $null
     }
     if ($Item -and $Item.PSObject -and $Item.PSObject.Properties[$Name]) {
@@ -2030,18 +2036,27 @@ function Find-CaseInsensitiveChild([string]$Directory, [string]$Name) {
 }
 
 function ConvertTo-SafeRelativePath([string]$PathValue) {
-    if (-not $PathValue -or $PathValue.Contains([char]0)) { return $null }
+    # Returns @{ ok = $true; rel = <joined relative path> } or
+    # @{ ok = $false; reason = <which component broke which rule> } so the
+    # import API can reject with an actionable message instead of a bare
+    # "Invalid file path in upload". Mirrors Pure-Python-side limits in
+    # webui.py (MAX_IMPORT_*) and the frontend pre-check.
+    if (-not $PathValue) { return @{ ok = $false; reason = "the file path is empty" } }
+    if ($PathValue.Contains([char]0)) { return @{ ok = $false; reason = "'$PathValue' contains a NUL character" } }
     $Normalized = $PathValue.Replace("\", "/")
-    if ($Normalized.StartsWith("/") -or $Normalized.Contains(":")) { return $null }
+    if ($Normalized.StartsWith("/")) { return @{ ok = $false; reason = "'$PathValue' is an absolute path; only paths inside the skill folder are allowed" } }
+    if ($Normalized.Length -gt 200) { return @{ ok = $false; reason = "'$PathValue' exceeds the 200-character total path length limit" } }
     $Parts = $Normalized.Split("/")
+    if ($Parts.Count -gt 32) { return @{ ok = $false; reason = "'$PathValue' exceeds the 32-level directory depth limit" } }
     foreach ($Part in $Parts) {
-        if (-not $Part -or $Part -eq "." -or $Part -eq "..") { return $null }
+        if (-not $Part -or $Part -eq "." -or $Part -eq "..") { return @{ ok = $false; reason = "'$PathValue' contains a '.', '..' or empty path component" } }
+        if ($Part.Length -gt 255) { return @{ ok = $false; reason = "'$Part' exceeds the 255-character component length limit" } }
+        if ($Part.EndsWith(".") -or $Part.EndsWith(" ")) { return @{ ok = $false; reason = "'$Part' ends with a space or dot, which Windows cannot store" } }
         $BaseName = $Part.Split('.')[0].ToUpperInvariant()
-        if ($Part -match '[<>:"/\\|?*\x00-\x1F]' -or $Part.EndsWith(".") -or $Part.EndsWith(" ") -or ($WindowsReservedFileNames -contains $BaseName)) {
-            return $null
-        }
+        if ($WindowsReservedFileNames -contains $BaseName) { return @{ ok = $false; reason = "'$Part' collides with the reserved Windows device name '$BaseName'" } }
+        if ($Part -match '[<>:"/\\|?*\x00-\x1F]') { return @{ ok = $false; reason = "'$Part' contains a character not allowed in portable file names (such as : * ? or |)" } }
     }
-    return ($Parts -join [System.IO.Path]::DirectorySeparatorChar)
+    return @{ ok = $true; rel = ($Parts -join [System.IO.Path]::DirectorySeparatorChar) }
 }
 
 function Import-SkillFolder-Core([string]$Name, $Files) {
@@ -2050,6 +2065,9 @@ function Import-SkillFolder-Core([string]$Name, $Files) {
     $CleanName = $NameCheck.value
     if (-not $Files -or @($Files).Count -eq 0) {
         return @{ success = $false; message = "No files were provided" }
+    }
+    if (@($Files).Count -gt 1000) {
+        return @{ success = $false; message = "Too many files in upload (limit 1000)" }
     }
 
     if (-not (Test-Path $CentralDir)) {
@@ -2069,9 +2087,15 @@ function Import-SkillFolder-Core([string]$Name, $Files) {
     $HasSkillMd = $false
     foreach ($File in @($Files)) {
         $RelRaw = [string](Get-PayloadValue $File "path")
-        $Rel = ConvertTo-SafeRelativePath $RelRaw
-        if (-not $Rel) { return @{ success = $false; message = "Invalid file path in upload" } }
-        $Folded = $Rel.Replace('\', '/').ToLowerInvariant()
+        $RelResult = ConvertTo-SafeRelativePath $RelRaw
+        if (-not $RelResult.ok) {
+            return @{ success = $false; message = "Invalid file path in upload: $($RelResult.reason)" }
+        }
+        $Rel = $RelResult.rel
+        # Duplicate detection is case- and NFC-insensitive (macOS stores
+        # accents in NFD) so an imported skill cannot later collapse into one
+        # junction target on a case- or normalization-insensitive volume.
+        $Folded = $Rel.Normalize([System.Text.NormalizationForm]::FormC).Replace('\', '/').ToLowerInvariant()
         if ($SeenPaths.ContainsKey($Folded)) { return @{ success = $false; message = "Duplicate file path in upload: $RelRaw" } }
         $SeenPaths[$Folded] = $true
         $Data = Get-PayloadValue $File "data"
@@ -3638,8 +3662,7 @@ function Invoke-WebUIRequest($Context) {
     $HostHeader = $Request.Headers["Host"]
     $AllowedHosts = @("localhost:$Port", "127.0.0.1:$Port")
     if ($HostHeader -notin $AllowedHosts) {
-        $Context.Response.StatusCode = 400
-        $Context.Response.Close()
+        Send-JsonResponse $Context @{ success = $false; message = "Forbidden" } 400
         return
     }
 
@@ -3762,8 +3785,7 @@ function Invoke-WebUIRequest($Context) {
             $RuleName = [System.Uri]::UnescapeDataString($UrlPath.Substring("/api/instructions/content/".Length))
             Send-JsonResponse $Context (Get-InstructionContent $RuleName)
         } else {
-            $Context.Response.StatusCode = 404
-            $Context.Response.Close()
+            Send-JsonResponse $Context @{ success = $false; message = "Not found" } 404
         }
     } elseif ($Method -eq "POST") {
         if (-not (Test-PostAllowed $Request)) {
@@ -3821,7 +3843,17 @@ function Invoke-WebUIRequest($Context) {
                 }
                 $Offset += $Read
             }
-            $Encoding = if ($Request.ContentEncoding) { $Request.ContentEncoding } else { [System.Text.Encoding]::UTF8 }
+            # RFC 8259: JSON is UTF-8 unless the client explicitly declares
+            # another charset. HttpListenerRequest.ContentEncoding guesses
+            # Latin-1 when the charset parameter is absent, which would decode
+            # raw UTF-8 file names (JSON.stringify does not escape non-ASCII)
+            # into mojibake before validation.
+            $ContentTypeHeader = [string]$Request.ContentType
+            if ($ContentTypeHeader -match 'charset\s*=') {
+                $Encoding = if ($Request.ContentEncoding) { $Request.ContentEncoding } else { [System.Text.Encoding]::UTF8 }
+            } else {
+                $Encoding = [System.Text.Encoding]::UTF8
+            }
             $Json = $Encoding.GetString($Bytes)
             if ($Json.Length -gt 0 -and $Json[0] -eq [char]0xFEFF) { $Json = $Json.Substring(1) }
             try {
@@ -3832,10 +3864,30 @@ function Invoke-WebUIRequest($Context) {
                 # making valid MCP writes fail validation only on PowerShell 7+.
                 $PsObj = $Json | ConvertFrom-Json
             } catch {
-                Send-JsonResponse $Context @{ success = $false; message = "Invalid JSON request body" } 400
-                return
+                $PsObj = $null
+                # Windows PowerShell 5.1's ConvertFrom-Json is backed by
+                # JavaScriptSerializer and rejects JSON longer than its 2 MB
+                # maxJsonLength even though the HTTP layer allows 10 MB — a
+                # skill folder import containing a few images easily exceeds
+                # it. Retry with the limit raised; that graph comes back as
+                # IDictionary containers, which Get-PayloadValue and the
+                # dispatcher below already handle.
+                if ($Json.Length -gt 1900000) {
+                    try {
+                        Add-Type -AssemblyName System.Web.Extensions
+                        $BigJsonSerializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+                        $BigJsonSerializer.MaxJsonLength = [int]::MaxValue
+                        $PsObj = $BigJsonSerializer.Deserialize($Json, [System.Collections.Generic.Dictionary[string,object]])
+                    } catch {
+                        $PsObj = $null
+                    }
+                }
+                if ($null -eq $PsObj) {
+                    Send-JsonResponse $Context @{ success = $false; message = "Invalid JSON request body" } 400
+                    return
+                }
             }
-            if ($PsObj -isnot [PSCustomObject]) {
+            if ($PsObj -isnot [PSCustomObject] -and $PsObj -isnot [System.Collections.IDictionary]) {
                 Send-JsonResponse $Context @{ success = $false; message = "JSON request body must be an object" } 400
                 return
             }
@@ -3843,8 +3895,14 @@ function Invoke-WebUIRequest($Context) {
             # fields, while nested objects must remain PSCustomObject for the
             # MCP schema validator and Add-Member/PSObject.Properties APIs.
             $BodyData = @{}
-            $PsObj.PSObject.Properties | ForEach-Object {
-                $BodyData[$_.Name] = $_.Value
+            if ($PsObj -is [System.Collections.IDictionary]) {
+                foreach ($Key in @($PsObj.Keys)) {
+                    $BodyData[[string]$Key] = $PsObj[$Key]
+                }
+            } else {
+                $PsObj.PSObject.Properties | ForEach-Object {
+                    $BodyData[$_.Name] = $_.Value
+                }
             }
         }
         if (-not ($BodyData -is [System.Collections.IDictionary])) {
@@ -3912,12 +3970,10 @@ function Invoke-WebUIRequest($Context) {
             if ($Result.success) { $script:RestartRequested = $true }
             Send-JsonResponse $Context $Result
         } else {
-            $Context.Response.StatusCode = 404
-            $Context.Response.Close()
+            Send-JsonResponse $Context @{ success = $false; message = "Not found" } 404
         }
     } else {
-        $Context.Response.StatusCode = 404
-        $Context.Response.Close()
+        Send-JsonResponse $Context @{ success = $false; message = "Not found" } 404
     }
 }
 
